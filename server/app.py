@@ -273,7 +273,7 @@ def start_run(snapshot: dict, base_url: str) -> queue.Queue:
                 ev["report_url"] = f"{base_url}/report/{run_id}"
                 ev.pop("field", None)  # always the server's own, from the events this run sent
                 ev.pop("top", None)
-                ev = with_drawer_keys(ev, {"run_id": run_id, "events": run["events"]})
+                ev = with_drawer_keys(ev, {"run_id": run_id, "events": run["events"] + [ev]})
             ev = rewrite_images(ev, run["images"])
             if ev["type"] == "fill_in":
                 run["fill_in"] = ev["facts"]  # also kept top level, for the report and later readers
@@ -340,7 +340,7 @@ def replay(run: dict, base_url: str = "") -> queue.Queue:
             if ev.get("type") == "done" and base_url:
                 ev = {**ev, "report_url": f"{base_url}/report/{run['run_id']}"}  # this server, not the original
             if ev.get("type") == "done":  # runs saved before the drawer field / top existed
-                ev = with_drawer_keys(ev, {"run_id": run["run_id"], "events": run["events"][:i]})
+                ev = with_drawer_keys(ev, {"run_id": run["run_id"], "events": run["events"][:i + 1]})
             q.put(ev)
         q.put(None)
 

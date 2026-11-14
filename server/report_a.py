@@ -2,10 +2,16 @@
 
 Sections, top to bottom (each one adapts to the run; nothing is invented):
   hero          headline from counts ("3 things don't match." / calm "Everything we could check matches."), the
-                address, the run meta, and the claim field (server.claim_field, or a simple grid when it is missing)
-  compare       "Listing vs record": one table, a row per claim (mismatches first), what the listing says beside what
-                CoStar, Matterport, Vexcel and the county found, the result, and the judge's confidence on a mismatch
-                (server.claim_field.compare_table)
+                address and the run meta; then the leading mismatch: the listing's words struck through in blue (the
+                strike draws itself in), what was found set huge beneath, one short reason, the deciding sources.
+                The lead is the run's own pick (done.harness.top_mismatch from harness.top_mismatch.pick_top: a
+                small model step with a rule fallback) when it has one, else the ranking below. A close one leads
+                only when nothing is contradicted (grey strike, calm type); nothing off: no strike at all
+  compare       "Listed vs. in reality": mismatches only (doesn't match, then close; the hero's lead first), one row
+                each, the listing's words struck through on the left and what was found on the right, with one quiet
+                line naming the deciding source(s) and the confidence band; two columns, one on a phone; left out
+                when nothing is off (matches are listed lower down)
+  field         the claim field (server.claim_field, or a simple grid when it is missing)
   findings      one module per hard mismatch item (contradicted; plan claims grouped as in server.report), ranked by
                 what costs the renter most (beds/baths/size, then rent and fees, then building facts, then
                 amenities; a bigger relative gap first): the listing's words struck through in blue, the truth set
@@ -70,6 +76,7 @@ TIER_BUILDING = {"stories", "year_built", "unit_count"}
 MONEY_RE = re.compile(r"\$\s?\d|\brent\b|\bfees?\b|\bdeposit\b|\bprice\b|\bper month\b|/mo\b", re.I)
 FACT_MANY = 24     # more facts than this: each topic shows FACT_SHOW rows, the rest behind a button
 FACT_SHOW = 5
+LVR_SHOW = 8       # 'Listed vs. in reality' rows shown before the "show the other N" button
 LIST_SHOW = 12     # matches / couldn't-check entries shown before the "show the other N" button
 MAX_QUESTIONS = 5
 
@@ -99,7 +106,7 @@ transition:background-color .18s ease,transform .18s ease;white-space:nowrap}
 .top nav{display:flex;align-items:center;gap:4px 20px}
 .back{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:15px;text-decoration:none}
 /* hero */
-.hero{display:flex;flex-direction:column;gap:clamp(40px,6vw,88px);padding:clamp(12px,3vw,48px) 0 clamp(80px,10vw,180px)}
+.hero{display:flex;flex-direction:column;gap:clamp(32px,4.4vw,64px);padding:clamp(12px,3vw,48px) 0 clamp(56px,7vw,112px)}
 .hero-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:36px 6%}
 h1{margin:0;flex:1 1 100%;font-weight:300;font-size:clamp(54px,10.5vw,156px);line-height:.92;letter-spacing:-.05em;
 display:flex;flex-direction:column}
@@ -220,6 +227,43 @@ line-height:1.35}
 .top-line{margin:0;font-size:20px;line-height:1.35}
 .top-line q{quotes:'\201c' '\201d'}
 .gone{display:none!important}
+.vh{position:absolute!important;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* hero: the leading mismatch, struck through */
+.topx{display:flex;flex-direction:column;gap:clamp(18px,2.4vw,32px);padding-top:clamp(20px,2.4vw,36px);border-top:1px solid var(--ink)}
+.topx-eb{margin:0;font-size:17px;color:var(--blue);letter-spacing:.01em}
+.topx-eb span{color:var(--mute)}
+.near-lead .topx-eb{color:var(--mute)}
+.topx>.pair .truth{align-self:flex-end;text-align:right}
+.topx-end{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px}
+.topx .see{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:17px}
+.strike.soft{background-image:linear-gradient(var(--ghost),var(--ghost))}
+.field-sec{padding-bottom:clamp(96px,11vw,180px)}
+/* listed vs. in reality: mismatches only, two columns */
+.lvr{padding-bottom:clamp(80px,9vw,150px);scroll-margin-top:24px}
+.lvr-h{margin:0 0 clamp(24px,3vw,44px);font-weight:300;font-size:clamp(40px,5.4vw,84px);line-height:.95;letter-spacing:-.045em}
+.lvr-head,.lvr-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(24px,5vw,88px)}
+.lvr-head{font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);padding-bottom:12px;
+border-bottom:1px solid var(--ink)}
+.lvr-head span+span{color:var(--blue)}
+.lvr-rows{list-style:none;margin:0;padding:0}
+.lvr-row{row-gap:8px;padding:clamp(16px,1.8vw,26px) 0;border-bottom:1px solid #ececec;align-items:start}
+.lvr-k{grid-column:1/-1;display:flex;align-items:baseline;gap:12px;font-size:15px;color:var(--mute);text-decoration:none;
+justify-self:start}
+.lvr-k b{font-weight:400;color:var(--blue);font-variant-numeric:tabular-nums}
+.lvr-close .lvr-k b{color:var(--mute)}
+.lvr-l,.lvr-r{display:flex;flex-direction:column;gap:8px;min-width:0}
+.lvr-said,.lvr-truth{font-weight:300;font-size:clamp(26px,2.8vw,42px);line-height:1.08;letter-spacing:-.03em;overflow-wrap:anywhere}
+.lvr-said{color:var(--ghost);align-self:flex-start}
+.lvr-truth{color:var(--blue)}
+.lvr-close .lvr-truth{color:var(--ink)}
+.lvr-src{font-size:15px;color:var(--mute)}
+.lvr-lab{display:none}
+.lvr-more{margin-top:20px}
+.lvr-r a.pic{width:120px;margin-top:4px}.lvr-r a.pic img{aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
+@media (max-width:640px){.lvr-head{display:none}.lvr-row{grid-template-columns:minmax(0,1fr);row-gap:12px}
+.lvr-lab{display:block;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.lvr-r .lvr-lab{color:var(--blue)}.lvr-close .lvr-r .lvr-lab{color:var(--mute)}
+.lvr-l,.lvr-r{gap:4px}.topx>.pair .truth{align-self:flex-start;text-align:left}}
 /* sources (the one dark band) */
 .dark{background:#111;color:#f2f2f2}.dark a{color:#fff}.dark .mute{color:#a9a9a9}
 .srcs{padding-top:clamp(96px,10vw,170px);padding-bottom:clamp(80px,8vw,140px)}
@@ -769,7 +813,8 @@ def top_finding(run_dict: dict) -> dict:
     l1, l2, calm = _headline(n)
     return {"headline": f"{l1} {l2}", "lines": [l1, l2], "calm": calm, "hard": n["contradicted"],
             "claim_id": top.get("claim_id") if top else None, "line": _top_line(run, top) if top else "",
-            "order": [v.get("claim_id") for v in off]}
+            "order": [v.get("claim_id") for v in off], "why": _pick_why(run, top),
+            "by": _pick_by(run, top)}
 
 
 def _source_used(run: Run) -> dict:
@@ -820,16 +865,9 @@ def _field(run: Run, live_3d: bool = True) -> str:
     return _fallback_field(run)
 
 
-def _compare(run_dict: dict) -> str:
-    """'Listing vs record' (server.claim_field.compare_table): one table, every claim, right after the hero."""
-    try:
-        from server.claim_field import compare_table
-        return compare_table(run_dict)
-    except Exception:  # noqa: BLE001  the table must never break the report
-        return ""
-
-
-def _hero(run: Run, n: dict, first_find: str | None, live_3d: bool = True, top=None) -> str:
+def _hero(run: Run, n: dict, first_find: str | None, top=None, lead=None) -> str:
+    """Headline, address and run meta, then the leading mismatch struck through (_top_strike). `top`: the lead
+    hard mismatch (or None); `lead`: what the strike shows (top, else the leading close one, else None)."""
     l1, l2, calm = _headline(n)
     address = run.snap.get("address_text") or run.match.get("address") or "Unknown address"
     parts = [p.strip() for p in str(address).split(",") if p.strip()]
@@ -865,13 +903,117 @@ def _hero(run: Run, n: dict, first_find: str | None, live_3d: bool = True, top=N
         btn = f"<a class='btn big' href='#extra'>See what the records know{ARROW_DOWN}</a>"
     meta = _meta(run)
     tick = TICK if calm and n["confirmed"] and not n["close"] else ""
-    lines = (f"<p class=top-line>{_e(lead_line)}</p>" if lead_line else "") + f"<p>{_e(sub)}"
+    lines = f"<p>{_e(sub)}"
     lines += (f" {_e(near)}" if near else "") + "</p>"
     return ("<section class=hero aria-label='Verdict'><div class=hero-top>"
             f"<h1><span>{_e(l1)}</span><span class=l2>{_e(l2)}{tick}</span></h1>"
             f"<div class='addr rv' style='--d:150ms'><p class=where>{where}</p>{lines}"
             + (f"<p class=meta>{_e(meta)}</p>" if meta else "") + btn + "</div></div>"
-            f"<div class=field-wrap>{_field(run, live_3d)}</div></section>")
+            + _top_strike(run, lead, lead_line) + "</section>")
+
+
+def _top_strike(run: Run, v: dict | None, line: str) -> str:
+    """The hero's lead mismatch: the listing's words struck through (the strike draws itself in), what was found set
+    large beneath, the pick's short reason (or the verdict's own first sentence) and the deciding sources. A close
+    one (only when nothing is hard off) gets a grey strike and calm type; a photo check that saw nothing, no strike.
+    `line`: the plain sentence for screen readers (and the drawer's done.top.line); '' for a close one."""
+    if not v:
+        return ""
+    c = run.claim(v)
+    kind = _kind(v, c)
+    hard = v.get("verdict") == "contradicted"
+    soft = not hard and kind in SOFT_KINDS
+    said, is_q = _strike_text(run, v, c)
+    said_html = f"“{_e(said)}”" if is_q else _e(_cap(said))
+    truth = "Not seen in the photos." if soft else _truth_text(v)
+    eb = "The biggest difference" if hard else "Close, not exact"
+    plan = " · ".join(x for x in (c.get("label"), KIND_LABEL.get(kind)) if x)
+    strike = "strike" if hard else "" if soft else "strike soft"
+    why = _pick_why(run, v) or _first_sentence(v.get("reason") or "")
+    cid = str(v.get("claim_id") or "")
+    see = f"<a class=see href='#claim-{_e(cid)}'>See the proof{ARROW_DOWN}</a>" if cid else ""
+    sr = f"<div class=vh><p class=top-line>{_e(line)}</p></div>" if line else ""
+    hide = " aria-hidden=true" if line else ""
+    return (f"<div class='topx rv{'' if hard else ' near-lead'}' id=top-mismatch data-claim='{_e(cid)}' "
+            f"data-by='{_pick_by(run, v)}' style='--d:250ms'>"
+            f"<p class=topx-eb>{_e(eb)}{f' <span>· {_e(plan)}</span>' if plan else ''}</p>{sr}"
+            f"<h2 class='pair {_size(max(said, truth, key=len), True)}'{hide}><span class=said><span class='{strike}'>"
+            f"{said_html}</span></span><span class='truth{'' if hard else ' calm'}'>{_e(truth)}</span></h2>"
+            f"<div class=line>{f'<p class=why>{_e(why)}</p>' if why else ''}"
+            f"<div class=topx-end>{_marks(run, v, 'Not seen in photos' if soft else '')}{see}</div></div></div>")
+
+
+def _short_found(run: Run, v: dict) -> str:
+    """'1 bedroom and a den' -> '1 bed + den': the found value in a few words (server.claim_field.compact), else the
+    whole found text."""
+    c = run.claim(v)
+    if v.get("verdict") == "close" and _kind(v, c) in SOFT_KINDS:
+        return "Not seen in the photos"
+    found = re.sub(r"\s*\((?:scan title|[^)]*record[^)]*)\)\s*$", "", str(v.get("found") or "")).strip()
+    try:
+        from server.claim_field import compact
+        short = compact(found, 40)
+    except Exception:  # noqa: BLE001
+        short = ""
+    return short or _cap(found).rstrip(".")
+
+
+def _deciders(v: dict) -> tuple[list, str]:
+    """(names of the sources that decided this verdict: the deciding one first, then any other that disagrees with
+    the listing; the confidence band 'high' | 'medium' | 'low' or '')."""
+    conf = v.get("confidence") if isinstance(v.get("confidence"), dict) else {}
+    keys = []
+    for k in (conf.get("decided_by"), v.get("source")):
+        if k in SRC_NAME:
+            keys.append(k)
+            break
+    for r in conf.get("sources") or []:
+        if isinstance(r, dict) and r.get("source") in SRC_NAME and r.get("agrees_with_listing") is False \
+                and r["source"] not in keys:
+            keys.append(r["source"])
+    band = str(conf.get("band") or "").lower()
+    return [SRC_NAME[k] for k in keys], (band if band in ("high", "medium", "low") else "")
+
+
+def _mismatch_view(run: Run, off: list) -> str:
+    """'Listed vs. in reality': one row per mismatch (doesn't match, then close; never a match or a couldn't check),
+    in the report's order (the hero's lead first): the listing's words struck through on the left, what was found on
+    the right, one quiet line of the deciding sources and confidence, a small picture when the verdict has one. Two
+    columns; one column on a phone. '' when nothing is off."""
+    if not off:
+        return ""
+    rows = []
+    for i, v in enumerate(off):
+        c = run.claim(v)
+        kind = _kind(v, c)
+        hard = v.get("verdict") == "contradicted"
+        soft = not hard and kind in SOFT_KINDS
+        said, is_q = _strike_text(run, v, c)
+        said_html = f"“{_e(said)}”" if is_q else _e(_cap(said))
+        what = KIND_LABEL.get(kind) or _cap(str(kind or "").replace("_", " ")) or "Claim"
+        name = " · ".join(x for x in (what, c.get("label")) if x)
+        names, band = _deciders(v)
+        src = " · ".join(x for x in (" + ".join(names), f"{band} confidence" if band else "",
+                                     "" if hard else "close, not exact") if x)
+        imgs = run.images_for([v], c.get("label"))[:1] if v.get("image") else []
+        pic = _fig(*imgs[0]) if imgs else ""
+        strike = "strike" if hard else "" if soft else "strike soft"
+        cid = str(v.get("claim_id") or "")
+        rows.append(
+            f"<li class='lvr-row rv{'' if hard else ' lvr-close'}{' more' if i >= LVR_SHOW else ''}' "
+            f"style='--d:{min(i, 6) * 70}ms' data-claim='{_e(cid)}'>"
+            f"<a class=lvr-k href='#claim-{_e(cid)}'><b>{i + 1}</b>{_e(name)}</a>"
+            f"<div class=lvr-l><span class=lvr-lab>Listed</span><span class=lvr-said><span class='{strike}'>"
+            f"{said_html}</span></span></div>"
+            f"<div class=lvr-r><span class=lvr-lab>In reality</span><span class=lvr-truth>{_e(_short_found(run, v))}</span>"
+            + (f"<span class=lvr-src>{_e(src)}</span>" if src else "") + pic + "</div></li>")
+    rest = len(off) - LVR_SHOW
+    btn = (f"<button type=button class='btn ghost morebtn toggle lvr-more' aria-controls=lvr-more aria-expanded=false "
+           f"data-more='Show the other {rest}' data-less='Show fewer'>Show the other {rest}</button>") if rest > 0 else ""
+    return ("<section class='wrap lvr' id=compare aria-labelledby=lvr-h>"
+            "<h2 class=lvr-h id=lvr-h>Listed vs. in reality</h2>"
+            "<div class=lvr-head aria-hidden=true><span>Listed</span><span>In reality</span></div>"
+            f"<div class=more-wrap id=lvr-more><ol class=lvr-rows>{''.join(rows)}</ol>{btn}</div></section>")
 
 
 def _walk_box(src: str | None, cid: str, bg: str, small: str, live_3d: bool) -> str:
@@ -941,7 +1083,7 @@ def _finding_group(run: Run, label, vs: list, idx: int, used_walk: list, live_3d
         truth = _truth_text(v)
         if v.get("verdict") == "close" and not soft and truth:
             truth = "≈ " + truth
-        size = _size(max(said, truth, key=len), lead and big)
+        size = _size(max(said, truth, key=len), False)  # the hero shows the lead one at full size
         strike = "" if soft else " strike"
         return (f"<h2 class='pair {size}'><span class=said><span class='{strike.strip()}'>{said_html}</span></span>"
                 f"<span class=truth>{_e(truth)}</span></h2>")
@@ -1015,7 +1157,8 @@ def _findings(run: Run, verdicts: list, used_walk: list, live_3d: bool = True) -
     groups = _groups(run, hard)
     for _, vs in groups:
         vs.sort(key=lambda v: _rank(run, v))
-    groups.sort(key=lambda g: _rank(run, g[1][0]))
+    lead_id = verdicts[0].get("claim_id") if verdicts[0].get("verdict") == "contradicted" else None
+    groups.sort(key=lambda g: (0 if any(v.get("claim_id") == lead_id for v in g[1]) else 1, _rank(run, g[1][0])))
     h = [_finding_group(run, label, vs, i, used_walk, live_3d) for i, (label, vs) in enumerate(groups)]
     if near:
         rows = "".join(_near_row(run, v) for v in near)
@@ -1023,8 +1166,46 @@ def _findings(run: Run, verdicts: list, used_walk: list, live_3d: bool = True) -
     return f"<section class='wrap findings' id=mismatch aria-label='What does not match'>{''.join(h)}</section>"
 
 
+def _pick(run: Run) -> dict | None:
+    """The run's own choice of the leading mismatch (harness.top_mismatch.pick_top, recorded on `done` as
+    harness.top_mismatch, or top_mismatch): {"claim_id", "why", "by"}; None for runs that have none."""
+    d = run.done or {}
+    for p in ((d.get("harness") or {}).get("top_mismatch") if isinstance(d.get("harness"), dict) else None,
+              d.get("top_mismatch")):
+        if isinstance(p, dict) and p.get("claim_id") is not None:
+            return p
+    return None
+
+
 def _ranked_off(run: Run, verdicts: list) -> list:
-    return sorted((v for v in verdicts if v.get("verdict") in ("contradicted", "close")), key=lambda v: _rank(run, v))
+    """Hard mismatches, then close ones, by _rank; the run's recorded pick (_pick) goes first when it is one of them
+    and is of the leading kind (a close one never moves ahead of a hard one)."""
+    off = sorted((v for v in verdicts if v.get("verdict") in ("contradicted", "close")), key=lambda v: _rank(run, v))
+    p = _pick(run)
+    if p and off:
+        hit = next((v for v in off if v.get("claim_id") == p["claim_id"]), None)
+        if hit is not None and hit.get("verdict") == off[0].get("verdict"):
+            off = [hit] + [v for v in off if v is not hit]
+    return off
+
+
+def _pick_by(run: Run, v: dict | None) -> str | None:
+    """"model" or "rule": who chose this verdict to lead (no recorded pick: the report's own rule); None: no lead."""
+    if not v:
+        return None
+    p = _pick(run)
+    return "model" if p and p.get("claim_id") == v.get("claim_id") and p.get("by") == "model" else "rule"
+
+
+def _pick_why(run: Run, v: dict | None) -> str:
+    """The pick's short reason, when the pick is this verdict and the reason is fit to show."""
+    p = _pick(run)
+    if not v or not p or p.get("claim_id") != v.get("claim_id"):
+        return ""
+    why = re.sub(r"\s+", " ", str(p.get("why") or "")).strip()
+    if not why or len(why) > 120 or re.search(r"(?i)\b(fake|faked|lie|lies|lied|lying|scam|fraud\w*)\b|<", why):
+        return ""
+    return why
 
 
 def _source_tile(run: Run, s: str, evs: list) -> str:
@@ -1386,7 +1567,8 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
             lead_pic = (m.group(1), m.group(2))
             break
     top = _lead(off)
-    hero = _hero(run, n, "f1" if top else None, live_3d, top)
+    lead = top or (off[0] if off else None)  # a close one leads the strike only when nothing is hard off
+    hero = _hero(run, n, "compare" if top else None, top, lead)
     url = run.snap.get("url") or ""
     nav = []
     if url.startswith(("http://", "https://")):
@@ -1407,7 +1589,7 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
          PRECONNECT if used_walk and live_3d else "",
          f"<style>{CSS}</style></head><body id=top>",
          f"<div class=wrap><header class=top><a class=brand href='#top'>{BRAND}</a><nav aria-label=Report>{''.join(nav)}</nav></header>",
-         hero, "</div>", _compare(run_dict), err, findings, _sources(run, facts), _extra(run, facts), _matches(run, ok, used_walk, live_3d),
+         hero, "</div>", _mismatch_view(run, off), f"<div class='wrap field-sec'>{_field(run, live_3d)}</div>", err, findings, _sources(run, facts), _extra(run, facts), _matches(run, ok, used_walk, live_3d),
          _cant(run, cant), _questions(run, off, cant, lead_pic), _footer(run),
          "<div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"
          "<button type=button class=btn>Close</button><img alt=''><p></p></div>",

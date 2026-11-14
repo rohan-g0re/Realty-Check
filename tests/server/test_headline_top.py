@@ -90,7 +90,7 @@ def test_top_uses_the_report_ranking_not_page_order():
 def test_top_of_an_empty_run():
     top = top_finding({"snapshot": {}, "events": []})
     assert top == {"headline": "No claims to check.", "lines": ["No claims", "to check."], "calm": True, "hard": 0,
-                   "claim_id": None, "line": "", "order": []}
+                   "claim_id": None, "line": "", "order": [], "why": "", "by": None}
 
 
 # ---------- the server puts it on done ----------

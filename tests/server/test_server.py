@@ -153,7 +153,7 @@ def test_report_tabs(client):
     html = client.get(f"/report/{events[0]['run_id']}?v=old").text
     # three verdict tabs with counts (every verdict lands in one), then "Not on the listing"
     assert re.findall(r"<a href='#([a-z-]+)'", html) == ["mismatch", "match", "cant-verify", "extra"]
-    for word, n in (("Mismatch", 3), ("Match", 1), ("Can't verify", 1)):
+    for word, n in (("Mismatch", 4), ("Match", 1), ("Can't verify", 1)):  # 3 hard + 1 close (fake run)
         assert f"{word} ({n})" in html.replace("&#x27;", "'")
     for pid in ("mismatch", "match", "cant-verify"):
         assert f"<section class=panel id='{pid}'>" in html

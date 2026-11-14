@@ -102,6 +102,8 @@ def run_fake(snapshot: dict, emit) -> dict:
          "quote": "Resort-style pool", "checkable": True},
         {"id": "c5", "kind": "amenity", "value": "rooftop deck", "unit": None, "scope": "building", "label": None,
          "quote": "Rooftop deck", "checkable": True},
+        {"id": "c6", "kind": "year_built", "value": 2015, "unit": None, "scope": "building", "label": None,
+         "quote": "Built in 2015", "checkable": True},
     ]
     match = {"status": "matched", "confidence": 0.97, "property_id": "900001", "name": "Linden Grove Lofts",
              "address": address, "city": "Houston", "state": "TX", "lat": 29.7520, "lon": -95.3700,
@@ -181,12 +183,19 @@ def run_fake(snapshot: dict, emit) -> dict:
         {"claim_id": "c5", "verdict": "cant_check", "claimed": "rooftop deck", "found": "no data",
          "source": None, "reason": "Listing says “Rooftop deck”. We had no photos that could show this.",
          "image": None},
+        {"claim_id": "c6", "verdict": "close", "claimed": "built in 2015", "found": "built in 2016",
+         "source": "county", "reason": "County records say built in 2016, one year off.", "image": None,
+         "confidence": {  # invented, in the judge's shape
+             "score": 70, "band": "medium", "decided_by": "county",
+             "why": "The county and CoStar both list 2016; a year off is often when building finished.",
+             "sources": [{"source": "county", "says": "built in 2016", "weight": 0.7, "agrees_with_listing": False},
+                         {"source": "record", "says": "built in 2016", "weight": 0.6, "agrees_with_listing": False}]}},
     ]
     for v in verdicts:
         say({"type": "verdict", "verdict": v})
     say({"type": "fill_in", "facts": _fake_facts(scan_path, aerial_path)})
-    done ={"type": "done", "run_id": run_id,
-            "counts": {"confirmed": 1, "contradicted": 3, "close": 0, "cant_check": 1},
+    done = {"type": "done", "run_id": run_id,
+            "counts": {"confirmed": 1, "contradicted": 3, "close": 1, "cant_check": 1},
             "headline": "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den.",
             "report_url": f"/report/{run_id}"}
     say(done)

@@ -227,18 +227,98 @@ def test_dead_pictures_leave_no_broken_slot(tmp_path):
     assert "<img src='/img/" not in html and "data-proof='pictures'" not in html
     assert "Realty Check" in html
 
-def test_listing_vs_record_sits_after_the_hero():
+def _section(html: str, sid: str, end: str) -> str:
+    return html[html.index(sid):html.index(end, html.index(sid))]
+
+
+def _hero_strike(html: str) -> str:
+    m = re.search(r"<div class='topx rv[^']*' id=top-mismatch.*?</h2>", html, re.S)
+    return m.group(0) if m else ""
+
+
+def test_listed_vs_reality_sits_after_the_hero_and_holds_only_mismatches():
     html = render_report(_rich())
-    assert html.count("id=compare") == 1
-    assert html.index("</h1>") < html.index("id=compare") < html.index("id=mismatch") < html.index("id=sources")
-    table = html[html.index("id=compare"):html.index("id=mismatch")]
-    assert "Listing vs record" in table and "<table>" in table
-    assert len(re.findall(r"<tr class='lt-r-", table)) == 7  # every claim, once
-    ids = re.findall(r"data-claim='(\w+)'", table)
-    assert ids[:3] == ["c3", "c4", "c1"] and set(ids[3:5]) == {"c2", "c5"} and ids[5:] == ["c7", "c6"]
+    assert html.count("id=compare") == 1 and "<table" not in html  # the old all-claims table is gone
+    assert html.index("</h1>") < html.index("id=top-mismatch") < html.index("id=compare") < html.index("id=mismatch")
+    view = _section(html, "id=compare", "</section>")
+    assert "Listed vs. in reality" in view and ">Listed<" in view and ">In reality<" in view
+    ids = re.findall(r"<li class='lvr-row[^']*'[^>]*data-claim='(\w+)'", view)
+    # hard ones by renter impact (beds, size, floors), then the close ones; never the match or the couldn't-check
+    assert ids[:3] == ["c3", "c4", "c1"] and set(ids[3:]) == {"c2", "c5"} and len(ids) == 5
+    rows = dict(re.findall(r"data-claim='(\w+)'>(.*?)</li>", view))
+    assert "<span class='strike'>“2 Beds”</span>" in rows["c3"] and "lvr-truth>1 bed<" in rows["c3"]
+    assert "Matterport" in rows["c3"]
+    assert "strike soft" in rows["c2"] and "close, not exact" in rows["c2"] and "lvr-close" in view
+    assert "Not seen in the photos" in rows["c5"] and "strike" not in rows["c5"]  # a photo look: never struck
 
 
-def test_listing_vs_record_on_the_invented_sample_run(monkeypatch):
+def test_hero_strikes_the_top_mismatch():
+    html = render_report(_rich())
+    hero = _hero_strike(html)
+    assert "data-claim='c3'" in hero and "The biggest difference" in hero
+    assert "<span class='strike'>“2 Beds”</span>" in hero and "<span class='truth'>1 bedroom.</span>" in hero
+    assert html.count("id=top-mismatch") == 1
+
+
+@pytest.mark.parametrize("claim,verdict,said,truth", [
+    (_claim("c1", "bedrooms", 2, "2 Beds", "Plan A", "unit"),
+     _verdict("c1", "contradicted", "2 bedrooms", "1 bedroom and a den", "scan", "The scan shows 1 bedroom."),
+     "“2 Beds”", "1 bedroom and a den."),
+    (_claim("c1", "bathrooms", 2, "2 Baths"), _verdict("c1", "contradicted", "2 bathrooms", "1 bathroom", "record", "x."),
+     "“2 Baths”", "1 bathroom."),
+    (_claim("c1", "area_sqft", 900, "900 sq ft"), _verdict("c1", "contradicted", "900 sq ft", "700 sq ft", "scan", "x."),
+     "“900 sq ft”", "700 sq ft."),
+    (_claim("c1", "year_built", 2010, "Built in 2010"),
+     _verdict("c1", "contradicted", "built in 2010", "built in 1990", "county", "x."), "“Built in 2010”", "Built in 1990."),
+    (_claim("c1", "amenity", "pool", "Pool"),
+     _verdict("c1", "contradicted", "pool", "no pool in the building record", "record", "x."), "“Pool”",
+     "No pool in the building record."),
+])
+def test_hero_strike_for_every_kind(claim, verdict, said, truth):
+    html = render_report(_run([claim], [verdict]))
+    hero = _hero_strike(html)
+    assert f"<span class='strike'>{said}</span>" in hero and f"<span class='truth'>{truth}</span>" in hero
+    assert "lvr-row" in html
+
+
+def test_close_leads_only_when_nothing_is_hard_and_calm_page_has_no_strike():
+    claims = [_claim("c1", "year_built", 2015, "Year Built 2015"), _claim("c2", "unit_count", 40, "40 homes")]
+    close = [_verdict("c1", "close", "built in 2015", "built in 2014", "county", "County records say built in 2014."),
+             _verdict("c2", "confirmed", "40 apartments", "40 apartments", "county", "County records say 40.")]
+    html = render_report(_run(claims, close))
+    hero = _hero_strike(html)
+    assert "Close, not exact" in hero and "strike soft" in hero and "truth calm" in hero
+    assert "The biggest difference" not in html and "class=top-line" not in html
+    ok = [_verdict("c2", "confirmed", "40 apartments", "40 apartments", "county", "County records say 40.")]
+    calm = render_report(_run(claims[1:], ok))
+    assert "id=top-mismatch" not in calm and "id=compare" not in calm and "strike" not in calm.split("<style>")[0]
+    assert "class='strike" not in calm and "Everything we could" in calm
+
+
+def test_recorded_pick_leads_hero_view_findings_and_top():
+    from server.report_a import top_finding
+    run = _rich()
+    done = run["events"][-1]
+    done["harness"] = {"top_mismatch": {"claim_id": "c1", "why": "Floors change the whole building.", "by": "model"}}
+    html = render_report(run)
+    hero = _hero_strike(html)
+    assert "data-claim='c1'" in hero and "data-by='model'" in html
+    assert "Floors change the whole building." in html[html.index("id=top-mismatch"):html.index("id=compare")]
+    view = _section(html, "id=compare", "</section>")
+    assert re.findall(r"data-claim='(\w+)'", view)[:3] == ["c1", "c3", "c4"]
+    assert html.index("id='claim-c1'") < html.index("id='claim-c3'")  # the findings lead with it too
+    top = top_finding(run)
+    assert top["claim_id"] == "c1" and top["by"] == "model" and top["why"] == "Floors change the whole building."
+    # a pick that is not a mismatch, a close one over hard ones, or an unkind reason is not followed / not shown
+    for pick in ({"claim_id": "c7", "by": "model"}, {"claim_id": "c2", "by": "model"}):
+        done["harness"] = {"top_mismatch": pick}
+        assert "data-claim='c3'" in _hero_strike(render_report(run))
+    done["harness"] = {"top_mismatch": {"claim_id": "c4", "why": "The size is a lie.", "by": "model"}}
+    html = render_report(run)
+    assert "data-claim='c4'" in _hero_strike(html) and " lie" not in html.split("id=compare")[0]
+
+
+def test_listed_vs_reality_on_the_invented_sample_run(monkeypatch):
     import server.fake_run as fake
     monkeypatch.setattr(fake, "GAP", (0, 0))
     events = []
@@ -246,18 +326,9 @@ def test_listing_vs_record_on_the_invented_sample_run(monkeypatch):
     run = {"run_id": "sample", "finished": True, "events": events, "images": {},
            "snapshot": {"address_text": "418 Linden Grove Ave, Houston, TX 77006", "url": "", "title": "sample"}}
     html = render_report(run, live_3d=False)
-    table = html[html.index("id=compare"):html.index("id=mismatch")]
-    assert len(re.findall(r"<tr class='lt-r-", table)) == 5
-    floors = re.search(r"<tr class='lt-r-contradicted' data-claim='c2'>.*?</tr>", table).group(0)
-    assert "High · 82" in floors and floors.count(">decides<") == 1
-    assert table.count("High · 82") == 1
-    # every mismatch carries an invented confidence block; the match and the couldn't-check row show none
-    rows = dict(re.findall(r"<tr class='lt-r-\w+' data-claim='(\w+)'>(.*?)</tr>", table))
-    for cid in ("c1", "c2", "c3"):
-        assert rows[cid].count(">decides<") == 1 and "<td class=lt-conf></td>" not in rows[cid]
-    for cid in ("c4", "c5"):
-        assert "<td class=lt-conf></td>" in rows[cid]
-    # source cells are short facts, never a cut sentence
-    assert "…" not in table[table.index("<tbody>"):] and "1 bed<" in rows["c1"]
-    # the pool is confirmed by the invented Vexcel property data
-    assert "Pool, ~1,900 sq ft (2025 survey)" in rows["c4"] and "Holds up" in rows["c4"]
+    view = _section(html, "id=compare", "</section>")
+    rows = dict(re.findall(r"data-claim='(\w+)'>(.*?)</li>", view))
+    assert set(rows) == {"c1", "c2", "c3", "c6"}  # the three hard ones and the close year; no match, no couldn't-check
+    assert "Vexcel + County · high confidence" in rows["c2"] and "Matterport · medium confidence" in rows["c1"]
+    assert "close, not exact" in rows["c6"]
+    assert not re.search(r"\b(fake|lie|lies|scam)\b", re.sub(r"<style>.*?</style>", "", view), re.I)

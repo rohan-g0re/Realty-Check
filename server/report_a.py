@@ -3,13 +3,18 @@
 Sections, top to bottom (each one adapts to the run; nothing is invented):
   hero          headline from counts ("3 things don't match." / calm "Everything we could check matches."), the
                 address and the run meta; then the leading mismatch: the listing's words struck through in blue (the
-                strike draws itself in), what was found set huge beneath, one short reason, the deciding sources.
+                strike draws itself in), what was found set huge beneath, one short reason, the credited sources.
+                With a lead, the headline is one modest line and the address/meta a compact block, so the struck-
+                through lead is the largest thing on the first screen and fits it whole (1440x900 and a 400x800
+                phone; its type is capped by the screen's width and height). The calm page keeps the big headline.
                 The lead is the run's own pick (done.harness.top_mismatch from harness.top_mismatch.pick_top: a
                 small model step with a rule fallback) when it has one, else the ranking below. A close one leads
                 only when nothing is contradicted (grey strike, calm type); nothing off: no strike at all
   compare       "Listed vs. in reality": mismatches only (doesn't match, then close; the hero's lead first), one row
-                each, the listing's words struck through on the left and what was found on the right, with one quiet
-                line naming the deciding source(s) and the confidence band; two columns, one on a phone; left out
+                each, the listing's words on the left (struck through in blue when it doesn't match; plain grey, no
+                strike, when it is close) and what was found on the right, with one quiet line crediting the deciding
+                source and any other source whose own figure is the found value (never one that says something else),
+                and the confidence band; two columns, one on a phone; left out
                 when nothing is off (matches are listed lower down)
   field         the claim field (server.claim_field, or a simple grid when it is missing)
   findings      one module per hard mismatch item (contradicted; plan claims grouped as in server.report), ranked by
@@ -213,7 +218,7 @@ transition:transform .25s ease,box-shadow .25s ease}
 .nopic{background:var(--soft);min-height:clamp(180px,18vw,260px);display:flex;align-items:center;justify-content:center;
 padding:24px;text-align:center;font-weight:300;font-size:clamp(40px,5vw,76px);line-height:1;letter-spacing:-.04em;color:var(--blue)}
 .nopic.q{color:var(--ghost)}
-/* close, not exact: quiet, no strike-through */
+/* close, not exact (findings list): quiet, no strike-through */
 .near{display:flex;flex-direction:column;gap:14px;padding-top:clamp(8px,1vw,16px);scroll-margin-top:24px}
 .near h3{margin:0;font-weight:400;font-size:clamp(26px,2.6vw,36px);letter-spacing:-.02em}
 .near ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
@@ -237,6 +242,28 @@ line-height:1.35}
 .topx-end{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px}
 .topx .see{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:17px}
 .strike.soft{background-image:linear-gradient(var(--ghost),var(--ghost))}
+/* hero with a lead: a one-line headline and a compact address block, so the struck-through lead is the largest
+   thing on the first screen and fits it whole; its type is capped by the screen's width and height */
+.hero[data-lead]{gap:clamp(20px,2.4vw,36px);padding-top:clamp(0px,1vw,16px)}
+.hero[data-lead] .hero-top{flex-direction:column;align-items:stretch;gap:clamp(10px,1.3vw,18px)}
+.hero[data-lead] h1{flex:none;display:block;font-size:clamp(36px,min(5.6vw,9.5vh),88px);line-height:1;letter-spacing:-.04em}
+.hero[data-lead] h1 .l2{padding-left:0}
+.hero[data-lead] .addr{flex:none;margin:0;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px clamp(20px,3vw,48px)}
+.hero[data-lead] .addr .where{flex:none;font-size:18px;line-height:1.3}
+.hero[data-lead] .addr .sum{flex:1 1 320px;max-width:66ch;font-size:15px;line-height:1.45;color:var(--mute)}
+.hero[data-lead] .addr .sum p{margin:0}
+.hero[data-lead] .addr .meta{font-size:14px}
+.hero[data-lead] .addr .btn{align-self:center;min-height:46px;font-size:16px;padding:0 20px}
+.hero[data-lead] .topx{gap:clamp(12px,1.6vw,22px);padding-top:clamp(14px,1.6vw,24px)}
+.hero[data-lead] .topx .pair{line-height:.95;gap:.04em}
+.hero[data-lead] .topx .pair.sz-xl{font-size:clamp(52px,min(13vw,19vh),196px)}
+.hero[data-lead] .topx .pair.sz-l{font-size:clamp(44px,min(9vw,14vh),140px)}
+.hero[data-lead] .topx .pair.sz-m{font-size:clamp(34px,min(6.2vw,9.5vh),96px)}
+.hero[data-lead] .topx .pair.sz-s{font-size:clamp(28px,min(4.4vw,7vh),68px)}
+.hero[data-lead] .topx .why{font-size:20px;line-height:1.35}
+@media (max-width:560px){.hero[data-lead] .addr{gap:6px 16px}.hero[data-lead] .addr .where{font-size:17px}
+.hero[data-lead] .addr .sum{flex-basis:100%;font-size:14px}.hero[data-lead] .addr .btn{min-height:44px;font-size:15px;padding:0 18px}
+.hero[data-lead] .topx .why{font-size:18px}}
 .field-sec{padding-bottom:clamp(96px,11vw,180px)}
 /* listed vs. in reality: mismatches only, two columns */
 .lvr{padding-bottom:clamp(80px,9vw,150px);scroll-margin-top:24px}
@@ -405,12 +432,13 @@ var pics=t.closest('.pics');if(pics&&!pics.querySelector('a.pic:not(.gone)'))pic
 var fig=t.closest('figure.proof');if(fig&&!fig.querySelector('a.pic:not(.gone),.walk,.draw,.cards,.nopic')){
 [].forEach.call(fig.querySelectorAll('figcaption'),function(c){c.classList.add('gone');});
 var alt=fig.getAttribute('data-alt');if(alt){var d=document.createElement('div');d.className='nopic';d.textContent=alt;fig.appendChild(d);}}},true);
-var lb=document.getElementById('lb'),li=lb.querySelector('img'),lc=lb.querySelector('p');
-function shut(){lb.hidden=true;li.removeAttribute('src');}
+/* the lightbox picture is made when a picture opens and removed on close: never an empty image tag */
+var lb=document.getElementById('lb'),li=null,lc=lb.querySelector('p');
+function shut(){lb.hidden=true;if(li){li.remove();li=null;}}
 lb.addEventListener('click',shut);
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!lb.hidden)shut();});
 document.addEventListener('click',function(e){var t=e.target.closest?e.target:null;if(!t)return;
-var a=t.closest('a.pic');if(a){e.preventDefault();li.src=a.getAttribute('href');var c=a.getAttribute('data-cap')||'';
+var a=t.closest('a.pic');if(a){e.preventDefault();if(!li){li=document.createElement('img');lb.insertBefore(li,lc);}li.src=a.getAttribute('href');var c=a.getAttribute('data-cap')||'';
 li.alt=c||'Proof picture';lc.textContent=c;lb.hidden=false;lb.querySelector('button').focus();return;}
 var c2=t.closest('button.copy');if(c2){copy(c2.getAttribute('data-text')||'',c2);return;}
 var sh=t.closest('button.share');if(sh){copy(location.href,sh);return;}
@@ -560,13 +588,23 @@ def _relevant(run: Run, v: dict) -> set:
     return out
 
 
-def _marks(run: Run, v: dict, label: str = "") -> str:
-    srcs = _relevant(run, v)
+def _marks(run: Run, v: dict, label: str = "", credit: bool = False) -> str:
+    """Verdict word, one square per source, the source names. credit=True (the hero): only the sources credited
+    with the found value (_credit), the deciding one first, then the confidence band; else every source that spoke
+    to the claim (_relevant)."""
     verdict = v.get("verdict")
     off = verdict in ("contradicted", "close")
-    sq = "".join(f"<i class='{'hit' if off and s == v.get('source') else 'on' if s in srcs else ''}'></i>"
+    hit = v.get("source")
+    if credit:
+        keys, band = _credit(v)
+        srcs = set(keys)
+        hit = keys[0] if keys else hit
+        names = " · ".join(x for x in (" + ".join(SRC_NAME[k] for k in keys), f"{band} confidence" if band else "") if x)             or "No source"
+    else:
+        srcs = _relevant(run, v)
+        names = " · ".join(SRC_NAME[s] for s in SRC_ORDER if s in srcs) or "No source"
+    sq = "".join(f"<i class='{'hit' if off and s == hit else 'on' if s in srcs else ''}'></i>"
                  for s in SRC_ORDER)
-    names = " · ".join(SRC_NAME[s] for s in SRC_ORDER if s in srcs) or "No source"
     word = label or VERDICT_WORD.get(verdict, "Couldn't check")
     cls = "off" if off else "cant" if verdict not in ("confirmed",) else ""
     aria = "From " + names if srcs else "No source spoke to this"
@@ -905,6 +943,15 @@ def _hero(run: Run, n: dict, first_find: str | None, top=None, lead=None) -> str
     tick = TICK if calm and n["confirmed"] and not n["close"] else ""
     lines = f"<p>{_e(sub)}"
     lines += (f" {_e(near)}" if near else "") + "</p>"
+    if lead:
+        # compact: one-line headline, address + summary + meta as a small block, the button beside them; the
+        # struck-through lead beneath is the dominant element and fits the first screen
+        sub_line = _e(sub) + (f" {_e(near)}" if near else "")
+        return ("<section class=hero data-lead aria-label='Verdict'><div class=hero-top>"
+                f"<h1><span>{_e(l1)}</span> <span class=l2>{_e(l2)}{tick}</span></h1>"
+                f"<div class='addr rv' style='--d:150ms'><p class=where>{where}</p><div class=sum><p>{sub_line}</p>"
+                + (f"<p class=meta>{_e(meta)}</p>" if meta else "") + "</div>" + btn + "</div></div>"
+                + _top_strike(run, lead, lead_line) + "</section>")
     return ("<section class=hero aria-label='Verdict'><div class=hero-top>"
             f"<h1><span>{_e(l1)}</span><span class=l2>{_e(l2)}{tick}</span></h1>"
             f"<div class='addr rv' style='--d:150ms'><p class=where>{where}</p>{lines}"
@@ -940,7 +987,7 @@ def _top_strike(run: Run, v: dict | None, line: str) -> str:
             f"<h2 class='pair {_size(max(said, truth, key=len), True)}'{hide}><span class=said><span class='{strike}'>"
             f"{said_html}</span></span><span class='truth{'' if hard else ' calm'}'>{_e(truth)}</span></h2>"
             f"<div class=line>{f'<p class=why>{_e(why)}</p>' if why else ''}"
-            f"<div class=topx-end>{_marks(run, v, 'Not seen in photos' if soft else '')}{see}</div></div></div>")
+            f"<div class=topx-end>{_marks(run, v, 'Not seen in photos' if soft else '', credit=True)}{see}</div></div></div>")
 
 
 def _short_found(run: Run, v: dict) -> str:
@@ -958,9 +1005,22 @@ def _short_found(run: Run, v: dict) -> str:
     return short or _cap(found).rstrip(".")
 
 
-def _deciders(v: dict) -> tuple[list, str]:
-    """(names of the sources that decided this verdict: the deciding one first, then any other that disagrees with
-    the listing; the confidence band 'high' | 'medium' | 'low' or '')."""
+def _supports(says, found) -> bool:
+    """Whether a source's own figure ('216 apartments', 'about 6 floors') is the found value: the same first number
+    when the found value has one ('built in 2019' vs 'built in 2020': no), else the same words."""
+    s, f = _bare("", says), _bare("", found)
+    if not s or not f:
+        return False
+    ns, nf = _num(s), _num(f)
+    if nf is not None:
+        return ns is not None and abs(ns - nf) < 1e-9
+    return _norm(s) == _norm(f)
+
+
+def _credit(v: dict) -> tuple[list, str]:
+    """(keys of the sources credited with this verdict's found value: the deciding one (confidence.decided_by, else
+    the verdict's source) first, then each other source in confidence.sources whose own `says` is the found value;
+    a source that says something else is never credited; the confidence band 'high' | 'medium' | 'low' or '')."""
     conf = v.get("confidence") if isinstance(v.get("confidence"), dict) else {}
     keys = []
     for k in (conf.get("decided_by"), v.get("source")):
@@ -968,17 +1028,24 @@ def _deciders(v: dict) -> tuple[list, str]:
             keys.append(k)
             break
     for r in conf.get("sources") or []:
-        if isinstance(r, dict) and r.get("source") in SRC_NAME and r.get("agrees_with_listing") is False \
-                and r["source"] not in keys:
+        if isinstance(r, dict) and r.get("source") in SRC_NAME and r["source"] not in keys \
+                and r.get("agrees_with_listing") is not True and _supports(r.get("says"), v.get("found")):
             keys.append(r["source"])
     band = str(conf.get("band") or "").lower()
-    return [SRC_NAME[k] for k in keys], (band if band in ("high", "medium", "low") else "")
+    return keys, (band if band in ("high", "medium", "low") else "")
+
+
+def _deciders(v: dict) -> tuple[list, str]:
+    """(names of the credited sources (_credit); the confidence band or '')."""
+    keys, band = _credit(v)
+    return [SRC_NAME[k] for k in keys], band
 
 
 def _mismatch_view(run: Run, off: list) -> str:
     """'Listed vs. in reality': one row per mismatch (doesn't match, then close; never a match or a couldn't check),
-    in the report's order (the hero's lead first): the listing's words struck through on the left, what was found on
-    the right, one quiet line of the deciding sources and confidence, a small picture when the verdict has one. Two
+    in the report's order (the hero's lead first): the listing's words on the left (struck through in blue when it
+    doesn't match; a close one in plain grey, no strike), what was found on the right, one quiet line of the credited
+    sources (_credit) and confidence, a small picture when the verdict has one. Two
     columns; one column on a phone. '' when nothing is off."""
     if not off:
         return ""
@@ -997,7 +1064,7 @@ def _mismatch_view(run: Run, off: list) -> str:
                                      "" if hard else "close, not exact") if x)
         imgs = run.images_for([v], c.get("label"))[:1] if v.get("image") else []
         pic = _fig(*imgs[0]) if imgs else ""
-        strike = "strike" if hard else "" if soft else "strike soft"
+        strike = "strike" if hard else ""  # a close one: the listing's words in plain grey, never struck
         cid = str(v.get("claim_id") or "")
         rows.append(
             f"<li class='lvr-row rv{'' if hard else ' lvr-close'}{' more' if i >= LVR_SHOW else ''}' "
@@ -1592,6 +1659,6 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
          hero, "</div>", _mismatch_view(run, off), f"<div class='wrap field-sec'>{_field(run, live_3d)}</div>", err, findings, _sources(run, facts), _extra(run, facts), _matches(run, ok, used_walk, live_3d),
          _cant(run, cant), _questions(run, off, cant, lead_pic), _footer(run),
          "<div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"
-         "<button type=button class=btn>Close</button><img alt=''><p></p></div>",
+         "<button type=button class=btn>Close</button><p></p></div>",
          f"<script>{SCRIPT}</script></body></html>"]
     return "".join(h)

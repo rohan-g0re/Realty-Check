@@ -248,7 +248,9 @@ def test_listed_vs_reality_sits_after_the_hero_and_holds_only_mismatches():
     rows = dict(re.findall(r"data-claim='(\w+)'>(.*?)</li>", view))
     assert "<span class='strike'>“2 Beds”</span>" in rows["c3"] and "lvr-truth>1 bed<" in rows["c3"]
     assert "Matterport" in rows["c3"]
-    assert "strike soft" in rows["c2"] and "close, not exact" in rows["c2"] and "lvr-close" in view
+    # a close one: the listing's words in plain grey, no strike (blue strike is for "doesn't match" only)
+    assert "strike" not in rows["c2"] and "close, not exact" in rows["c2"] and "lvr-close" in view
+    assert "<span class=lvr-said><span class=''>“Built in 2010”</span></span>" in rows["c2"]
     assert "Not seen in the photos" in rows["c5"] and "strike" not in rows["c5"]  # a photo look: never struck
 
 
@@ -332,3 +334,57 @@ def test_listed_vs_reality_on_the_invented_sample_run(monkeypatch):
     assert "Vexcel + County · high confidence" in rows["c2"] and "Matterport · medium confidence" in rows["c1"]
     assert "close, not exact" in rows["c6"]
     assert not re.search(r"\b(fake|lie|lies|scam)\b", re.sub(r"<style>.*?</style>", "", view), re.I)
+
+
+def _credit_run():
+    """Invented: the found value from the county; the building record gives its own, different figure."""
+    claims = [_claim("c1", "unit_count", 40, "The community has 40 homes"), _claim("c2", "year_built", 2010, "Built in 2010"),
+              _claim("c3", "stories", 9, "9-story tower")]
+    def conf(by, band, *rows):
+        return {"score": 60, "band": band, "decided_by": by, "why": "x",
+                "sources": [{"source": s, "says": says, "weight": 0.7, "agrees_with_listing": ag} for s, says, ag in rows]}
+    vs = [_verdict("c1", "contradicted", "40 apartments", "52 apartments", "county", "County records say 52."),
+          _verdict("c2", "close", "built in 2010", "built in 2011", "county", "County records say built in 2011."),
+          _verdict("c3", "contradicted", "9 floors", "6 floors", "aerial", "About 6 floors.")]
+    vs[0]["confidence"] = conf("county", "medium", ("county", "52 apartments", False), ("record", "31 apartments", False))
+    vs[1]["confidence"] = conf("county", "low", ("county", "built in 2011", False), ("record", "built in 2012", False))
+    vs[2]["confidence"] = conf("aerial", "high", ("aerial", "about 6 floors", False), ("county", "6 floors", False),
+                               ("record", "9 floors", True))
+    return _run(claims, vs)
+
+
+def test_credit_names_only_sources_that_support_the_found_value():
+    html = render_report(_credit_run())
+    view = _section(html, "id=compare", "</section>")
+    rows = dict(re.findall(r"data-claim='(\w+)'>(.*?)</li>", view))
+    # the record says 31 / 2012 (something else): never credited; one that says the same figure is
+    assert "<span class=lvr-src>County · medium confidence</span>" in rows["c1"] and "CoStar" not in rows["c1"]
+    assert "<span class=lvr-src>County · low confidence · close, not exact</span>" in rows["c2"]
+    assert "<span class=lvr-src>Vexcel + County · high confidence</span>" in rows["c3"] and "CoStar" not in rows["c3"]
+    hero = html[html.index("id=top-mismatch"):html.index("id=compare")]
+    assert "data-claim='c3'" in hero and "Vexcel + County · high confidence" in hero  # the hero credits the same way
+    assert "CoStar" not in hero
+
+
+def test_credit_without_confidence_names_only_the_deciding_source():
+    run = _credit_run()
+    for e in run["events"]:
+        if e.get("type") == "verdict":
+            e["verdict"].pop("confidence", None)
+    view = _section(render_report(run), "id=compare", "</section>")
+    srcs = re.findall(r"<span class=lvr-src>([^<]*)</span>", view)
+    assert srcs and all("+" not in s and "CoStar" not in s for s in srcs)
+
+
+def test_hero_with_a_lead_is_compact_and_calm_page_keeps_its_big_headline():
+    html = render_report(_credit_run())
+    assert "<section class=hero data-lead" in html and "<h1><span>2 things</span> <span class=l2>" in html
+    assert html.index("<h1>") < html.index("class=where") < html.index("id=top-mismatch")
+    ok = [_verdict("c1", "confirmed", "40 apartments", "40 apartments", "county", "County records say 40.")]
+    calm = render_report(_run([_claim("c1", "unit_count", 40, "40 homes")], ok))
+    assert "<section class=hero aria-label" in calm and "hero data-lead" not in calm and "id=top-mismatch" not in calm
+
+
+def test_no_img_without_a_src():
+    for html in (render_report(_rich()), render_report({"snapshot": {}, "events": []})):
+        assert not re.search(r"<img(?![^>]*\ssrc=)[^>]*>", html)

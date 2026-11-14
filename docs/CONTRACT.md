@@ -80,6 +80,16 @@ The server rewrites every image path in outgoing events (evidence images, verdic
 - `id`: stable within a run (`year-built`, `plan-b2`, `rent-<plan>-<id>`, `scan-rooms-<plan>`, `county-parcel`, …). `topic`: `Building | Homes & floor plans | Rent | Rules | Around it | Records`; facts come sorted by that order. `label`: short plain words. `value`: human-readable string. `source`: `record | scan | aerial | county`. `note`: "" or one plain sentence (record values say "as of when it was last researched"; asking rents say "as of 2026-11-12", the kit's listing date). `image`: cache path (an `/img/<token>` URL once sent) or null.
 - Left out: anything the page already says (claim kinds and plan labels/sizes, plus keyword checks of the page text for rent, pets, parking, schools, management, availability, vacancy, lease terms, utilities, style, …); blank, 0 or unknown values (never stated as "none"); people's names, phones, emails; free text; complaint text.
 
+### 2.8 Claim field (report only; `server.claim_field.claim_field(run)`)
+```
+{sources: [{key: record|scan|aerial|county, name, count}],
+ claims:  [{id, kind, label, quote, claimed, verdict, verdict_words, found, reason, highlight,
+            cells: {<source key>: {state: match|contra|close|data|none, verdict, found, reason,
+                                   summary, summaries, facts, observed, raw, image, images, tour?}}}],
+ counts}
+```
+A cell is the judge run on that one source's evidence alone. `claim_field_section(run)` returns the ready HTML section (`cf-` prefixed CSS and JS).
+
 ## 3. Tool signatures (plain Python functions)
 
 | module | function | returns |
@@ -134,6 +144,8 @@ Each module re-exports its functions from its package `__init__.py` (e.g. `from 
 - `RC_REPLAY=1`: a snapshot whose address was run before replays its saved events with short delays instead of re-running.
 - Binds `127.0.0.1` only, port `RC_PORT` (default `8787`). CORS allows extension origins.
 - `RC_FAKE=1` uses the canned fake runner instead of the harness.
+
+- `GET /report/<run_id>` is design A (`server/report_a.py`); `?v=old` gives the earlier tabbed page. Anchors the drawer uses: `#claim-<claim_id>` (mismatches only), `#mismatch`, `#match`, `#cant-verify`, `#extra`. `GET /tour/<run_id>?claim=<claim_id>` opens the 3D walk for one finding.
 
 ## 6. Environment
 - `RC_PRIVATE_DIR` = private driver folder. Keys through `rc_common.secret(NAME)`: `MATTERPORT_API_KEY`, `MATTERPORT_API_TOKEN`, `VEXCEL_API_KEY`, `COSTAR_ZIP_PASSWORD`, `COSTAR_KIT_ZIP`.

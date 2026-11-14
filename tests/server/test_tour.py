@@ -298,7 +298,7 @@ def test_spread_spots_one_per_room_then_far_apart():
 
 def test_report_embeds_scan_mismatch_only(client, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
-    html = client.get(f"/report/{RUN_ID}").text
+    html = client.get(f"/report/{RUN_ID}?v=old").text
     assert html.count("Walk into this room") == 1  # Plan Z item; the aerial floors item has none
     # inline viewer: lazy iframe (no src until clicked) fed by the embed URL; the plain link stays as fallback
     assert f"<div class=walk data-src='/tour/{RUN_ID}?claim=c1&amp;embed=1'>" in html
@@ -345,7 +345,7 @@ def test_match_row_gets_3d_viewer_and_checks_out_wording(client, monkeypatch):
                 "quote": "1 Bath", "checkable": True},
                {"claim_id": "c5", "verdict": "confirmed", "claimed": "1 bathroom", "found": "1 bathroom",
                 "source": "scan", "reason": "The 3D scan shows 1 bathroom.", "image": None})
-    report = client.get(f"/report/{RUN_ID}").text
+    report = client.get(f"/report/{RUN_ID}?v=old").text
     match = report[report.index("<section class=panel id='match'>"):report.index("<section class=panel id='cant-verify'>")]
     assert "See it in 3D" in match and f"data-src='/tour/{RUN_ID}?claim=c5&amp;embed=1'" in match
     assert "Walk into this room" in report  # the mismatch item keeps its own button

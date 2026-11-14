@@ -81,7 +81,9 @@ def stub_events(address: str, quotes=None) -> list[dict]:
 
 
 class StubChecker:
-    def __init__(self, delay: float = 0.15, quotes=None):
+    """`events`: a function address -> list of Events used instead of stub_events. An item {"_pause": s} waits s seconds."""
+
+    def __init__(self, delay: float = 0.15, quotes=None, events=None):
         self.requests: list[dict] = []
         outer = self
         png = _png()
@@ -105,6 +107,8 @@ class StubChecker:
                     body, ctype = b'{"ok": true}', "application/json"
                 elif self.path == "/img/t1":
                     body, ctype = png, "image/png"
+                elif self.path.split("?")[0] == "/tour/r1":
+                    body, ctype = b"<!doctype html><title>Tour</title><h1>Tour</h1>", "text/html; charset=utf-8"
                 elif self.path == "/report/r1":
                     body, ctype = f"<!doctype html><title>Report</title><h1 id='headline'>{STUB_HEADLINE}</h1>".encode(), "text/html; charset=utf-8"
                 else:
@@ -127,7 +131,11 @@ class StubChecker:
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
-                for ev in stub_events(snap.get("address_text", ""), quotes):
+                evs = events(snap.get("address_text", "")) if events else stub_events(snap.get("address_text", ""), quotes)
+                for ev in evs:
+                    if "_pause" in ev:
+                        time.sleep(ev["_pause"])
+                        continue
                     self.wfile.write(f"data: {json.dumps(ev)}\n\n".encode())
                     self.wfile.flush()
                     time.sleep(delay)

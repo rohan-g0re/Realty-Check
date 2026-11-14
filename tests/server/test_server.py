@@ -78,7 +78,7 @@ def test_runs_and_report(client):
     assert run["events"] == events
     assert run["snapshot"]["address_text"] == SNAP["address_text"]
     assert len(run["event_times"]) == len(events) and "images" not in run
-    html = client.get(f"/report/{rid}").text
+    html = client.get(f"/report/{rid}?v=old").text
     assert events[-1]["headline"] in html
     claims = next(e for e in events if e["type"] == "claims")["claims"]
     for c in claims:
@@ -150,7 +150,7 @@ def test_report_tabs(client):
     import re
 
     _, events = post(client)
-    html = client.get(f"/report/{events[0]['run_id']}").text
+    html = client.get(f"/report/{events[0]['run_id']}?v=old").text
     # three verdict tabs with counts (every verdict lands in one), then "Not on the listing"
     assert re.findall(r"<a href='#([a-z-]+)'", html) == ["mismatch", "match", "cant-verify", "extra"]
     for word, n in (("Mismatch", 3), ("Match", 1), ("Can't verify", 1)):
@@ -176,7 +176,7 @@ def test_report_pictures_open_in_page_lightbox(client):
     import re
 
     _, events = post(client)
-    html = client.get(f"/report/{events[0]['run_id']}").text
+    html = client.get(f"/report/{events[0]['run_id']}?v=old").text
     links = re.findall(r"<a class=pic href='(/img/[a-f0-9]{16})'[^>]*>", html)
     imgs = re.findall(r"<img src='(/img/[a-f0-9]{16})'", html)
     assert links and sorted(links) == sorted(imgs)  # every picture is a same-tab link (no-JS fallback)

@@ -8,6 +8,7 @@ globalThis.RC_SAMPLE = (() => {
     { id: "c4", kind: "year_built", value: 2016, unit: null, scope: "building", label: null, quote: "Built in 2016", checkable: true },
     { id: "c5", kind: "amenity", value: "resort-style pool", unit: null, scope: "building", label: null, quote: "Resort-style pool", checkable: true },
   ];
+  const e = (source, observed, summary) => ({ source, status: "ok", summary, observed, images: [], detail: "sample" });
   const v = (claim_id, verdict, claimed, found, source, reason) => ({ claim_id, verdict, claimed, found, source, reason, image: null });
   const events = (address) => [
     { type: "run_started", run_id: "sample", address },
@@ -15,12 +16,17 @@ globalThis.RC_SAMPLE = (() => {
     { type: "claims", claims },
     { type: "step", agent: "matcher", text: "Finding the building record…" },
     { type: "match", match: { status: "matched", confidence: 0.95, address, how: "sample" } },
-    { type: "step", agent: "inside", text: "Checking the 3D scan…" },
+    { type: "evidence", evidence: e("record", { stories: 5, year_built: 2016, unit_count: 100 }, "The building record lists 5 stories, built in 2016.") },
+    { type: "evidence", evidence: e("record", { plan: "Plan E", kit_plan: "Plan E", bedrooms: 2, bathrooms: 2, area_sqft: 1100 }, "The building record's Plan E: 2 bed, 1,100 sq ft.") },
+    { type: "step", agent: "inside", text: "Walking through the 3D scan of Plan E…" },
+    { type: "evidence", evidence: e("scan", { plan: "Plan E", bedrooms: 1, area_sqft: 968, room_labels: ["Bedroom", "Den", "Living", "Kitchen"] }, "The 3D scan labels one bedroom and a den.") },
     { type: "verdict", verdict: v("c1", "contradicted", "2 bedrooms", "1 bedroom and a den", "scan", "The 3D scan labels one bedroom and a den, not two bedrooms.") },
     { type: "verdict", verdict: v("c3", "contradicted", "1,100 sq ft", "968 sq ft", "scan", "The 3D scan measures 968 sq ft, 12% less than listed.") },
-    { type: "step", agent: "outside", text: "Checking the aerial photo…" },
+    { type: "step", agent: "outside", text: "Measuring the roof from the aerial photo…" },
+    { type: "evidence", evidence: e("aerial", { height_m: 23.1, stories: 6 }, "Roof is 23.1 m above ground: about 6 floors.") },
     { type: "verdict", verdict: v("c2", "contradicted", "5 stories", "6 floors", "aerial", "The roof height in the aerial photo matches a 6-floor building.") },
-    { type: "step", agent: "paper", text: "Checking the county record…" },
+    { type: "step", agent: "paper", text: "Reading the county record…" },
+    { type: "evidence", evidence: e("county", { year_built: 2016 }, "The county record lists 2016 as the year built.") },
     { type: "verdict", verdict: v("c4", "confirmed", "built in 2016", "built in 2016", "county", "The county record lists 2016 as the year built.") },
     { type: "step", agent: "judge", text: "Writing up the results…" },
     { type: "verdict", verdict: v("c5", "cant_check", "resort-style pool", "no source covers this", "record", "None of our sources show the pool, so we can't check it.") },

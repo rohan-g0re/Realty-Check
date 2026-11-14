@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from rc_common import cache_dir
 from server.report import render_report
+from server.report_a import render_report as render_report_a
 from server import tour
 
 EVENT_TYPES = {"run_started", "step", "claims", "match", "evidence", "verdict", "fill_in", "done", "error"}
@@ -293,11 +294,12 @@ def run_json(run_id: str):
 
 
 @app.get("/report/{run_id}", response_class=HTMLResponse)
-def report(run_id: str):
+def report(run_id: str, v: str | None = None):
+    """The full report (server/report_a.py); ?v=old serves the previous tabbed page (server/report.py)."""
     run = load_run(run_id)
     if run is None:
         return HTMLResponse("<!doctype html><title>Not found</title><p>No such check.</p>", status_code=404)
-    return HTMLResponse(render_report(run))
+    return HTMLResponse(render_report(run) if v == "old" else render_report_a(run))
 
 
 @app.get("/tour/{run_id}", response_class=HTMLResponse)

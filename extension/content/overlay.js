@@ -5,19 +5,23 @@
 
   RC.OVERLAY_CSS = `
   .layer{position:absolute;left:0;top:0;width:0;height:0}
-  .addr-mark{position:absolute;cursor:pointer;border-radius:3px;background:rgba(37,99,235,.08);box-shadow:inset 0 -1.5px 0 rgba(37,99,235,.75)}
-  .addr-mark.in{animation:rcfade .2s ease-out}
-  .addr-mark:hover,.addr-mark.sel{background:rgba(37,99,235,.14)}
-  .claim-mark{position:absolute;cursor:pointer}
-  .claim-mark::after{content:"";position:absolute;left:0;right:0;bottom:-2px;height:2px;border-radius:1px;background:var(--vc)}
+  .addr-mark{position:absolute;cursor:pointer;border-radius:2px;background:rgba(128,128,128,.12);box-shadow:inset 0 -1.5px 0 #111,0 1.5px 0 rgba(255,255,255,.75)}
+  .addr-mark.in{animation:rcfade .3s ease-out}
+  .addr-mark:hover,.addr-mark.sel{background:rgba(128,128,128,.24)}
+  .claim-mark{position:absolute;cursor:pointer;border-radius:2px}
+  .claim-mark::after{content:"";position:absolute;left:0;right:0;bottom:-2px;height:2px;border-radius:1px;background:var(--vc);box-shadow:0 0 0 1px rgba(255,255,255,.7)}
+  .claim-mark.flash{animation:rcflash 1.7s ease-out}
   @keyframes rcfade{from{opacity:0}to{opacity:1}}
-  .pill{position:absolute;display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:999px;background:#2563eb;color:#fff;
-    font:500 13px/1 var(--sans);white-space:nowrap;border:0;cursor:pointer;animation:rcfade .15s ease-out}
-  .pill:hover{background:#1d4ed8}
-  .tip{position:absolute;display:none;width:max-content;max-width:300px;padding:8px 10px;border-radius:8px;background:#fff;border:1px solid #e6e6e6;
-    font:13px/1.4 var(--sans);color:#111;pointer-events:none}
+  @keyframes rcflash{0%,45%{background:color-mix(in srgb,var(--vc) 16%,transparent);box-shadow:0 0 0 4px color-mix(in srgb,var(--vc) 16%,transparent)}100%{background:transparent;box-shadow:0 0 0 10px transparent}}
+  .pill{position:absolute;display:inline-flex;align-items:center;min-height:36px;padding:0 16px;border-radius:0;background:#111;color:#fff;
+    font:400 15px/1 var(--serif);white-space:nowrap;border:0;cursor:pointer;animation:rcfade .2s ease-out;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+  .pill:hover{background:#333}
+  .pill:focus-visible{outline:2px solid #1a4be0;outline-offset:3px}
+  .tip{position:absolute;display:none;width:max-content;max-width:300px;padding:9px 12px;background:#fff;border:1px solid #e6e6e6;box-shadow:0 6px 20px rgba(0,0,0,.08);
+    font:15px/1.4 var(--serif);color:#111;pointer-events:none}
   .tip.show{display:block}
-  .tip .d{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:1px}
+  .tip .d{display:inline-block;width:8px;height:8px;margin-right:8px;vertical-align:1px}
+  @media (prefers-reduced-motion: reduce){.addr-mark.in,.claim-mark.flash,.pill{animation:none}}
   `;
 
   RC.createOverlay = function createOverlay(root, host, cb) {
@@ -27,7 +31,7 @@
     const tip = document.createElement("div");
     tip.className = "tip";
     root.appendChild(tip);
-    let addresses = [], marks = [], selected = null, pill = null, enabled = true;
+    let addresses = [], marks = [], selected = null, pill = null, enabled = true, flashing = new Set(), flashT = 0;
     const seen = new Set();
 
     // Is the text under this rect actually the top element there (not covered by a site modal)?
@@ -71,7 +75,7 @@
         }
       };
       addresses.forEach((a, i) => a.ranges.forEach((r) => add(r, "addr-mark" + (a.text === selected ? " sel" : "") + (seen.has(a.text) ? "" : " in"), { idx: i })));
-      marks.forEach((m, i) => add(m.range, "claim-mark", { mi: i, verdict: m.verdict }, `--vc:${m.color}`));
+      marks.forEach((m, i) => add(m.range, "claim-mark" + (flashing.has(i) ? " flash" : ""), { mi: i, verdict: m.verdict }, `--vc:${m.color}`));
       addresses.forEach((a) => seen.add(a.text));
       // Reuse the existing boxes: busy pages relayout often, and a box replaced between mousedown and mouseup
       // would swallow the user's click.
@@ -141,7 +145,23 @@
     return {
       setAddresses(list) { addresses = list; relayout(); },
       setSelected(t) { selected = t; relayout(); },
-      setMarks(list) { marks = list; relayout(); },
+      setMarks(list) { marks = list; flashing = new Set(); relayout(); },
+      // Scroll the page to the words of one claim and flash their mark. False when no visible mark exists.
+      flash(claimId) {
+        const idx = [];
+        marks.forEach((m, i) => { if ((m.claimIds || [m.claimId]).includes(claimId) && !hidden(m.range)) idx.push(i); });
+        if (!idx.length) return false;
+        const el = ownEl(marks[idx[0]].range);
+        const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (el) el.scrollIntoView({ block: "center", inline: "nearest", behavior: smooth ? "smooth" : "auto" });
+        flashing = new Set();
+        layout(); // drop the old class so the animation restarts
+        flashing = new Set(idx);
+        follow(900);
+        clearTimeout(flashT);
+        flashT = setTimeout(() => { flashing = new Set(); relayout(); }, 1800);
+        return true;
+      },
       setEnabled(v) { enabled = v; relayout(); },
       layout, relayout, follow, hidePill,
       count: () => addresses.length,

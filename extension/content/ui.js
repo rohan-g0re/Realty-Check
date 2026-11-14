@@ -1,19 +1,29 @@
 // Reality Check: edge tab, drawer and run flow. Everything lives in ONE shadow root on <div id="rc-host">.
+// The drawer has two states: Running (clock, claim field, step list) and Result (headline, counts, field, top findings).
 (() => {
   if (window.top !== window || document.getElementById("rc-host")) return;
   const RC = globalThis.RC;
-  const W = 380;
+  const W = 420;
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const VC = { contradicted: "#dc2626", close: "#d97706", confirmed: "#16a34a", cant_check: "#a3a3a3" };
-  const VL = { contradicted: "Mismatch", close: "Mismatch", confirmed: "Match", cant_check: "Can't verify" };
-  const SRC = { scan: "3D scan", aerial: "Aerial measurement", county: "County record", record: "Building record" };
-  const AG = { orchestrator: "Lead", claims: "Claims", matcher: "Match", inside: "Inside", outside: "Outside", paper: "Records", judge: "Judge" };
-  const LOGO = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="#2563eb" stroke-width="2"/><path d="M7.8 12.4l2.9 2.9 5.6-5.9" fill="none" stroke="#2563eb" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  const GEAR = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`;
-  const CHEV = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
-  const X = `<svg viewBox="0 0 12 12" width="8" height="8"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+  const INK = "#111111", BLUE = "#1a4be0";
+  // Page marks: one blue for "not true" and "close", ink for "true", grey for "couldn't check".
+  const VC = { contradicted: BLUE, close: BLUE, confirmed: INK, cant_check: "#b5b5b5" };
+  const SOURCES = ["record", "scan", "aerial", "county"];
+  const SRC = { record: "CoStar", scan: "Matterport", aerial: "Aerial", county: "County" };
+  const AG = { orchestrator: "Listing", claims: "Listing", matcher: "CoStar", inside: "Matterport", outside: "Aerial", paper: "County", judge: "Judging" };
+  const AG_SRC = { CoStar: "record", Matterport: "scan", Aerial: "aerial", County: "county" };
+  const BAD = new Set(["contradicted", "close"]);
+  const UNIT_KINDS = new Set(["bedrooms", "bathrooms", "area_sqft"]);
+  // Kinds where one source's own number can be compared with the listing's without the judge's plan/scan rules.
+  const COMPARABLE = new Set(["stories", "year_built", "unit_count"]);
+  const LOGO = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="#111" stroke-width="1.6"/><path d="M7.8 12.4l2.9 2.9 5.6-5.9" fill="none" stroke="#111" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const GEAR = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`;
+  const CLOSE = `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>`;
+  const CHEV = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
+  const X = `<svg viewBox="0 0 12 12" width="8" height="8" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const send = (msg) => { try { chrome.runtime.sendMessage(msg); } catch (e) { /* extension reloaded */ } };
+  const num = (x) => (typeof x === "number" ? x : Number(String(x == null ? "" : x).replace(/,/g, "")));
 
   // ---------- host + shadow ----------
   const host = document.createElement("div");
@@ -29,11 +39,10 @@
   </div>
   <aside class="drawer" id="drawer" aria-label="Reality Check">
     <header class="hd">
-      <div class="brand">${LOGO}<span>Reality Check</span></div>
+      <span class="brand">Reality Check</span>
       <div class="act">
-        <button class="hlink" id="btnReport" disabled>Report</button>
-        <button class="icon" id="btnGear" aria-label="Settings" title="Settings">${GEAR}</button>
-        <button class="icon" id="btnCollapse" aria-label="Close" title="Close">${CHEV}</button>
+        <button class="icon" id="btnGear" aria-label="Checker address" aria-expanded="false" title="Checker address">${GEAR}</button>
+        <button class="icon" id="btnCollapse" aria-label="Close" title="Close">${CLOSE}</button>
       </div>
     </header>
     <div class="menu" id="menu" hidden>
@@ -43,8 +52,8 @@
     </div>
     <div class="body" id="body"></div>
     <footer class="ft" id="ft" hidden>
-      <button class="btn primary" id="btnFull">Open full report</button>
-      <button class="textbtn" id="btnAnother">Check another address</button>
+      <button class="btn primary" id="btnFull">Open the full report</button>
+      <div class="ftl" id="ftl"></div>
     </footer>
   </aside>`;
   const $ = (id) => root.getElementById(id);
@@ -52,18 +61,15 @@
 
   // ---------- state ----------
   let addresses = [], flat = null;
-  let run = null; // {address, mode, claims:[], verdicts:{}, step, done, unreachable, error, token}
-  let open = false;
-  const expanded = new Set();
+  let run = null; // {seq, address, mode, claims, verdicts, evidence, match, steps, t0, t1, fillIn, done, unreachable, error, token}
+  let open = false, seq = 0, stepSeq = 0;
   const ORDER = { contradicted: 0, close: 1, confirmed: 2, cant_check: 9 };
-  let ccOpen = false;
-  let fiOpen = false; // "Fill me in" section expanded
-  const FI_TOP = 4;
-  const imgCache = new Map();
+  let fiOpen = false; // "Not on the listing" expanded
+  const FI_TOP = 4, FIND_TOP = 3;
 
   const overlay = RC.createOverlay(root, host, {
     onInspect: (a) => { openDrawer(); startRun(a); },
-    onMark: (cid) => { openDrawer(); expanded.add(cid); if (run && run.verdicts[cid] && run.verdicts[cid].verdict === "cant_check") ccOpen = true; render(); const el = body.querySelector(`[data-id="${cid}"]`); if (el) el.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" }); },
+    onMark: (cid) => { openDrawer(); pointAt(cid); },
   });
 
   // ---------- detection ----------
@@ -74,7 +80,7 @@
     host.dataset.count = String(addresses.length);
     overlay.setAddresses(addresses);
     rebuildMarks();
-    if (open && !run) render();
+    if (open && !run) render(true);
   }
   function rebuildMarks() {
     // Several claims can share one quote ("2 Beds · 1 Bath · 855 sq ft"): draw ONE mark per quote,
@@ -85,19 +91,19 @@
       // metadata claims carry a plain phrase ("2 bedrooms"), not page words: nothing on the page to mark
       if (!v || !c.quote || c.origin === "metadata") continue;
       const tip = v.verdict === "cant_check"
-        ? `Listing says ${v.claimed}. We can't verify this.`
+        ? `Listing says ${v.claimed}. We couldn't check this.`
         : `Listing says ${v.claimed}. ${SRC[v.source] || "We"} ${SRC[v.source] ? "shows" : "found"} ${v.found}.`;
       const g = groups.get(c.quote);
-      if (!g) groups.set(c.quote, { claimId: c.id, verdict: v.verdict, tips: [tip] });
+      if (!g) groups.set(c.quote, { claimId: c.id, claimIds: [c.id], verdict: v.verdict, tips: [tip] });
       else {
-        g.tips.push(tip);
+        g.tips.push(tip); g.claimIds.push(c.id);
         if ((ORDER[v.verdict] ?? 9) < (ORDER[g.verdict] ?? 9)) { g.verdict = v.verdict; g.claimId = c.id; }
       }
     }
     const marks = [];
     for (const [quote, g] of groups) {
       const tip = g.tips.join(" ");
-      for (const range of RC.findText(flat, quote, 3)) marks.push({ range, claimId: g.claimId, verdict: g.verdict, color: VC[g.verdict] || VC.cant_check, tip });
+      for (const range of RC.findText(flat, quote, 3)) marks.push({ range, claimId: g.claimId, claimIds: g.claimIds, verdict: g.verdict, color: VC[g.verdict] || VC.cant_check, tip });
     }
     overlay.setMarks(marks);
   }
@@ -156,13 +162,13 @@
     if (open) return;
     open = true;
     saved = { mr: getProp(de, "margin-right"), tr: getProp(de, "transition") };
-    if (!REDUCED) de.style.setProperty("transition", "margin-right .2s ease", "important");
+    if (!REDUCED) de.style.setProperty("transition", "margin-right .36s cubic-bezier(.2,.8,.2,1)", "important");
     de.style.setProperty("margin-right", W + "px", "important");
     pushFixed();
     drawer.classList.add("open");
     tab.classList.add("away");
-    render();
-    overlay.follow(320);
+    render(true);
+    overlay.follow(420);
   }
   function closeDrawer() {
     if (!open) return;
@@ -172,17 +178,21 @@
     drawer.classList.remove("open");
     tab.classList.remove("away");
     $("menu").hidden = true;
+    $("btnGear").setAttribute("aria-expanded", "false");
     setTimeout(() => {
       if (open) return;
       setProp(de, "margin-right", saved.mr); setProp(de, "transition", saved.tr);
       overlay.layout();
-    }, REDUCED ? 0 : 220);
-    overlay.follow(320);
+    }, REDUCED ? 0 : 380);
+    overlay.follow(420);
+    try { $("tabFace").focus({ preventScroll: true }); } catch (e) { /* not focusable */ }
   }
   $("btnCollapse").addEventListener("click", closeDrawer);
+  drawer.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
   $("btnGear").addEventListener("click", () => {
     const m = $("menu");
     m.hidden = !m.hidden;
+    $("btnGear").setAttribute("aria-expanded", String(!m.hidden));
     if (!m.hidden) try { chrome.storage.local.get("rcServer", (r) => { $("srv").value = (r && r.rcServer) || "http://127.0.0.1:8787"; }); } catch (e) { /* no storage */ }
   });
   $("srvSave").addEventListener("click", () => {
@@ -195,9 +205,16 @@
     if (run.mode === "sample") send({ type: "openSampleReport", address: run.address.full });
     else send({ type: "openReport", report_url: (run.done.report_url || "/") + hash });
   };
-  $("btnReport").addEventListener("click", () => openReport());
   $("btnFull").addEventListener("click", () => openReport());
-  $("btnAnother").addEventListener("click", () => { stopRun(); run = null; expanded.clear(); rebuildMarks(); overlay.setSelected(null); render(); });
+  $("ft").addEventListener("click", (e) => {
+    const walk = e.target.closest("#btnWalk");
+    if (walk && run && run.done && run.mode === "server") {
+      // The real 3D walkthrough for one finding (server route /tour/<run_id>?claim=<id>).
+      send({ type: "openReport", report_url: `/tour/${encodeURIComponent(run.done.run_id || "")}?claim=${encodeURIComponent(walk.dataset.id)}` });
+      return;
+    }
+    if (e.target.closest("#btnAnother")) { stopRun(); run = null; rebuildMarks(); overlay.setSelected(null); render(true); }
+  });
 
   // ---------- run ----------
   let port = null;
@@ -205,12 +222,14 @@
     if (port) { try { port.disconnect(); } catch (e) { /* closed */ } port = null; }
     if (run) run.token = null;
   }
+  const newRun = (a, mode, step) => ({
+    seq: ++seq, address: a, mode, claims: [], verdicts: {}, evidence: [], match: null, step, steps: [],
+    t0: Date.now(), t1: 0, fillIn: [], done: null, unreachable: false, error: null, token: {},
+  });
   function startRun(a) {
     stopRun();
-    expanded.clear();
-    ccOpen = false;
     fiOpen = false;
-    run = { address: a, mode: "server", claims: [], verdicts: {}, step: "Connecting to the local checker…", steps: [], t0: Date.now(), fillIn: [], done: null, unreachable: false, error: null, token: {} };
+    run = newRun(a, "server", "Connecting to the local checker…");
     overlay.setSelected(a.text);
     rebuildMarks();
     render();
@@ -236,7 +255,7 @@
     stopRun();
     const a = run.address;
     fiOpen = false;
-    run = { address: a, mode: "sample", claims: [], verdicts: {}, step: "Starting…", steps: [], t0: Date.now(), fillIn: [], done: null, unreachable: false, error: null, token: {} };
+    run = newRun(a, "sample", "Starting…");
     const me = run;
     render();
     RC_SAMPLE.events(a.full).forEach((ev, i) => setTimeout(() => { if (run === me && me.token) handle(ev); }, (i + 1) * RC_SAMPLE.delayMs));
@@ -245,140 +264,293 @@
     if (!run) return;
     switch (ev.type) {
       case "step": {
-        // One line per agent, newest text wins; the line keeps its first position so the list never jumps.
+        // One line per source, newest text wins; the most recently active line sits on top.
         run.step = ev.text;
-        const k = ev.agent || "orchestrator", s = run.steps.find((x) => x.agent === k);
-        if (s) { s.text = ev.text; s.t = Date.now(); } else run.steps.push({ agent: k, text: ev.text, t: Date.now() });
-        run.last = k;
+        const k = AG[ev.agent] || "Working", s = run.steps.find((x) => x.k === k);
+        if (s) { s.text = ev.text; s.t = ++stepSeq; } else run.steps.push({ k, text: ev.text, t: ++stepSeq });
         break;
       }
       case "claims": run.claims = ev.claims || []; break;
-      case "verdict": run.verdicts[ev.verdict.claim_id] = ev.verdict; rebuildMarks(); if (ev.verdict.image && run.mode === "server") loadImg(ev.verdict.image); break;
+      case "match": run.match = ev.match || null; break;
+      case "evidence": if (ev.evidence && typeof ev.evidence === "object") run.evidence.push(ev.evidence); break;
+      case "verdict": run.verdicts[ev.verdict.claim_id] = ev.verdict; rebuildMarks(); break;
       case "fill_in": run.fillIn = Array.isArray(ev.facts) ? ev.facts : []; break;
-      case "done": run.done = ev; run.step = ""; break;
+      case "done": run.done = ev; run.t1 = Date.now(); run.step = ""; break;
       case "error": run.error = ev.message || "Something went wrong."; break;
-      default: return; // run_started, match, evidence: nothing to draw
+      default: return; // run_started: nothing to draw
     }
     render();
   }
-  function loadImg(path) {
-    if (imgCache.has(path)) return;
-    imgCache.set(path, null);
-    try {
-      chrome.runtime.sendMessage({ type: "img", path }, (r) => { void chrome.runtime.lastError; if (r && r.dataUrl) { imgCache.set(path, r.dataUrl); render(); } });
-    } catch (e) { /* extension reloaded */ }
+
+  // ---------- the claim field: one column per claim, one row per source ----------
+  // Cell states: wait (nothing yet), none (this source has nothing on the claim), data (it has data, no call yet),
+  // agree (it backs the listing), contra (it does not, or only nearly).
+  function relevant(ev, c) {
+    if (!ev || ev.status !== "ok") return false;
+    const o = ev.observed || {};
+    if (o.feature_check) return Array.isArray(o.claim_ids) && o.claim_ids.includes(c.id) && o.presence !== "skipped";
+    if (c.label && ev.source === "scan" && !o.plan) return false; // a labelled claim ignores scans of no plan
+    if (c.label && o.plan && String(o.plan).toLowerCase() !== String(c.label).toLowerCase()) return false;
+    if (o[c.kind] != null && o[c.kind] !== "") return true;
+    if (UNIT_KINDS.has(c.kind) && Array.isArray(o.floorplans) && o.floorplans.length) return true;
+    if (c.kind === "stories" && o.height_m != null) return true;
+    return false;
+  }
+  function ownReading(evs, c, src) {
+    // true / false when this source's own number settles it on its face; null when only the judge can say.
+    if (!COMPARABLE.has(c.kind) || c.scope === "unit" || src === "scan") return null;
+    const want = num(c.value);
+    if (!Number.isFinite(want)) return null;
+    const vals = evs.map((e) => num((e.observed || {})[c.kind])).filter(Number.isFinite);
+    if (!vals.length) return null;
+    if (vals.every((v) => v === want)) return true;
+    if (vals.every((v) => v !== want)) return false;
+    return null;
+  }
+  function cellState(r, c, src) {
+    const evs = r.evidence.filter((e) => e.source === src && relevant(e, c));
+    const v = r.verdicts[c.id];
+    if (!v) return evs.length ? "data" : r.done ? "none" : "wait";
+    if (v.source === src && v.verdict !== "cant_check") return BAD.has(v.verdict) ? "contra" : "agree";
+    if (!evs.length) return "none";
+    const own = ownReading(evs, c, src);
+    return own === true ? "agree" : own === false ? "contra" : "data";
+  }
+  function colGap(n) { return n > 70 ? 1 : n > 40 ? 2 : 3; }
+  function fieldHTML(r, final) {
+    const n = r.claims.length;
+    const spread = Math.min(18, 520 / Math.max(1, n)); // whole stagger stays near half a second
+    const cols = n ? r.claims.map((c, i) => {
+      const v = r.verdicts[c.id];
+      const tip = (c.quote || c.kind) + (v ? " — " + ({ contradicted: "not true", close: "close", confirmed: "true", cant_check: "couldn't check" }[v.verdict] || "") : "");
+      return `<span class="col" data-id="${esc(c.id)}" title="${esc(tip)}" style="--d:${Math.round(i * spread)}ms">` +
+        SOURCES.map((s, ri) => `<i class="cell" data-src="${s}" data-s="${cellState(r, c, s)}" style="--r:${ri}"></i>`).join("") + `</span>`;
+    }).join("") : Array.from({ length: 18 }, (_, i) => `<span class="col ghost" style="--d:${i * 40}ms">${"<i class=\"cell\" data-s=\"wait\"></i>".repeat(4)}</span>`).join("");
+    return `<div class="field${final ? " final" : ""}" id="field" role="img" aria-label="${esc(fieldLabel(r))}" style="--g:${colGap(n)}px;--hb:${n > 26 ? 1 : 1.5}px">
+      <div class="rl" aria-hidden="true">${SOURCES.map((s) => `<span>${SRC[s]}</span>`).join("")}</div>
+      <div class="cols" id="cols">${cols}</div></div>`;
+  }
+  function fieldLabel(r) {
+    const n = r.claims.length, nv = Object.keys(r.verdicts).length;
+    if (!n) return "Claim field, waiting for the listing's claims.";
+    return `Claim field: ${n} claims, one column each; rows CoStar, Matterport, Aerial, County. ${nv} of ${n} judged. Black means a source backs the claim, blue means it does not.`;
+  }
+  function updateField(r) {
+    const cols = $("cols");
+    if (!cols) return;
+    const have = cols.querySelectorAll(".col:not(.ghost)").length;
+    if (have !== r.claims.length) { $("field").outerHTML = fieldHTML(r, false); return; }
+    const colEls = cols.children;
+    r.claims.forEach((c, i) => {
+      const cells = colEls[i].children;
+      SOURCES.forEach((s, ri) => { const st = cellState(r, c, s); if (cells[ri].dataset.s !== st) cells[ri].dataset.s = st; });
+    });
+    $("field").setAttribute("aria-label", fieldLabel(r));
   }
 
-  // ---------- progress (a long run must never look frozen) ----------
-  const elapsed = (r) => Math.floor((Date.now() - r.t0) / 1000) + " s";
-  function pct(r) {
-    // Before claims arrive: creep slowly toward 14% with time. After: 15% + share of verdicts in.
-    const n = r.claims.length, nv = Object.keys(r.verdicts).length, t = (Date.now() - r.t0) / 1000;
-    const v = n ? 15 + (85 * nv) / n : 3 + 11 * (1 - Math.exp(-t / 25));
-    r.pmax = Math.max(r.pmax || 0, v);
-    return r.pmax.toFixed(1);
-  }
+  // ---------- clock ----------
+  const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+  const took = (ms) => { const s = Math.max(1, Math.round(ms / 1000)); return s < 60 ? s + " s" : Math.floor(s / 60) + " min " + (s % 60) + " s"; };
   setInterval(() => {
     if (!open || !run || run.done || run.error || run.unreachable) return;
-    const el = $("elapsed"), bf = $("barFill");
-    if (el) el.textContent = elapsed(run);
-    if (bf) bf.style.width = pct(run) + "%";
+    const el = $("elapsed");
+    if (el) el.textContent = clock(Date.now() - run.t0);
   }, 1000);
 
   // ---------- render ----------
-  function render() {
-    $("btnReport").disabled = !(run && run.done);
-    $("ft").hidden = !(run && run.done);
-    if (!run) return renderIdle();
-    const r = run, n = r.claims.length, nv = Object.keys(r.verdicts).length;
-    let h = `<div class="eyebrow">${r.done ? "Checked" : "Checking"}${r.mode === "sample" ? " · sample result" : ""}</div><div class="addr">${esc(r.address.full)}</div>`;
-    if (r.unreachable) {
-      h += `<div class="notice"><span class="d"></span>Local checker is not running.</div>
-        <div class="btnrow"><button class="btn secondary" id="useSample">Use sample result</button><button class="textbtn" id="retry">Try again</button></div>`;
-    } else if (r.error) {
-      h += `<div class="notice"><span class="d" style="background:${VC.contradicted}"></span>${esc(r.error)}</div>`;
-    } else if (r.done) {
-      const c = r.done.counts || {};
-      h += `<p class="headline" id="headline">${esc(r.done.headline)}</p><div class="counts">` +
-        [["contradicted", (c.contradicted || 0) + (c.close || 0)], ["confirmed", c.confirmed || 0], ["cant_check", c.cant_check || 0]]
-          .map(([k, n]) => `<div class="cnt"><b>${n}</b><span><i class="d" style="background:${VC[k]}"></i>${VL[k]}</span></div>`).join("") + `</div>`;
-    } else {
-      h += `<div class="prog"><div class="bar"><i id="barFill" style="width:${pct(r)}%"></i></div>` +
-        `<div class="pmeta"><span>${r.steps.length ? "Working" : esc(r.step)}</span><span class="el" id="elapsed">${elapsed(r)}</span></div>` +
-        (r.steps.length ? `<ul class="steps" id="step">` + r.steps.map((s) =>
-          `<li class="${s.agent === r.last ? "now" : ""}"><span class="d"></span><span class="ag">${esc(AG[s.agent] || s.agent)}</span><span class="tx">${esc(s.text)}</span></li>`).join("") + `</ul>` : "") +
-        `</div>`;
+  let built = "";
+  function phaseOf() {
+    if (!run) return "idle";
+    if (run.unreachable) return "unreachable";
+    if (run.error) return "error";
+    return run.done ? "result" : "running";
+  }
+  function render(force) {
+    const p = phaseOf();
+    $("ft").hidden = p !== "result";
+    const key = p + ":" + (run ? run.seq : 0);
+    if (!open && !force && p !== "running") { built = ""; return; } // rebuilt (and animated) when the drawer opens
+    if (key !== built || force && p !== "result" && p !== "running") {
+      built = key;
+      body.scrollTop = 0;
+      if (p === "idle") return renderIdle();
+      if (p === "unreachable" || p === "error") return renderTrouble(p);
+      if (p === "result") return renderResult();
+      body.innerHTML = runningHTML(run);
     }
-    if (n) {
-      // Mismatch first (contradicted, then close), match, still waiting; "can't verify" rows fold under one line.
-      const rank = (c) => { const v = r.verdicts[c.id]; return v ? ORDER[v.verdict] ?? 2 : 3; };
-      const shown = r.claims.filter((c) => rank(c) < 9).map((c, i) => [rank(c), i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
-      const cc = r.claims.filter((c) => rank(c) === 9);
-      h += `<div class="sec">What the listing says</div><ul class="claims">` + shown.map((c) => claimHTML(c, r.verdicts[c.id])).join("") + `</ul>`;
-      if (cc.length) {
-        h += `<button class="ccline${ccOpen ? " open" : ""}" id="ccToggle" aria-expanded="${ccOpen}"><span class="d"></span><span class="cct">Can't verify (${cc.length})</span><span class="go">${CHEV}</span></button>`;
-        if (ccOpen) h += `<ul class="claims cc">` + cc.map((c) => claimHTML(c, r.verdicts[c.id])).join("") + `</ul>`;
-      }
+    if (p === "running") updateRunning(run);
+  }
+
+  function runningHTML(r) {
+    return `<div class="run">
+      <div class="clock"><span class="tm" id="elapsed" role="timer" aria-label="Time so far">${clock(Date.now() - r.t0)}</span>
+        <span class="cm" id="claimsN"></span></div>
+      ${fieldHTML(r, false)}
+      <ol class="steps" id="steps" aria-label="What the check is doing now" aria-live="polite"></ol>
+      <p class="where">${esc(r.address.full)}${r.mode === "sample" ? " · sample result" : ""}</p>
+    </div>`;
+  }
+  function updateRunning(r) {
+    const n = r.claims.length;
+    const cm = $("claimsN");
+    if (cm) cm.textContent = n ? `${n} ${n === 1 ? "claim" : "claims"} found` : "Reading the listing";
+    updateField(r);
+    const st = $("steps");
+    if (!st) return;
+    const list = r.steps.length ? r.steps.slice().sort((a, b) => b.t - a.t).slice(0, 5) : [{ k: "Starting", text: r.step, t: 0 }];
+    const top = list[0].k + "|" + list[0].t;
+    const fresh = st.dataset.top !== top;
+    st.dataset.top = top;
+    st.innerHTML = list.map((s, i) => {
+      const src = AG_SRC[s.k];
+      const cnt = src ? r.claims.filter((c) => ["data", "agree", "contra"].includes(cellState(r, c, src))).length : 0;
+      return `<li class="${i === 0 ? "now" + (fresh ? " in" : "") : ""}"><span class="sd" aria-hidden="true"></span>
+        <span class="sx"><span class="sk">${esc(s.k)}</span><span class="st">${esc(s.text)}</span></span>
+        <span class="sc">${cnt ? cnt : ""}</span></li>`;
+    }).join("");
+  }
+
+  function counts(r) {
+    const c = r.done && r.done.counts;
+    if (c && typeof c === "object") return { contradicted: c.contradicted || 0, close: c.close || 0, confirmed: c.confirmed || 0, cant_check: c.cant_check || 0 };
+    const k = { contradicted: 0, close: 0, confirmed: 0, cant_check: 0 };
+    for (const v of Object.values(r.verdicts)) if (v.verdict in k) k[v.verdict]++;
+    return k;
+  }
+  function headlineHTML(r, k) {
+    const bad = k.contradicted + k.close;
+    if (bad > 0) {
+      const one = bad === 1;
+      return `<h1 class="hl" id="headline" data-n="${bad}"><span class="hw"><span class="hn">${bad}</span> ${one ? "thing" : "things"}</span><br><span class="hw ind">${one ? "doesn't" : "don't"} match.</span></h1>`;
     }
-    if (r.done && r.fillIn && r.fillIn.length) h += fillInHTML(r.fillIn);
+    const noMatch = r.match && r.match.status === "no_match";
+    const text = k.confirmed > 0 ? "Everything we could check matches."
+      : noMatch ? "We couldn't find this building." : "We couldn't check anything here.";
+    return `<h1 class="hl calm" id="headline" data-n="0"><span class="hw">${text}</span></h1>`;
+  }
+  function listingWords(r, c, v) {
+    // The page's own words when they are about this claim alone; else what was claimed, in plain words.
+    const shared = r.claims.filter((x) => x.quote === c.quote).length > 1;
+    if (c.quote && !shared && c.origin !== "metadata") return `“${c.quote}”`;
+    return said(c) || v.claimed || c.quote || "";
+  }
+  function settledBy(r, c, v) {
+    const want = BAD.has(v.verdict) ? "contra" : "agree";
+    const by = SOURCES.filter((s) => cellState(r, c, s) === want).map((s) => SRC[s]);
+    return (v.verdict === "close" ? "Close · " : "") + (by.join(", ") || SRC[v.source] || "");
+  }
+  function sizeClass(t) { const n = String(t).length; return n > 34 ? " s" : n > 18 ? " m" : ""; }
+  function renderResult() {
+    const r = run, k = counts(r);
+    const bad = r.claims.map((c, i) => [c, r.verdicts[c.id], i]).filter(([, v]) => v && BAD.has(v.verdict))
+      .sort((a, b) => ORDER[a[1].verdict] - ORDER[b[1].verdict] || a[2] - b[2]);
+    // a verdict for a claim we never got (should not happen) still counts in the headline, not in the rows
+    const meta = [
+      r.mode === "sample" ? `<span>Sample result</span>` : "",
+      k.confirmed ? `<span data-k="confirmed">${k.confirmed} true</span>` : "",
+      k.close ? `<span data-k="close" class="b">${k.close} close</span>` : "",
+      k.cant_check ? `<span data-k="cant_check">${k.cant_check} couldn't check</span>` : "",
+      `<span data-k="time">${took((r.t1 || Date.now()) - r.t0)}</span>`,
+    ].filter(Boolean).join(`<span class="sep" aria-hidden="true"> · </span>`);
+    let h = `<div class="res">${headlineHTML(r, k)}<p class="meta" id="counts">${meta}</p>`;
+    if (r.claims.length) h += fieldHTML(r, true);
+    if (bad.length) {
+      h += `<ul class="finds" id="finds" aria-label="What doesn't match">` + bad.slice(0, FIND_TOP).map(([c, v], i) => {
+        const was = listingWords(r, c, v), is = v.found || "";
+        return `<li><button class="find" data-id="${esc(c.id)}" data-verdict="${v.verdict}" style="--i:${i}" aria-label="${esc(`Listing says ${v.claimed}. ${SRC[v.source] || "We"} found ${is}. Show it`)}">
+          <span class="was"><span class="wt">${esc(was)}</span><i class="strike" aria-hidden="true"></i></span>
+          <span class="is${sizeClass(is)}">${esc(is)}</span>
+          <span class="by">${esc(settledBy(r, c, v))}</span></button></li>`;
+      }).join("") + `</ul>`;
+      if (bad.length > FIND_TOP) h += `<button class="morebtn" id="moreF">+${bad.length - FIND_TOP} more</button>`;
+    }
+    h += `<div class="fi" id="fi">${r.fillIn && r.fillIn.length ? fillInHTML(r.fillIn) : ""}</div></div>`;
     body.innerHTML = h;
-    const us = $("useSample"); if (us) us.addEventListener("click", startSample);
-    const rt = $("retry"); if (rt) rt.addEventListener("click", () => startRun(r.address));
+    fitHeadline();
+    // footer: the walkthrough of the worst finding a 3D scan settled, and other addresses on this page
+    const walk = r.mode === "server" && r.done.run_id ? bad.find(([, v]) => v.source === "scan") : null;
+    $("ftl").innerHTML = (walk ? `<button class="lnk" id="btnWalk" data-id="${esc(walk[0].id)}">Walk through it in 3D</button>` : "") +
+      (addresses.length > 1 ? `<button class="lnk" id="btnAnother">Check another address</button>` : "");
+  }
+  function fitHeadline() {
+    // Each headline line stays one line: shrink the type until the widest line fits (fallback fonts run wide).
+    const hl = $("headline");
+    if (!hl || hl.classList.contains("calm")) return;
+    const avail = hl.clientWidth, widest = Math.max(...[...hl.querySelectorAll(".hw")].map((x) => x.offsetWidth));
+    if (widest > avail) hl.style.fontSize = Math.floor(parseFloat(getComputedStyle(hl).fontSize) * avail / widest) + "px";
   }
   function fillInHTML(facts) {
-    // Extra things the listing doesn't mention. Not a fact-check: neutral, no verdict colours.
+    // Extra things the listing doesn't mention. Not a fact-check: neutral ink, no verdict colours.
     const n = facts.length;
-    let h = `<button class="filine${fiOpen ? " open" : ""}" id="fiToggle" aria-expanded="${fiOpen}"><span class="fit">Fill me in · ${n} ${n === 1 ? "thing the listing doesn't say" : "things the listing doesn't say"}</span><span class="go">${CHEV}</span></button>`;
+    let h = `<button class="filine${fiOpen ? " open" : ""}" id="fiToggle" aria-expanded="${fiOpen}"><span class="fit">Not on the listing (${n})</span><span class="go">${CHEV}</span></button>`;
     if (!fiOpen) return h;
-    h += `<ul class="facts" id="fiList">` + facts.slice(0, FI_TOP).map((f) => `<li class="fact" data-id="${esc(f.id)}">
+    h += `<ul class="facts" id="fiList">` + facts.slice(0, FI_TOP).map((f, i) => `<li class="fact" data-id="${esc(f.id)}" style="--i:${i}">
       <div class="fq"><span class="fl">${esc(f.label)}</span><span class="fs">${esc(SRC[f.source] || f.source || "")}</span></div>
       <div class="fv">${esc(f.value)}</div>${f.note ? `<div class="fn">${esc(f.note)}</div>` : ""}</li>`).join("") + `</ul>`;
-    h += `<button class="textbtn fiall" id="fiAll">See all in the full report</button>`;
+    h += `<button class="lnk fiall" id="fiAll">See all in the full report</button>`;
     return h;
   }
   function said(c) {
-    const n = Number(String(c.value).replace(/,/g, "")), s = (w) => (n === 1 ? w : w + "s");
-    if (!Number.isFinite(n)) return String(c.value || c.quote);
+    const n = num(c.value), s = (w) => (n === 1 ? w : w + "s");
+    if (!Number.isFinite(n)) return String(c.value || c.quote || "");
     if (c.kind === "bedrooms") return n === 0 ? "Studio" : `${n} ${s("bedroom")}`;
     if (c.kind === "bathrooms") return `${n} ${s("bathroom")}`;
     if (c.kind === "area_sqft") return `${n.toLocaleString("en-US")} sq ft`;
-    return c.quote;
+    if (c.kind === "stories") return `${n} ${s("story").replace("storys", "stories")}`;
+    if (c.kind === "year_built") return `Built in ${n}`;
+    if (c.kind === "unit_count") return `${n.toLocaleString("en-US")} ${s("home")}`;
+    return c.quote || String(c.value);
   }
-  function claimHTML(c, v) {
-    // A quote shared by several claims would repeat on every row: title those rows by what is claimed.
-    const shared = run && run.claims.filter((x) => x.quote === c.quote).length > 1;
-    const title = shared ? said(c) : c.quote;
-    const color = v ? VC[v.verdict] || VC.cant_check : "#d4d4d4";
-    const sub = !v ? `<div class="sub wait">Waiting…</div>`
-      : v.verdict === "cant_check" ? `<div class="sub">We can't verify this</div>` : `<div class="sub">We found ${esc(v.found)}</div>`;
-    const more = v ? `<div class="more"><dl class="kv"><dt>Listing says</dt><dd>${esc(v.claimed)}</dd><dt>We found</dt><dd>${esc(v.found)}</dd><dt>Source</dt><dd>${esc(SRC[v.source] || v.source)}</dd></dl>
-      ${v.reason ? `<p class="reason">${esc(v.reason)}</p>` : ""}${v.image && imgCache.get(v.image) ? `<img class="proof" alt="Proof image" src="${imgCache.get(v.image)}">` : ""}</div>` : "";
-    return `<li class="claim${expanded.has(c.id) && v ? " open" : ""}" data-id="${esc(c.id)}" data-verdict="${v ? v.verdict : "waiting"}">
-      <div class="row1"><span class="d" style="background:${color}"></span><div class="main"><div class="q">${esc(title)}${c.label ? `<span class="lbl">${esc(c.label)}</span>` : ""}</div>${sub}</div>
-      ${v ? `<span class="vl" style="color:${color}">${VL[v.verdict] || ""}</span>` : ""}</div>${more}</li>`;
+  function renderTrouble(p) {
+    const r = run;
+    let h = `<div class="trouble">`;
+    if (p === "unreachable") {
+      h += `<p class="notice">Local checker is not running.</p>
+        <div class="btnrow"><button class="btn secondary" id="useSample">Use sample result</button><button class="lnk" id="retry">Try again</button></div>`;
+    } else {
+      h += `<p class="notice">${esc(r.error)}</p><div class="btnrow"><button class="lnk" id="retry">Try again</button></div>`;
+    }
+    body.innerHTML = h + `<p class="where">${esc(r.address.full)}</p></div>`;
+  }
+
+  // Click on a finding: flash its words on the page; with no mark on the page, open the report at it.
+  function showFinding(cid) {
+    if (overlay.flash(cid)) return;
+    openReport("#claim-" + encodeURIComponent(cid));
+  }
+  // Click on a mark on the page: point at the claim in the drawer.
+  function pointAt(cid) {
+    const sel = (cls) => body.querySelector(`${cls}[data-id="${String(cid).replace(/["\\]/g, "\\$&")}"]`);
+    const el = sel(".find") || sel(".col");
+    if (!el) return;
+    el.classList.remove("ping"); void el.offsetWidth; el.classList.add("ping");
+    if (el.classList.contains("find")) { el.focus({ preventScroll: true }); }
+    el.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
   }
   body.addEventListener("click", (e) => {
-    const row = e.target.closest(".row1");
-    if (row) {
-      const li = row.parentElement, id = li.dataset.id;
-      if (li.dataset.verdict === "waiting") return;
-      if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
-      li.classList.toggle("open");
+    const f = e.target.closest(".find");
+    if (f) { showFinding(f.dataset.id); return; }
+    if (e.target.closest("#moreF")) { openReport("#mismatch"); return; }
+    if (e.target.closest("#fiToggle")) {
+      fiOpen = !fiOpen;
+      $("fi").innerHTML = fillInHTML(run.fillIn);
+      $("fiToggle").focus({ preventScroll: true });
+      if (fiOpen) $("fi").scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
       return;
     }
-    if (e.target.closest("#ccToggle")) { ccOpen = !ccOpen; render(); return; }
-    if (e.target.closest("#fiToggle")) { fiOpen = !fiOpen; render(); return; }
     if (e.target.closest("#fiAll")) { openReport("#extra"); return; }
+    if (e.target.closest("#useSample")) { startSample(); return; }
+    if (e.target.closest("#retry")) { startRun(run.address); return; }
     const pick = e.target.closest(".pick");
     if (pick) startRun(addresses[+pick.dataset.i]);
   });
   function renderIdle() {
     if (!addresses.length) {
-      body.innerHTML = `<div class="sec first">Addresses on this page</div><p class="empty">No street address found on this page.</p>`;
+      body.innerHTML = `<div class="idle"><p class="lead">No street address on this page.</p></div>`;
       return;
     }
-    body.innerHTML = `<div class="sec first">Addresses on this page</div><p class="hint top">Click a highlighted address on the page, or pick one here.</p><ul class="picks">` +
-      addresses.map((a, i) => `<li><button class="pick" data-i="${i}"><span class="pa">${esc(a.full)}</span><span class="go">${CHEV}</span></button></li>`).join("") + `</ul>`;
+    body.innerHTML = `<div class="idle"><p class="lead">Pick an address to check.</p><p class="hint">Or click one highlighted on the page.</p><ul class="picks">` +
+      addresses.map((a, i) => `<li><button class="pick" data-i="${i}"><span class="pa">${esc(a.full)}</span><span class="go">${CHEV}</span></button></li>`).join("") + `</ul></div>`;
   }
 
   // ---------- rescan on DOM changes ----------
@@ -399,132 +571,152 @@
   function CSS() { return `
   :host{all:initial}
   *{box-sizing:border-box}
-  .layer,.drawer,.tab,.pill,.tip{--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-family:var(--sans);color:#111;-webkit-font-smoothing:antialiased;letter-spacing:normal;text-transform:none;line-height:1.5;text-align:left}
-  button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;margin:0}
-  button:focus-visible,input:focus-visible{outline:2px solid rgba(37,99,235,.45);outline-offset:1px}
+  .layer,.drawer,.tab,.pill,.tip{--serif:Newsreader,"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,"Times New Roman",serif;
+    --ink:#111;--mute:#6b6b6b;--blue:#1a4be0;--line:#e6e6e6;--ease:cubic-bezier(.2,.8,.2,1);
+    font-family:var(--serif);color:var(--ink);-webkit-font-smoothing:antialiased;letter-spacing:normal;text-transform:none;line-height:1.45;text-align:left;font-weight:400;font-style:normal}
+  button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;margin:0;text-align:inherit}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
   [hidden]{display:none!important}
+  h1,p,ul,ol{margin:0;padding:0}
 
-  .tab{position:fixed;right:0;height:44px;display:flex;align-items:stretch;background:#fff;border:1px solid #e6e6e6;border-right:0;border-radius:10px 0 0 10px;
-    transition:transform .18s ease,opacity .18s ease;user-select:none}
+  .tab{position:fixed;right:0;height:44px;display:flex;align-items:stretch;background:#fff;border:1px solid var(--line);border-right:0;border-radius:10px 0 0 10px;
+    box-shadow:-2px 2px 10px rgba(0,0,0,.05);transition:transform .3s var(--ease),opacity .3s var(--ease);user-select:none}
   .tab.away{transform:translateX(110%);opacity:0;pointer-events:none}
   .tab.gone{display:none}
-  .tab-face{width:42px;display:grid;place-items:center}
+  .tab-face{width:44px;display:grid;place-items:center}
   .tab-handle{width:0;overflow:hidden;opacity:0;display:grid;grid-template-columns:repeat(2,3px);grid-auto-rows:3px;gap:3px;align-content:center;justify-content:center;
     cursor:grab;transition:width .18s ease,opacity .18s ease}
   .tab:hover .tab-handle,.tab.dragging .tab-handle{width:16px;opacity:1}
   .tab.dragging .tab-handle{cursor:grabbing}
   .tab-handle i{width:3px;height:3px;border-radius:50%;background:#b5b5b5}
-  .tab-close{position:absolute;left:-8px;top:-8px;width:18px;height:18px;border-radius:50%;background:#fff;border:1px solid #e6e6e6;color:#6b6b6b;
+  .tab-close{position:absolute;left:-8px;top:-8px;width:18px;height:18px;border-radius:50%;background:#fff;border:1px solid var(--line);color:var(--mute);
     display:grid;place-items:center;opacity:0;transition:opacity .15s ease}
-  .tab:hover .tab-close{opacity:1}
-  .tab-close:hover{color:#111}
+  .tab:hover .tab-close,.tab-close:focus-visible{opacity:1}
+  .tab-close:hover{color:var(--ink)}
 
-  .drawer{position:fixed;top:0;right:0;bottom:0;width:${W}px;background:#fff;border-left:1px solid #e6e6e6;box-shadow:-6px 0 24px rgba(0,0,0,.05);
-    display:flex;flex-direction:column;font-size:14px;transform:translateX(100%);visibility:hidden;transition:transform .2s ease,visibility 0s linear .2s}
-  .drawer.open{transform:none;visibility:visible;transition:transform .2s ease}
-  .hd{flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 10px 0 18px;border-bottom:1px solid #e6e6e6}
-  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px}
-  .brand svg{display:block}
-  .act{display:flex;align-items:center;gap:2px}
-  .hlink{font-size:13px;color:#2563eb;padding:6px 8px;border-radius:6px;margin-right:2px}
-  .hlink:hover:not(:disabled){background:#f4f6fb}
-  .hlink:disabled{color:#b5b5b5;cursor:default}
-  .icon{width:30px;height:30px;border-radius:8px;color:#6b6b6b;display:grid;place-items:center}
-  .icon:hover{background:#f5f5f5;color:#111}
-  .menu{flex:none;padding:14px 18px 12px;border-bottom:1px solid #e6e6e6;background:#fff}
-  .menu label{display:block;font-size:12px;color:#444;margin-bottom:6px}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:${W}px;background:#fff;border-left:1px solid var(--line);box-shadow:-10px 0 30px rgba(0,0,0,.06);
+    display:flex;flex-direction:column;font-size:17px;transform:translateX(100%);visibility:hidden;transition:transform .36s var(--ease),visibility 0s linear .36s}
+  .drawer.open{transform:none;visibility:visible;transition:transform .36s var(--ease)}
+  .hd{flex:none;display:flex;align-items:center;justify-content:space-between;padding:12px 12px 0 24px}
+  .brand{font-size:17px;font-weight:500}
+  .act{display:flex;align-items:center}
+  .icon{width:44px;height:44px;display:grid;place-items:center;color:var(--ink)}
+  .icon:hover{background:#eee}
+  .menu{flex:none;padding:12px 24px 14px;border-bottom:1px solid var(--line)}
+  .menu label{display:block;font-size:15px;color:var(--mute);margin-bottom:6px}
   .menu-row{display:flex;gap:8px}
-  .menu input{flex:1;min-width:0;height:34px;border:1px solid #e6e6e6;border-radius:8px;padding:0 10px;font:13px var(--sans);color:#111;background:#fff}
-  .menu input:focus{border-color:#2563eb;outline:none}
-  .hint{font-size:12px;color:#6b6b6b;margin:6px 0 0}
-  .hint.top{margin:0 0 10px}
+  .menu input{flex:1;min-width:0;height:44px;border:1px solid #cfcfcf;padding:0 10px;font:15px var(--serif);color:var(--ink);background:#fff;border-radius:0}
+  .menu input:focus{border-color:var(--ink);outline:none}
+  .hint{font-size:15px;color:var(--mute);margin-top:6px}
 
-  .body{flex:1;overflow-y:auto;padding:20px 18px 24px;scrollbar-width:thin;scrollbar-color:#e0e0e0 transparent}
-  .eyebrow{font-size:12px;color:#6b6b6b;margin-bottom:2px}
-  .addr{font-size:15px;font-weight:600;line-height:1.4}
-  .prog{margin-top:18px}
-  .bar{height:2px;background:#eef0f3;border-radius:2px;overflow:hidden}
-  .bar i{display:block;height:100%;background:#2563eb;transition:width .2s ease}
-  .pmeta{display:flex;justify-content:space-between;margin-top:8px;font-size:13px;color:#444}
-  .pmeta .el{color:#a3a3a3;font-variant-numeric:tabular-nums}
-  .steps{list-style:none;margin:8px 0 0;padding:0}
-  .steps li{display:flex;gap:10px;align-items:baseline;padding:3px 0;font-size:13px;color:#6b6b6b}
-  .steps .d{width:6px;height:6px;margin:7px 0 0;align-self:flex-start;background:#d4d4d4}
-  .steps .ag{flex:none;width:56px;color:#a3a3a3;font-size:12px}
-  .steps .tx{flex:1;min-width:0}
-  .steps li.now{color:#111}
-  .steps li.now .d{background:#2563eb;animation:rcpulse 1.2s ease-in-out infinite}
-  @keyframes rcpulse{50%{opacity:.25}}
-  .headline{margin:16px 0 0;font-size:15px;line-height:1.45;font-weight:500;color:#111}
-  .counts{display:grid;grid-template-columns:repeat(3,1fr);margin-top:16px;border:1px solid #e6e6e6;border-radius:10px}
-  .cnt{padding:10px 10px 9px;border-left:1px solid #e6e6e6}
-  .cnt:first-child{border-left:0}
-  .cnt b{display:block;font-size:16px;font-weight:600;line-height:1.2}
-  .cnt span{display:block;font-size:11.5px;color:#6b6b6b;white-space:nowrap;margin-top:2px}
-  .cnt .d{display:inline-block;width:6px;height:6px;margin:0 5px 0 0;vertical-align:1px}
-  .notice{display:flex;gap:10px;align-items:center;margin-top:18px;font-size:13.5px;color:#444}
-  .notice .d{margin:0;background:#a3a3a3}
-  .btnrow{display:flex;gap:12px;align-items:center;margin-top:12px}
+  .body{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 24px 24px;scrollbar-width:thin;scrollbar-color:#ddd transparent;display:flex;flex-direction:column}
+  .run,.res,.trouble,.idle{flex:1 0 auto;display:flex;flex-direction:column;min-width:0}
 
-  .sec{font-size:12px;color:#6b6b6b;margin:26px 0 6px}
-  .sec.first{margin-top:0;margin-bottom:4px}
-  .claims,.picks{list-style:none;margin:0;padding:0}
-  .claim{border-bottom:1px solid #e6e6e6}
-  .claim:last-child{border-bottom:0}
-  .row1{display:flex;gap:12px;align-items:flex-start;padding:12px 0;cursor:pointer}
-  .claim[data-verdict="waiting"] .row1{cursor:default}
-  .d{width:8px;height:8px;border-radius:50%;flex:none;margin-top:7px;background:#d4d4d4;transition:background .2s ease}
-  .main{flex:1;min-width:0}
-  .q{font-size:14px;color:#111}
-  .lbl{font-size:12px;color:#6b6b6b;margin-left:8px}
-  .sub{font-size:13px;color:#444;margin-top:1px}
-  .sub.wait{color:#a3a3a3}
-  .vl{flex:none;font-size:12px;margin-top:2px}
-  .ccline{width:100%;display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid #e6e6e6;font-size:13px;color:#6b6b6b;text-align:left}
-  .ccline .d{margin:0;background:#a3a3a3}
-  .ccline .cct{flex:1}
-  .ccline .go{display:grid;color:#b5b5b5;transition:transform .15s ease}
-  .ccline.open .go{transform:rotate(90deg)}
-  .ccline:hover{color:#111}
-  .claims.cc{border-top:1px solid #e6e6e6}
-  .filine{width:100%;display:flex;gap:12px;align-items:center;margin-top:18px;padding:12px 0;border-top:1px solid #e6e6e6;font-size:13px;color:#444;text-align:left}
+  /* running */
+  .clock{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding-top:20px}
+  .tm{font-size:96px;font-weight:300;line-height:.82;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+  .cm{font-size:15px;color:var(--mute);padding-bottom:6px;text-align:right}
+  .run .field{margin-top:28px}
+  .field{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:10px;--ch:26px}
+  .rl{display:grid;grid-template-rows:repeat(4,var(--ch));row-gap:var(--g);font-size:12px;color:var(--mute);line-height:var(--ch);text-align:right}
+  .cols{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,22px);column-gap:var(--g);min-width:0}
+  .col{display:grid;grid-template-rows:repeat(4,var(--ch));row-gap:var(--g);min-width:0;animation:rc-col .45s var(--ease) var(--d) backwards;transform-origin:bottom}
+  .col.ghost .cell{animation:rc-breathe 1.6s ease-in-out var(--d) infinite alternate}
+  .col.ping{animation:rc-ping 1.2s ease-out}
+  .cell{display:block;background:#f4f4f4;transition:background-color .45s ease,box-shadow .45s ease;transition-delay:calc(var(--r,0) * 80ms)}
+  .cell[data-s="none"]{background:#ebebeb}
+  .cell[data-s="data"]{background:#fff;box-shadow:inset 0 0 0 var(--hb,1.5px) var(--ink)}
+  .cell[data-s="agree"]{background:var(--ink)}
+  .cell[data-s="contra"]{background:var(--blue)}
+  .field.final .cell{animation:rc-cell .5s var(--ease) calc(var(--d) + var(--r) * 45ms + 260ms) backwards}
+  @keyframes rc-col{from{transform:scaleY(.2);opacity:0}}
+  @keyframes rc-cell{from{background:#f4f4f4;box-shadow:none}}
+  @keyframes rc-breathe{from{opacity:1}to{opacity:.35}}
+  @keyframes rc-ping{0%,40%{outline:2px solid var(--blue);outline-offset:2px}100%{outline:2px solid transparent;outline-offset:6px}}
+  .steps{list-style:none;margin-top:28px;display:flex;flex-direction:column;gap:14px}
+  .steps li{display:grid;grid-template-columns:16px minmax(0,1fr) auto;column-gap:14px;align-items:baseline;color:var(--mute)}
+  .sd{width:9px;height:9px;border-radius:50%;border:1.5px solid #9a9a9a;justify-self:center;transform:translateY(-1px)}
+  .sx{display:flex;flex-direction:column;min-width:0}
+  .sk{font-size:17px}
+  .st{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sc{font-size:15px;font-variant-numeric:tabular-nums}
+  .steps li.now{color:var(--ink)}
+  .steps li.now .sk{font-weight:500}
+  .steps li.now .sd{background:var(--ink);border-color:var(--ink);box-shadow:0 0 0 0 rgba(17,17,17,.35);animation:rc-pulse 1.6s ease-out infinite}
+  .steps li.now .st{animation:rc-breathe 1.2s ease-in-out infinite alternate}
+  .steps li.in{animation:rc-in .4s var(--ease)}
+  @keyframes rc-pulse{to{box-shadow:0 0 0 7px rgba(17,17,17,0)}}
+  @keyframes rc-in{from{transform:translateY(-8px);opacity:0}}
+  .where{margin-top:auto;padding-top:28px;font-size:15px;color:var(--mute);overflow-wrap:anywhere}
+
+  /* result */
+  .hl{margin-top:16px;font-weight:300;font-size:60px;line-height:.98;letter-spacing:-.045em;overflow-wrap:break-word}
+  .hl:not(.calm) .hw{white-space:nowrap}
+  .hl .ind{padding-left:.66em}
+  .hl.calm{font-size:46px;line-height:.98;letter-spacing:-.035em}
+  .hw{display:inline-block;animation:rc-rise .7s var(--ease) backwards}
+  .hw.ind{animation-delay:.08s}
+  .hn{display:inline-block;animation:rc-settle .9s cubic-bezier(.2,1.5,.35,1) .1s backwards}
+  @keyframes rc-rise{from{transform:translateY(.25em);opacity:0}}
+  @keyframes rc-settle{0%{transform:translateY(-.5em);opacity:0}60%{opacity:1}}
+  .meta{margin-top:12px;font-size:15px;color:var(--mute);animation:rc-fade .5s ease .2s backwards}
+  .meta .b{color:var(--blue)}
+  .res .field{margin-top:24px}
+  .finds{list-style:none;margin:18px -12px 0}
+  .find{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;min-height:44px;padding:10px 12px;transition:background-color .18s ease;
+    animation:rc-rise .55s var(--ease) calc(.45s + var(--i) * .12s) backwards}
+  .find:hover{background:#f4f4f4}
+  .find.ping{animation:rc-ping 1.2s ease-out}
+  .was{position:relative;display:inline-block;max-width:100%;font-size:19px;line-height:1.25;color:#858585}
+  .wt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .strike{position:absolute;left:-2px;right:-2px;top:54%;height:2px;background:var(--blue);transform-origin:left center;
+    animation:rc-strike .7s cubic-bezier(.7,0,.2,1) calc(.75s + var(--i) * .14s) backwards}
+  @keyframes rc-strike{from{transform:scaleX(0)}}
+  .is{max-width:100%;font-size:30px;font-weight:300;line-height:1.08;letter-spacing:-.025em;color:var(--blue);overflow-wrap:anywhere;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .is.m{font-size:25px}
+  .is.s{font-size:21px;line-height:1.15}
+  .by{font-size:13px;color:var(--mute);margin-top:2px}
+  .morebtn{min-height:44px;font-size:15px;text-decoration:underline;text-underline-offset:4px;align-self:flex-start;margin-top:2px}
+  .morebtn:hover,.lnk:hover{color:var(--blue)}
+  .fi{margin-top:14px}
+  .filine{width:100%;min-height:44px;display:flex;gap:12px;align-items:center;border-top:1px solid var(--line);font-size:15px;color:var(--ink)}
   .filine .fit{flex:1}
-  .filine .go{display:grid;color:#b5b5b5;transition:transform .15s ease}
+  .filine .go{display:grid;color:#9a9a9a;transition:transform .25s var(--ease)}
   .filine.open .go{transform:rotate(90deg)}
-  .filine:hover{color:#111}
-  .facts{list-style:none;margin:0;padding:0}
-  .fact{padding:10px 0;border-top:1px solid #f0f0f0}
+  .filine:hover .go{color:var(--ink)}
+  .facts{list-style:none}
+  .fact{padding:10px 0;border-top:1px solid #f0f0f0;animation:rc-rise .4s var(--ease) calc(var(--i) * 50ms) backwards}
   .fq{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
-  .fl{font-size:13.5px;color:#111}
-  .fs{flex:none;font-size:11.5px;color:#a3a3a3}
-  .fv{font-size:13px;color:#444;margin-top:1px}
-  .fn{font-size:12px;color:#8a8a8a;margin-top:2px}
-  .fiall{font-size:13px;color:#2563eb;padding:8px 0 0}
-  .fiall:hover{color:#1d4ed8}
-  .more{display:none;padding:0 0 14px 20px}
-  .claim.open .more{display:block}
-  .kv{display:grid;grid-template-columns:92px 1fr;gap:4px 12px;margin:0;font-size:13px}
-  .kv dt{color:#6b6b6b}
-  .kv dd{margin:0;color:#111}
-  .reason{font-size:13px;color:#444;margin:10px 0 0}
-  .proof{display:block;width:100%;max-height:300px;object-fit:contain;background:#fff;margin-top:10px;border-radius:8px;border:1px solid #e6e6e6}
+  .fl{font-size:15px;color:var(--mute);min-width:0}
+  .fs{flex:none;font-size:13px;color:#9a9a9a}
+  .fv{font-size:17px;color:var(--ink);overflow-wrap:anywhere}
+  .fn{font-size:13px;color:#8a8a8a;margin-top:1px}
+  .fiall{margin-top:2px}
+  @keyframes rc-fade{from{opacity:0}}
 
-  .picks li{border-bottom:1px solid #e6e6e6}
-  .picks li:last-child{border-bottom:0}
-  .pick{width:100%;display:flex;align-items:center;gap:10px;padding:12px 0;text-align:left;font-size:14px;color:#111}
-  .pick .pa{flex:1}
-  .pick .go{color:#b5b5b5;display:grid}
-  .pick:hover .go{color:#2563eb}
-  .empty{font-size:13.5px;color:#6b6b6b;margin:0}
+  /* idle + trouble */
+  .lead{margin-top:20px;font-size:32px;font-weight:300;line-height:1.05;letter-spacing:-.025em}
+  .idle .hint{margin-top:8px}
+  .picks{list-style:none;margin-top:18px}
+  .picks li{border-top:1px solid var(--line)}
+  .pick{width:100%;min-height:52px;display:flex;align-items:center;gap:10px;padding:10px 0;font-size:17px}
+  .pick .pa{flex:1;min-width:0;overflow-wrap:anywhere}
+  .pick .go{color:#9a9a9a;display:grid}
+  .pick:hover .go{color:var(--ink)}
+  .notice{margin-top:20px;font-size:32px;font-weight:300;line-height:1.05;letter-spacing:-.025em}
+  .btnrow{display:flex;gap:20px;align-items:center;margin-top:20px}
 
-  .ft{flex:none;display:flex;align-items:center;gap:14px;padding:14px 18px;border-top:1px solid #e6e6e6;background:#fff}
-  .btn{height:36px;padding:0 14px;border-radius:8px;font-size:13.5px;font-weight:500;white-space:nowrap;transition:background .15s ease}
-  .primary{background:#2563eb;color:#fff}
-  .primary:hover{background:#1d4ed8}
-  .secondary{background:#fff;border:1px solid #e6e6e6;color:#111}
-  .secondary:hover{background:#f7f7f7}
-  .textbtn{font-size:13.5px;color:#444;padding:8px 2px}
-  .textbtn:hover{color:#111}
-  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+  .ft{flex:none;display:flex;flex-direction:column;gap:4px;padding:12px 24px 18px;background:#fff}
+  .btn{min-height:44px;padding:0 16px;font-size:15px;white-space:nowrap;transition:background-color .18s ease,transform .18s ease}
+  .btn:active{transform:translateY(1px)}
+  .primary{width:100%;min-height:52px;background:var(--ink);color:#fff;font-size:17px;text-align:center}
+  .primary:hover{background:#333}
+  .secondary{background:#fff;border:1px solid var(--ink);color:var(--ink)}
+  .secondary:hover{background:#f4f4f4}
+  .ftl{display:flex;justify-content:center;flex-wrap:wrap;column-gap:24px}
+  .ftl:empty{display:none}
+  .lnk{min-height:44px;font-size:15px;text-decoration:underline;text-underline-offset:4px;color:var(--ink)}
+  @media (prefers-reduced-motion: reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
   `; }
 })();

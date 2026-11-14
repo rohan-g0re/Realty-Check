@@ -117,16 +117,25 @@ def run_fake(snapshot: dict, emit) -> dict:
     say({"type": "evidence", "evidence": evidence(
         "record", "ok", "The building record lists 5 stories, built in 2016.",
         {"stories": 5, "year_built": 2016, "unit_count": 100}, detail="Building record")})
+    say({"type": "evidence", "evidence": evidence(  # invented plan numbers, for the claim field
+        "record", "ok", "The building record lists Plan E: 2 beds, 2 baths, 1,100 sq ft.",
+        {"plan": "Plan E", "kit_plan": "Plan E", "bedrooms": 2, "bathrooms": 2, "area_sqft": 1100},
+        detail="Building record floor plan")})
     say({"type": "step", "agent": "inside", "text": "Walking through the 3D scan of Plan E."})
     say({"type": "evidence", "evidence": evidence(
         "scan", "ok", "The 3D scan shows 1 bedroom and a den, about 968 sq ft.",
         {"bedrooms": 1, "bathrooms": 1, "area_sqft": 968, "room_labels": ["Bedroom", "Den", "Living", "Kitchen"],
-         "label": "1BR W Den"},
+         "label": "1BR W Den", "plan": "Plan E"},
         [{"path": scan_path, "caption": "Floor plan from the 3D scan"}], detail="3D scan room labels")})
     say({"type": "step", "agent": "outside", "text": "Measuring the roof height from aerial photos."})
     say({"type": "evidence", "evidence": evidence(
         "aerial", "ok", "Roof is 23.1 m above ground: about 6 floors.", {"height_m": 23.1, "stories": 6},
         [{"path": aerial_path, "caption": "Oblique view from the north"}], detail="Aerial height estimate")})
+    say({"type": "evidence", "evidence": evidence(  # invented picture check: the photo could not tell
+        "aerial", "ok", "Looking at the aerial photos for a pool: the vision model could not tell.",
+        {"feature_check": True, "claim_ids": ["c5"], "feature": "pool", "looked_at": "aerial photos",
+         "presence": "unclear", "presence_confidence": 0.5},
+        [{"path": aerial_path, "caption": "Oblique view from the north"}], detail="Aerial picture check")})
     say({"type": "step", "agent": "paper", "text": "Checking the county property record."})
     say({"type": "evidence", "evidence": evidence(
         "county", "ok", "The county lists 6 stories, built in 2016.", {"stories": 6, "year_built": 2016},

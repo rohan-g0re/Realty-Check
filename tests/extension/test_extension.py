@@ -11,9 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rc_harness as H  # noqa: E402
 
 playwright_sync = pytest.importorskip("playwright.sync_api")
-DRAWER_W = 380
-HEADLINE = "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den."
-COLORS = {"contradicted": "#dc2626", "close": "#d97706", "confirmed": "#16a34a", "cant_check": "#a3a3a3"}
+DRAWER_W = 420
+HEADLINE = "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den."  # the sample report's own headline
+COLORS = {"contradicted": "#1a4be0", "close": "#1a4be0", "confirmed": "#111111", "cant_check": "#b5b5b5"}
+
+
+def headline(page):
+    return " ".join(page.locator("#rc-host #headline").inner_text().split())
 
 
 @pytest.fixture(scope="module")
@@ -86,20 +90,18 @@ def test_sample_flow_marks_and_report(env):
     pill.click()
     page.locator("#rc-host .notice", has_text="Local checker is not running").wait_for(timeout=10000)
     page.locator("#rc-host #useSample").click()
-    page.locator("#rc-host .claim").nth(3).wait_for(timeout=10000)
-    page.locator('#rc-host .claim[data-verdict="contradicted"]').first.wait_for(timeout=10000)
+    page.locator("#rc-host #cols .col").nth(4).wait_for(timeout=10000)  # the claim field, one column per claim
     page.locator("#rc-host #headline").wait_for(timeout=15000)
-    # mismatches first, then matches; the one "can't verify" row folds under a single line
-    order = page.locator("#rc-host .claim").evaluate_all("els => els.map(e => e.dataset.verdict)")
-    assert order == ["contradicted", "contradicted", "contradicted", "confirmed"], order
-    assert page.locator("#rc-host #ccToggle").inner_text().strip() == "Can't verify (1)"
-    page.locator("#rc-host #ccToggle").click()
-    assert page.locator("#rc-host .claim").count() == 5
-    assert page.locator("#rc-host #headline").inner_text() == HEADLINE
-    counts = page.locator("#rc-host .cnt b").all_inner_texts()
-    assert counts == ["3", "1", "1"]  # Mismatch, Match, Can't verify
-    verdicts = page.locator("#rc-host .claim").evaluate_all("els => els.map(e => e.dataset.verdict)")
-    assert sorted(verdicts) == ["cant_check", "confirmed", "contradicted", "contradicted", "contradicted"]
+    # concise verdict: headline from counts, quiet counts line, the three findings worst first
+    assert headline(page) == "3 things don't match."
+    meta = page.locator("#rc-host #counts").inner_text()
+    assert "Sample result" in meta and "1 true" in meta and "1 couldn't check" in meta and "close" not in meta, meta
+    finds = page.locator("#rc-host .find")
+    assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c2", "c3"]
+    assert page.locator("#rc-host #moreF").count() == 0
+    assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
+    assert finds.first.locator(".by").inner_text() == "Matterport"
+    assert page.locator("#rc-host .claim").count() == 0  # no per-claim list in the drawer any more
 
     marks = page.locator("#rc-host .claim-mark")
     assert marks.count() >= 3
@@ -114,9 +116,9 @@ def test_sample_flow_marks_and_report(env):
     tip.wait_for(timeout=3000)
     assert tip.inner_text().startswith("Listing says ")
 
-    # click a mark: drawer shows that claim expanded
+    # click a mark: the drawer points at that finding
     red.click()
-    assert page.locator("#rc-host .claim.open").count() >= 1
+    page.locator("#rc-host .find.ping").wait_for(timeout=3000)
 
     with env["ctx"].expect_page() as newp:
         page.locator("#rc-host #btnFull").click()
@@ -135,7 +137,7 @@ def test_host_css_does_not_leak(env):
     style = page.locator("#rc-host #drawer").evaluate(
         "e => { const s = getComputedStyle(e); return [s.fontFamily, s.backgroundColor, s.letterSpacing, getComputedStyle(e.querySelector('.brand')).textTransform]; }")
     font, bg, spacing, tt = style
-    assert "Segoe UI" in font and "Courier" not in font, font
+    assert "Newsreader" in font and "Georgia" in font and "Courier" not in font, font
     assert bg == "rgb(255, 255, 255)", bg
     assert spacing == "normal" and tt == "none", style
     assert not errors, errors
@@ -159,7 +161,7 @@ def test_stub_server_through_service_worker(env):
         page.locator("#rc-host .addr-mark").first.click()
         page.locator("#rc-host .pill").click()
         page.locator("#rc-host #headline").wait_for(timeout=15000)
-        assert page.locator("#rc-host #headline").inner_text() == H.STUB_HEADLINE
+        assert headline(page) == "2 things don't match."  # one not true, one close
 
         snap = stub.requests[-1]
         assert set(snap) == {"url", "title", "address_text", "text", "jsonld"}
@@ -168,11 +170,9 @@ def test_stub_server_through_service_worker(env):
         assert snap["jsonld"][0]["@type"] == "ApartmentComplex"
         assert page.locator("#rc-host .claim-mark").count() >= 3
 
-        # proof image comes back through the service worker as a data URL
-        page.locator('#rc-host .claim[data-id="c1"] .row1').click()
-        img = page.locator('#rc-host .claim[data-id="c1"] img.proof')
-        img.wait_for(timeout=5000)
-        assert img.evaluate("i => i.complete && i.naturalWidth") == 64
+        # a finding scrolls to and flashes its words on the page
+        page.locator('#rc-host .find[data-id="c1"]').click()
+        page.locator("#rc-host .claim-mark.flash").first.wait_for(state="attached", timeout=3000)
 
         with env["ctx"].expect_page() as newp:
             page.locator("#rc-host #btnFull").click()

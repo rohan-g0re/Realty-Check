@@ -88,14 +88,15 @@ def test_sample_flow_shows_fill_in(env):
     page.locator("#rc-host #headline").wait_for(timeout=15000)
     tog = page.locator("#rc-host #fiToggle")
     tog.wait_for(timeout=3000)
-    assert tog.inner_text().strip() == "Fill me in · 5 things the listing doesn't say"
+    assert tog.inner_text().strip() == "Not on the listing (5)"
     assert tog.get_attribute("aria-expanded") == "false"
     assert page.locator("#rc-host .fact").count() == 0  # collapsed by default
     tog.click()
     facts = page.locator("#rc-host .fact")
     assert facts.count() == 4  # top 4 only
+    assert tog.get_attribute("aria-expanded") == "true"
     assert facts.first.locator(".fl").inner_text() == "Plan A"
-    assert facts.first.locator(".fs").inner_text() == "Building record"
+    assert facts.first.locator(".fs").inner_text() == "CoStar"
     assert "From the building record" in facts.first.locator(".fn").inner_text()
     assert page.locator("#rc-host #fiAll").inner_text() == "See all in the full report"
     with env["ctx"].expect_page() as newp:
@@ -138,7 +139,7 @@ def test_server_fill_in_escaped_and_links_to_extra(env, monkeypatch):
         assert page.locator("#rc-host .fact").count() == 4
         assert page.locator('#rc-host .fact[data-id="f2"] .fl').inner_text() == "Pets <b>"  # escaped, not markup
         assert page.locator('#rc-host .fact[data-id="f5"]').count() == 0
-        assert page.locator('#rc-host .fact[data-id="f4"] .fs').inner_text() == "Aerial measurement"
+        assert page.locator('#rc-host .fact[data-id="f4"] .fs').inner_text() == "Aerial"
         with env["ctx"].expect_page() as newp:
             page.locator("#rc-host #fiAll").click()
         rep = newp.value
@@ -164,7 +165,7 @@ def test_no_fill_in_event_shows_nothing(env, monkeypatch):
 def test_one_fact_singular(env, monkeypatch):
     stub, page, errors = _run_stub(env, monkeypatch, json.loads(json.dumps(FACTS[:1])))
     try:
-        assert page.locator("#rc-host #fiToggle").inner_text().strip() == "Fill me in · 1 thing the listing doesn't say"
+        assert page.locator("#rc-host #fiToggle").inner_text().strip() == "Not on the listing (1)"
         assert not errors, errors
     finally:
         page.close()

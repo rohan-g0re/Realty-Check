@@ -57,10 +57,11 @@ def main():
             R(".addr-mark").first.click(); pause(); shot("address_pill")
             R(".pill").click(); R(".notice").wait_for(); pause(); shot("checker_not_running")
             R("#useSample").click()
-            R(".claim").first.wait_for(); page.wait_for_timeout(900); shot("run_claims_waiting")
-            R('.claim[data-verdict="contradicted"]').nth(1).wait_for(); shot("run_verdicts_arriving")
-            R("#headline").wait_for(timeout=20000); pause(); shot("run_done_headline_counts")
-            R(".claim .row1").first.click(); pause(); shot("claim_expanded")
+            R("#cols .col").first.wait_for(); page.wait_for_timeout(900); shot("run_claim_field")
+            R('.cell[data-s="contra"]').nth(1).wait_for(state="attached"); shot("run_verdicts_arriving")
+            R("#headline").wait_for(timeout=20000); pause(2); shot("result_concise_verdict")
+            R("#fiToggle").click(); pause(); shot("not_on_the_listing_expanded")
+            R(".find").first.click(); pause(); shot("finding_flashes_page_words")
 
             m = R('.claim-mark[data-verdict="contradicted"]').first
             m.scroll_into_view_if_needed(); m.hover(); pause(); shot("page_mark_tooltip")

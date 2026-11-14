@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from harness.claims import extract_claims, validate_claim
-from harness.claims.extract import JSONLD_PREFIX, NUMERIC_KINDS, to_number
+from harness.claims.extract import METADATA, NUMERIC_KINDS, to_number
 
 FIX = Path(__file__).parent / "fixtures"
 LIVE = os.environ.get("RC_LIVE") == "1"
@@ -65,7 +65,7 @@ def check_shape(claims, page):
     assert [c["id"] for c in claims] == [f"c{i}" for i in range(1, len(claims) + 1)]
     for c in claims:
         assert validate_claim(c) == [], (c, validate_claim(c))
-        if not c["quote"].startswith(JSONLD_PREFIX):
+        if c.get("origin") != METADATA:
             assert norm(c["quote"]) in norm(page), c
 
 
@@ -221,3 +221,120 @@ def test_live_c():
     assert "model_claims" in info, "model did not answer"
     check_shape(claims, snap["text"])
     assert not [c for c in claims if c["kind"] in NUMERIC_KINDS and c["checkable"]], claims
+
+
+# ------------------------------------------------------------------ label-colon plan cards (invented building)
+
+# A property site that lists plans as cards: bare plan name, then "Label: value" lines, sq ft often a range,
+# sometimes split over two lines, grouped under "Studio" / "One Bedroom" headings.
+CARDS = """Welcome to Larkspur Commons
+Floor Plans
+Studio
+One Bedroom
+Two Bedroom
+All Units
+Studio
+S1
+Bathroom: 1
+SQFT:
+512-540
+Explore Availability
+Schedule a Tour
+S2
+Bathroom: 1
+SQFT:
+575
+Schedule a Tour
+One Bedroom
+Aster
+Bedroom: 1 Bathroom: 1 SQFT: 641-688
+View 360 Tour
+Bluebell
+Bedrooms: 1
+Bathroom: 1.5
+Sq. Ft.: 760
+Two Bedroom
+Clover
+Bedrooms: 2
+Bathrooms: 2
+Square Feet: 1,010 - 1,085
+Schedule a Tour
+"""
+
+
+def test_label_colon_plan_cards():
+    snap = {"address_text": "", "text": CARDS, "jsonld": []}
+    claims = extract_claims(snap, use_model=False)
+    check_shape(claims, CARDS)
+    got = {(c["label"], c["kind"]): c for c in claims}
+    want = {("S1", "bedrooms"): 0, ("S1", "bathrooms"): 1, ("S1", "area_sqft"): 512,
+            ("S2", "bedrooms"): 0, ("S2", "bathrooms"): 1, ("S2", "area_sqft"): 575,
+            ("Aster", "bedrooms"): 1, ("Aster", "bathrooms"): 1, ("Aster", "area_sqft"): 641,
+            ("Bluebell", "bedrooms"): 1, ("Bluebell", "bathrooms"): 1.5, ("Bluebell", "area_sqft"): 760,
+            ("Clover", "bedrooms"): 2, ("Clover", "bathrooms"): 2, ("Clover", "area_sqft"): 1010}
+    assert {k: got[k]["value"] for k in want if k in got} == want, claims
+    assert len([c for c in claims if c["kind"] in ("bedrooms", "bathrooms", "area_sqft")]) == len(want), claims
+    # a range keeps its low end as the value and both ends in the quote
+    assert got[("S1", "area_sqft")]["quote"] == "SQFT: 512-540"
+    assert got[("Aster", "area_sqft")]["quote"] == "SQFT: 641-688"
+    assert got[("Clover", "area_sqft")]["quote"] == "Square Feet: 1,010 - 1,085"
+    assert got[("S1", "bedrooms")]["quote"] == "Studio"
+    # "Bedroom: 1 Bathroom: 1" must not read the bedroom value as "1 Bathroom"
+    assert not find(claims, "bathrooms", 2, label="Aster")
+
+
+def test_label_colon_values_do_not_cross():
+    page = "Plan B2\nBedrooms: 2 Bathroom: 1 Sq. Ft.: 900"
+    claims = extract_claims({"address_text": "", "text": page, "jsonld": []}, use_model=False)
+    vals = {(c["kind"], c["value"]) for c in claims}
+    assert vals == {("bedrooms", 2), ("bathrooms", 1), ("area_sqft", 900)}, claims
+
+
+def test_unlabeled_sqft_range_is_not_a_unit_claim():
+    # a range for the whole building ("650 - 1,400 sq ft", "Beds: 1-3") is not one unit's size
+    page = "Maple Yard Lofts\nBeds: 1-3\nSquare Feet: 650 - 1,400\n650 - 1,400 sq ft"
+    claims = extract_claims({"address_text": "", "text": page, "jsonld": []}, use_model=False)
+    assert not [c for c in claims if c["kind"] in ("bedrooms", "area_sqft")], claims
+
+
+def test_single_fact_sheet_is_not_plan_cards():
+    # one "Label: value" block on a single-home page: no invented plan label
+    page = "Interior\nBedrooms: 3\nBathrooms: 2\nSquare Feet: 1,450"
+    claims = extract_claims({"address_text": "", "text": page, "jsonld": []}, use_model=False)
+    assert {(c["kind"], c["value"], c["label"]) for c in claims} == {
+        ("bedrooms", 3, None), ("bathrooms", 2, None), ("area_sqft", 1450, None)}, claims
+
+
+# ------------------------------------------------------------------ plain quotes for page metadata
+
+def test_jsonld_quotes_are_plain():
+    snap = {"address_text": "", "text": "",
+            "jsonld": [{"@type": "ApartmentComplex", "yearBuilt": "2019", "numberOfFloors": 6,
+                        "numberOfAccommodationUnits": {"value": 1200},
+                        "amenityFeature": [{"@type": "LocationFeatureSpecification", "name": "Rooftop Deck"}],
+                        "containsPlace": [
+                            {"@type": "FloorPlan", "name": "The Fern", "numberOfBedrooms": 1,
+                             "numberOfBathroomsTotal": 1, "floorSize": {"value": 850, "unitCode": "FTK"}},
+                            {"@type": "FloorPlan", "name": "The Moss", "numberOfBedrooms": 0,
+                             "numberOfBathroomsTotal": 2.5, "floorSize": 1250}]}]}
+    claims = extract_claims(snap, use_model=False)
+    quotes = {(c["kind"], c["label"]): c["quote"] for c in claims}
+    assert quotes == {
+        ("year_built", None): "Built 2019", ("stories", None): "6 stories", ("unit_count", None): "1,200 units",
+        ("amenity", None): "Rooftop Deck",
+        ("bedrooms", "The Fern"): "1 bedroom", ("bathrooms", "The Fern"): "1 bathroom",
+        ("area_sqft", "The Fern"): "850 sq ft",
+        ("bedrooms", "The Moss"): "Studio", ("bathrooms", "The Moss"): "2.5 bathrooms",
+        ("area_sqft", "The Moss"): "1,250 sq ft"}, claims
+    for c in claims:
+        assert c["origin"] == METADATA and validate_claim(c) == [], c
+        assert "JSON-LD" not in c["quote"] and ":" not in c["quote"]
+
+
+def test_page_claims_have_no_origin():
+    snap = {"address_text": "", "text": "Plan A\t2 Beds\t2 Baths\t1,100 sq ft",
+            "jsonld": [{"@type": "Apartment", "yearBuilt": 2001}]}
+    claims = extract_claims(snap, use_model=False)
+    assert all("origin" not in c for c in claims if c["kind"] != "year_built"), claims
+    assert find(claims, "year_built", 2001)[0]["origin"] == METADATA
+    assert validate_claim({**claims[0], "origin": "page"}), "unknown origin rejected"

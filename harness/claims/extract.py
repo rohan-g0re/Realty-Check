@@ -14,7 +14,8 @@ from typing import Any
 NUMERIC_KINDS = ("bedrooms", "bathrooms", "area_sqft", "stories", "year_built", "unit_count")
 KINDS = NUMERIC_KINDS + ("amenity", "parking", "laundry", "view", "other")
 UNIT_KINDS = ("bedrooms", "bathrooms", "area_sqft")
-JSONLD_PREFIX = "[JSON-LD] "
+# Claims read from page metadata (JSON-LD) carry "origin": METADATA; their quote is a plain phrase, not page text.
+METADATA = "metadata"
 MAX_CLAIMS = 40
 PROMPT_BUDGET = 6000
 
@@ -97,12 +98,24 @@ def to_number(v: Any) -> int | float | None:
 # ---------------------------------------------------------------- regex layer
 
 NOT_AFTER = r"(?!\s*(?:apartments|houses|homes|rentals|condos|townhomes|units)\b)"
+NOT_RANGE = r"(?![\d.,])(?!\s*(?:-|–|to)\s*\d)"
+SQFT_NUM = r"(\d{1,2},\d{3}|\d{3,5})"
+SQFT_WORD = r"(?:sq\.?\s?ft\.?|sqft|square\s+feet|sf)(?![a-z])"
+# label-colon layouts ("Bedroom: 1", "SQFT: 559-603", "Sq. Ft.: 700"); the label may end a line with the
+# value on the next one, so lines ending in such a label are matched joined with the next line.
+SPEC_LABEL = (r"(?:bed(?:room)?s?|bath(?:room)?s?|sq\.?\s*ft\.?|sqft|square\s+(?:feet|footage))")
+SPEC_COLON_RE = re.compile(rf"\b{SPEC_LABEL}\s*:", re.I)
+SPEC_TAIL_RE = re.compile(rf"\b{SPEC_LABEL}\s*:\s*$", re.I)
+# A pattern with a second group reads a sq ft range: the claim takes the low end, the quote keeps both ends.
 UNIT_PATTERNS = [
     ("bedrooms", re.compile(rf"(?<![\d,.])(\d{{1,2}}(?:\.\d)?)\s*(?:bd|bds|bdrms?|beds?|bedrooms?|br)\b{NOT_AFTER}", re.I)),
-    ("bedrooms", re.compile(r"\b(?:bedrooms|beds)\s*:\s*(\d{1,2})\b", re.I)),
+    ("bedrooms", re.compile(rf"\b(?:bedrooms?|beds?)\s*:\s*(\d{{1,2}}|studio\b){NOT_RANGE}", re.I)),
     ("bathrooms", re.compile(rf"(?<![\d,.])(\d{{1,2}}(?:\.\d)?)\s*(?:ba|baths?|bathrooms?)\b{NOT_AFTER}", re.I)),
-    ("bathrooms", re.compile(r"\b(?:bathrooms|baths)\s*:\s*(\d{1,2}(?:\.\d)?)\b", re.I)),
-    ("area_sqft", re.compile(r"(?<![\d,.])(\d{1,2},\d{3}|\d{3,5})\s*(?:sq\.?\s?ft\.?|sqft|square\s+feet|sf)(?![a-z])", re.I)),
+    ("bathrooms", re.compile(rf"\b(?:bathrooms?|baths?)\s*:\s*(\d{{1,2}}(?:\.\d)?){NOT_RANGE}", re.I)),
+    ("area_sqft", re.compile(rf"(?<![\d,.]){SQFT_NUM}\s*{SQFT_WORD}", re.I)),
+    ("area_sqft", re.compile(rf"(?<![\d,.]){SQFT_NUM}\s*(?:-|–|to)\s*{SQFT_NUM}\s*{SQFT_WORD}", re.I)),
+    ("area_sqft", re.compile(r"\b(?:sq\.?\s*ft\.?|sqft|square\s+(?:feet|footage))\s*:\s*"
+                             rf"{SQFT_NUM}(?:\s*(?:-|–|to)\s*{SQFT_NUM})?(?![\d,])", re.I)),
 ]
 STUDIO_RE = re.compile(r"\bstudio\b(?!\s*[-–])", re.I)
 BUILDING_PATTERNS = [
@@ -132,20 +145,54 @@ AMENITY_RES = [(re.compile(p, re.I), k, sc, canon) for p, k, sc, canon in AMENIT
 PLAN_RE = re.compile(r"^\s*((?i:floor\s?plan|plan|unit|model|residence|layout|apt\.?|apartment)\s+#?"
                      r"(?:[A-Z]{1,2}\d{0,3}|\d{1,4}[A-Z]?))\b")
 PLAN_BLOCK_MAX = 6
+# A bare plan name ("B", "The Birch", "A2") on its own line, right above label-colon spec lines.
+NAME_RE = re.compile(r"^[A-Za-z0-9][\w .'#&/+-]{0,23}$")
+NOT_NAME_RE = re.compile(r"\b(studios?|bed|beds|bedrooms?|bath|baths|bathrooms?|sq|sqft|feet|floor ?plans?|plans|"
+                         r"units|all|tour|view|explore|schedule|apply|availab\w*|details?|features?|facts|overview|"
+                         r"interior|exterior|summary|info|specs?|about|amenit\w*|price|rent|contact|home|menu)\b", re.I)
+# A group heading over plan cards ("Studio", "One Bedroom", "2 Bedrooms"); gives bedrooms to the cards under it.
+GROUP_RE = re.compile(r"^\s*(?:(studios?)|(\d|one|two|three|four|five)[\s-]*(?:bed(?:room)?s?|br|bd))\s*$", re.I)
+
+
+def _next_nonempty(lines: list[str], i: int, n: int) -> list[int]:
+    out = []
+    j = i + 1
+    while j < len(lines) and len(out) < n:
+        if lines[j].strip():
+            out.append(j)
+        j += 1
+    return out
+
+
+def _plan_blocks(lines: list[str]) -> tuple[list[str | None], dict[int, tuple[int, str, int]]]:
+    """Floor plan / unit label each line belongs to (table row on one line, or a card over a few lines),
+    plus {block start line: (bedrooms, heading quote, heading line)} for bare-name cards under a group heading."""
+    named = [i for i, ln in enumerate(lines)
+             if NAME_RE.match(ln.strip()) and not NOT_NAME_RE.search(ln) and not SPEC_COLON_RE.search(ln)
+             and any(SPEC_COLON_RE.search(lines[j]) for j in _next_nonempty(lines, i, 2))]
+    named = set(named) if len(named) >= 2 else set()  # plan cards repeat; one hit is a single-home fact sheet
+    labels: list[str | None] = [None] * len(lines)
+    headed: dict[int, tuple[int, str, int]] = {}
+    current, start, heading = None, 0, None
+    for i, ln in enumerate(lines):
+        m = PLAN_RE.match(ln)
+        g = GROUP_RE.match(ln)
+        if g and (nxt := _next_nonempty(lines, i, 1)) and nxt[0] in named:
+            heading = (0 if g.group(1) else to_number(g.group(2)), ln.strip(), i)
+        if m:
+            current, start = m.group(1).strip(), i
+        elif i in named:
+            current, start = ln.strip(), i
+            if heading:
+                headed[i] = heading
+        elif current and (not ln.strip() or i - start >= PLAN_BLOCK_MAX or g):
+            current = None
+        labels[i] = current
+    return labels, headed
 
 
 def _plan_labels(lines: list[str]) -> list[str | None]:
-    """Floor plan / unit label each line belongs to (table row on one line, or a card over a few lines)."""
-    labels: list[str | None] = [None] * len(lines)
-    current, start = None, 0
-    for i, ln in enumerate(lines):
-        m = PLAN_RE.match(ln)
-        if m:
-            current, start = m.group(1).strip(), i
-        elif current and (not ln.strip() or i - start >= PLAN_BLOCK_MAX):
-            current = None
-        labels[i] = current
-    return labels
+    return _plan_blocks(lines)[0]
 
 
 def _claim(kind, value, scope, label, quote, checkable=True, line=-1) -> dict:
@@ -154,19 +201,27 @@ def _claim(kind, value, scope, label, quote, checkable=True, line=-1) -> dict:
 
 
 def _regex_claims(lines: list[str], excluded: list[bool], self_lines: list[int]) -> list[dict]:
-    labels = _plan_labels(lines)
+    labels, headed = _plan_blocks(lines)
     out: list[dict] = []
     for i, ln in enumerate(lines):
         if excluded[i] or not ln.strip():
             continue
         label = labels[i]
+        unit_ln = ln
+        if SPEC_TAIL_RE.search(ln) and i + 1 < len(lines) and not excluded[i + 1]:
+            unit_ln = f"{ln.rstrip()} {lines[i + 1].strip()}"  # "SQFT:" / "559-603" on two lines
         unit_hits = []
         for kind, rx in UNIT_PATTERNS:
-            for m in rx.finditer(ln):
-                if RANGE_BEFORE.search(ln[:m.start()]):
+            for m in rx.finditer(unit_ln):
+                before = unit_ln[:m.start()]
+                if RANGE_BEFORE.search(before) or SPEC_TAIL_RE.search(before):
+                    continue  # part of a range, or the value of another label ("Bedrooms: 2 Bathrooms: 1")
+                if kind == "area_sqft" and re.search(r"\blot\b|\bacres?\b", unit_ln, re.I):
                     continue
-                if kind == "area_sqft" and re.search(r"\blot\b|\bacres?\b", ln, re.I):
-                    continue
+                if (rx.groups or 0) >= 2 and m.group(2):
+                    lo, hi = to_number(m.group(1)), to_number(m.group(2))
+                    if not label or lo is None or hi is None or lo > hi:
+                        continue  # a range not tied to one plan describes the whole building: no unit claim
                 unit_hits.append(_claim(kind, to_number(m.group(1)), "unit", label, m.group(0), line=i))
         # "Studio" counts as 0 bedrooms only inside a plan block or next to other unit numbers on the line
         sm = STUDIO_RE.search(ln)
@@ -185,6 +240,13 @@ def _regex_claims(lines: list[str], excluded: list[bool], self_lines: list[int])
             m = rx.search(ln)
             if m:
                 out.append(_claim(kind, canon, scope, None, m.group(0), line=i))
+    # cards under a "Studio" / "One Bedroom" heading that do not state bedrooms themselves
+    has_beds = {c["label"] for c in out if c["kind"] == "bedrooms" and c["label"]}
+    for start, (beds, quote, hline) in headed.items():
+        if labels[start] not in has_beds and not excluded[start] and not excluded[hline] and beds is not None:
+            has_beds.add(labels[start])
+            out.append(_claim("bedrooms", beds, "unit", labels[start], quote, line=start))
+    out.sort(key=lambda c: c["_line"])  # page order (stable within a line)
     return _resolve_unlabeled(out, self_lines)
 
 
@@ -243,40 +305,60 @@ def _amenity_kind(name: str) -> tuple[str, str]:
     return "amenity", "building"
 
 
+def plain_quote(kind: str, value: Any) -> str:
+    """What a renter would read for a claim found only in page metadata: '1 bedroom', '850 sq ft', 'Built 2019'."""
+    if kind not in NUMERIC_KINDS:
+        return str(value)
+    n = value
+    num = f"{n:,}" if isinstance(n, int) else f"{n:g}"
+    s = "" if n == 1 else "s"
+    if kind == "bedrooms":
+        return "Studio" if n == 0 else f"{num} bedroom{s}"
+    if kind == "bathrooms":
+        return f"{num} bathroom{s}"
+    if kind == "area_sqft":
+        return f"{num} sq ft"
+    if kind == "year_built":
+        return f"Built {n}"
+    if kind == "stories":
+        return f"{num} {'story' if n == 1 else 'stories'}"
+    return f"{num} unit{s}"  # unit_count
+
+
 def _jsonld_from(o: dict, label: str | None, out: list[dict]) -> None:
-    def add(kind, value, scope, key, raw, lab=label):
+    def add(kind, value, scope, lab=label):
         if value is not None:
-            out.append(_claim(kind, value, scope, lab, f"{JSONLD_PREFIX}{key}: {raw}"))
+            c = _claim(kind, value, scope, lab, plain_quote(kind, value))
+            c["origin"] = METADATA
+            out.append(c)
 
     beds = to_number(o.get("numberOfBedrooms"))
     if beds is None:
         beds = to_number(o.get("numberOfRooms"))
-        add("bedrooms", beds, "unit", "numberOfRooms", o.get("numberOfRooms"))
-    else:
-        add("bedrooms", beds, "unit", "numberOfBedrooms", o.get("numberOfBedrooms"))
+    add("bedrooms", beds, "unit")
     for key in ("numberOfBathroomsTotal", "numberOfFullBathrooms"):
         if o.get(key) is not None:
-            add("bathrooms", to_number(o[key]), "unit", key, o[key])
+            add("bathrooms", to_number(o[key]), "unit")
             break
     if o.get("floorSize") is not None:
         n, code = _qv(o["floorSize"])
         if n is not None and code.upper() in ("MTK", "M2", "SQM"):
             n = round(n * 10.7639)
-        add("area_sqft", n, "unit", "floorSize", n)
+        add("area_sqft", n, "unit")
     if o.get("yearBuilt") is not None:
-        add("year_built", to_number(o["yearBuilt"]), "building", "yearBuilt", o["yearBuilt"], None)
+        add("year_built", to_number(o["yearBuilt"]), "building", None)
     for key in ("numberOfFloors", "numberOfStories"):
         if o.get(key) is not None:
-            add("stories", to_number(o[key]), "building", key, o[key], None)
+            add("stories", to_number(o[key]), "building", None)
     if o.get("numberOfAccommodationUnits") is not None:
         n, _ = _qv(o["numberOfAccommodationUnits"])
-        add("unit_count", n, "building", "numberOfAccommodationUnits", n, None)
+        add("unit_count", n, "building", None)
     feats = o.get("amenityFeature") or []
     for f in feats if isinstance(feats, list) else [feats]:
         name = f.get("name") if isinstance(f, dict) else f
         if name and (not isinstance(f, dict) or f.get("value", True) not in (False, "false", "False")):
             kind, scope = _amenity_kind(str(name))
-            add(kind, str(name), scope, "amenityFeature", name, None)
+            add(kind, str(name)[:80], scope, None)
 
 
 def _jsonld_claims(jsonld: Any, self_re: re.Pattern | None) -> list[dict]:
@@ -318,6 +400,7 @@ FEATURE_HEAD_RE = re.compile(r"amenit|features|appliances|utilities included", r
 def prefilter(lines: list[str], excluded: list[bool], self_lines: list[int], budget: int = PROMPT_BUDGET) -> str:
     """Compact excerpt of the page about the clicked listing, for the model prompt."""
     picked, seen, size = [], set(), 0
+    labels = _plan_labels(lines)
     in_list = 0  # lines left in an "Amenities" / "Features" list
     for i, ln in enumerate(lines):
         s = ln.strip()
@@ -332,10 +415,12 @@ def prefilter(lines: list[str], excluded: list[bool], self_lines: list[int], bud
         near = any(abs(i - j) <= NEAR_SELF for j in self_lines)
         keyword = KEYWORD_RE.search(s) and (re.search(r"\d|studio", s, re.I) or len(s) <= 80
                                             or any(rx.search(s) for rx, *_ in AMENITY_RES))
-        if not (near or keyword or (listed and len(s) <= 80) or PLAN_RE.match(s)):
+        plan_name = labels[i] is not None and s == labels[i]  # a bare plan name line ("B") above its specs
+        spec_value = i > 0 and SPEC_TAIL_RE.search(lines[i - 1])  # "559-603" under "SQFT:"
+        if not (near or keyword or (listed and len(s) <= 80) or PLAN_RE.match(s) or plan_name or spec_value):
             continue
         key = re.sub(r"\s+", " ", s.lower())
-        if key in seen:
+        if key in seen and labels[i] is None:  # plan cards repeat "Bathroom: 1"; keep each card whole
             continue
         seen.add(key)
         s = s[:600]
@@ -442,6 +527,8 @@ def _finish(groups: list[list[dict]]) -> list[dict]:
     for n, c in enumerate(merged[:MAX_CLAIMS], 1):
         out.append({"id": f"c{n}", "kind": c["kind"], "value": c["value"], "unit": None,
                     "scope": c["scope"], "label": c["label"], "quote": c["quote"], "checkable": c["checkable"]})
+        if c.get("origin"):
+            out[-1]["origin"] = c["origin"]
     for c in out:
         if c["kind"] == "area_sqft":
             c["unit"] = "sqft"
@@ -479,8 +566,10 @@ def validate_claim(c: Any) -> list[str]:
         return ["not a dict"]
     errs = []
     want = {"id", "kind", "value", "unit", "scope", "label", "quote", "checkable"}
-    if set(c) != want:
-        errs.append(f"keys {sorted(set(c) ^ want)} differ")
+    if set(c) - {"origin"} != want:
+        errs.append(f"keys {sorted((set(c) - {'origin'}) ^ want)} differ")
+    if "origin" in c and c["origin"] != METADATA:
+        errs.append(f"origin must be {METADATA!r} when present")
     if not (isinstance(c.get("id"), str) and re.fullmatch(r"c\d+", c["id"])):
         errs.append("id must be c<n>")
     if c.get("kind") not in KINDS:

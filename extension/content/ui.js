@@ -80,7 +80,8 @@
     const groups = new Map();
     if (run && flat) for (const c of run.claims) {
       const v = run.verdicts[c.id];
-      if (!v || !c.quote) continue;
+      // metadata claims carry a plain phrase ("2 bedrooms"), not page words: nothing on the page to mark
+      if (!v || !c.quote || c.origin === "metadata") continue;
       const tip = v.verdict === "cant_check"
         ? `Listing says ${v.claimed}. We can't verify this.`
         : `Listing says ${v.claimed}. ${SRC[v.source] || "We"} ${SRC[v.source] ? "shows" : "found"} ${v.found}.`;
@@ -361,8 +362,17 @@
   }
 
   // ---------- rescan on DOM changes ----------
-  let moT = 0;
-  new MutationObserver(() => { clearTimeout(moT); moT = setTimeout(scan, 500); })
+  // Wait for 500 ms of quiet, but never more than 2 s after the first change: pages that never stop
+  // changing (tickers, carousels) would otherwise push the rescan back forever.
+  let moT = 0, moFirst = 0;
+  const QUIET_MS = 500, MAX_WAIT_MS = 2000;
+  function rescanNow() { clearTimeout(moT); moT = 0; moFirst = 0; scan(); }
+  new MutationObserver(() => {
+    const now = Date.now();
+    if (!moFirst) moFirst = now;
+    clearTimeout(moT);
+    moT = setTimeout(rescanNow, Math.max(0, Math.min(QUIET_MS, moFirst + MAX_WAIT_MS - now)));
+  })
     .observe(document.body || document.documentElement, { childList: true, subtree: true, characterData: true });
   scan();
 

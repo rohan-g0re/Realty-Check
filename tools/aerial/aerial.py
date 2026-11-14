@@ -56,14 +56,15 @@ class _NoCoverage(Exception):
     pass
 
 
-def _call(method: str, path: str, params: dict | None = None, body: dict | None = None) -> bytes:
+def _call(method: str, path: str, params: dict | None = None, body: dict | None = None,
+          timeout: float = 120) -> bytes:
     """One rate-limited Vexcel call. Returns body bytes; raises _NoCoverage on 403/404, RuntimeError otherwise."""
     headers = {"X-API-KEY": rc_common.secret("VEXCEL_API_KEY")}
     r = None
     for attempt in range(3):
         _RATE.wait()
         CALLS["n"] += 1
-        r = requests.request(method, f"{API}/{path}", headers=headers, params=params, json=body, timeout=120)
+        r = requests.request(method, f"{API}/{path}", headers=headers, params=params, json=body, timeout=timeout)
         if r.status_code == 429:
             time.sleep(2 ** attempt)
             continue
@@ -261,3 +262,302 @@ def _build_height(lat: float, lon: float, d: Path) -> dict:
     return rc_common.evidence("aerial", "ok", summary,
                               {"height_m": roof, "stories": stories, "stories_range": rng, "capture_date": date},
                               detail=detail)
+
+
+# ---------- property_attributes ----------
+
+PROPERTY_VERSION = 2   # bump when the parsing below changes; the cache file name carries it
+PROPERTY_TIMEOUT_S = 8
+
+# Our name -> the service's yes/no field (property/extract answers with flat, dotted keys).
+# hot_tub is reported by the service as a pool type ("pool.types.hot-tub.detected").
+_FLAGS = {"hot_tub": "pool.types.hot-tub.detected", "sport_court": "sport-court.detected",
+          "playground": "playground.detected", "trampoline": "trampoline.detected", "deck": "deck.detected"}
+_POOL_KINDS = (("in-ground", "in-ground"), ("above-ground", "above-ground"), ("hot-tub", "hot tub"))
+
+
+def _get(p: dict, key: str):
+    """Field by its dotted name: flat key as the service sends it, or nested dicts as a fallback."""
+    if key in p:
+        return p[key]
+    cur = p
+    for part in key.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur
+
+
+def _bool(v) -> bool | None:
+    return v if isinstance(v, bool) else None
+
+
+def _num(v) -> float | None:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _solar(p: dict) -> bool | None:
+    """Solar is per building ('structures' list: roof-objects.solar.value, or a photovoltaic panel count > 0)."""
+    seen = []
+    for s in p.get("structures") or []:
+        if not isinstance(s, dict):
+            continue
+        pv = _num(_get(s, "roof-objects.solar-panel-photovoltaic.count"))
+        seen += [_bool(_get(s, "roof-objects.solar.value")), (pv > 0) if pv is not None else None]
+    if True in seen:
+        return True
+    return False if False in seen else None
+
+
+def _type_count(p: dict, kind: str) -> int | None:
+    """Objects of one pool type: 'pool.types.<kind>.count', or else enclosed + non-enclosed counts (the service fills
+    one or the other depending on the survey). None when neither is a number."""
+    n = _num(_get(p, f"pool.types.{kind}.count"))
+    if n is not None:
+        return int(n)
+    parts = [_num(_get(p, f"pool.types.{kind}.{e}.count")) for e in ("enclosed", "non-enclosed")]
+    return int(sum(x for x in parts if x is not None)) if any(x is not None for x in parts) else None
+
+
+def _pool_count(p: dict) -> int | None:
+    """Pools (in-ground + above-ground; hot tubs are counted separately)."""
+    parts = [_type_count(p, k) for k in ("in-ground", "above-ground")]
+    return sum(x for x in parts if x is not None) if any(x is not None for x in parts) else None
+
+
+def _flag(p: dict, name: str) -> bool | None:
+    if name == "pool":
+        return _bool(_get(p, "pool.detected"))
+    if name == "solar":
+        return _solar(p)
+    return _bool(_get(p, _FLAGS[name]))
+
+
+def _per_year(data) -> list[tuple[str, dict]]:
+    """[(capture date, properties)] newest year first, one result per year (the latest-dated one in that year).
+    The service returns every survey it has (several per year, two layers) even when asked for the latest only."""
+    best: dict[str, tuple[str, dict]] = {}
+    for f in (data or {}).get("features") or []:
+        p = (f or {}).get("properties") if isinstance(f, dict) else None
+        date = _get(p, "metadata.ortho-date-estimate") if isinstance(p, dict) else None
+        if not isinstance(date, str) or not re.match(r"\d{4}-\d\d-\d\d", date):
+            continue
+        date = date[:10]
+        if date[:4] not in best or date > best[date[:4]][0]:
+            best[date[:4]] = (date, p)
+    return [best[y] for y in sorted(best, reverse=True)]
+
+
+def _parse_property(data) -> dict | None:
+    years = _per_year(data)
+    if not years:
+        return None
+    captured, p = years[0]
+    prev = years[1][1] if len(years) > 1 else None  # the latest earlier survey year present
+
+    def stable(name: str, now: bool) -> bool:
+        # Same yes/no in the newest year and the year before. With one year only (or no answer the year before)
+        # we cannot tell, so this is False, not True.
+        before = _flag(prev, name) if prev is not None else None
+        return before is not None and before == now
+
+    out: dict = {"captured": captured}
+    present = _flag(p, "pool")
+    if present is not None:
+        pool = {"present": present, "confidence": None, "area_sqft": None}
+        if present:
+            score, area = _num(_get(p, "pool.score")), _num(_get(p, "pool.total-area"))  # area: sq ft (imperial)
+            pool["confidence"] = round(min(1.0, max(0.0, score)), 2) if score is not None else None
+            pool["area_sqft"] = int(round(area)) if area is not None else None
+            kinds = [text for key, text in _POOL_KINDS if _get(p, f"pool.types.{key}.detected") is True]
+            if kinds:
+                pool["kind"] = ", ".join(kinds)
+            n = _pool_count(p)
+            if n is not None:
+                pool["count"] = n
+        pool["stable"] = stable("pool", present)
+        out["pool"] = pool
+    for name in ("hot_tub", "sport_court", "playground", "solar", "trampoline", "deck"):
+        now = _flag(p, name)
+        if now is not None:
+            out[name] = {"present": now, "stable": stable(name, now)}
+            if name == "hot_tub" and now and _type_count(p, "hot-tub") is not None:
+                out[name]["count"] = _type_count(p, "hot-tub")
+    count = _num(_get(p, "vehicles.count"))
+    if count is not None:
+        out["vehicles"] = int(count)
+    elif _get(p, "vehicles.detected") is False:  # the service leaves the count empty when it saw none
+        out["vehicles"] = 0
+    tree = _num(_get(p, "parcel-tree-cover.percent"))
+    if tree is not None:
+        out["tree_cover_pct"] = round(tree, 1)
+    n = _num(_get(p, "structure.count"))
+    if n is not None:
+        out["buildings"] = int(n)
+    if len(out) == 1:  # a date and nothing else
+        return None
+    out["source"] = "Vexcel property data"
+    # Not exposed on purpose: building type, footprint, stories, roof height. They flip between years or come back
+    # empty on tall apartment buildings (live probe), so they would mislead.
+    return out
+
+
+def property_attributes(lat: float, lon: float) -> dict | None:
+    """Outdoor features of the parcel at the point (pool, courts, solar, vehicles, tree cover) from Vexcel
+    property/extract, newest survey year, each yes/no marked stable when the year before agrees.
+    Counts: pool["count"] (in-ground + above-ground) and hot_tub["count"] when the service gives one, plus
+    "vehicles" and "buildings". The service gives no count for sport courts, playgrounds or decks (yes/no only).
+    None on failure, timeout or no data; never raises. Only successful answers are cached."""
+    try:
+        path = _dir(lat, lon) / f"property_v{PROPERTY_VERSION}.json"
+        if cachectl.hit(path):
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except ValueError:
+                pass
+        raw = _call("GET", "property/extract", params={
+            "wkt": _point(lat, lon), "srid": 4326, "layer": LAYERS, "latest": "true",
+            "include": "precomputed", "unit-system": "imperial"}, timeout=PROPERTY_TIMEOUT_S)
+        out = _parse_property(json.loads(raw))
+        if out is not None:
+            path.write_text(json.dumps(out, indent=1), encoding="utf-8")
+        return out
+    except Exception:  # never raise; nothing cached
+        return None
+
+
+# ---------- feature_outlines (elements/detect) ----------
+# property/extract has no geometry for pools, courts or solar (only the parcel and building footprints), so the boxes
+# come from Vexcel elements/detect run on the same square and layers as the top-down photo of aerial_images.
+
+OUTLINE_VERSION = 1
+OUTLINE_TIMEOUT_S = 15       # live detection took 1.2-1.6 s in the probe
+OUTLINE_HALF_M = 60          # same square as aerial_images' default top-down photo
+OUTLINE_THRESHOLD = 0.5
+_DETECT_LABELS = {"pool": "swimming pool", "sport_court": "tennis court", "solar": "solar panel"}
+_SHOWN = {"pool": "Pool", "sport_court": "Sport court", "solar": "Solar panels"}
+
+
+def _bbox_of_wkt(wkt) -> list[float] | None:
+    """'POLYGON ((x y, ...))' -> [w, s, e, n]; None when it does not parse."""
+    if not isinstance(wkt, str):
+        return None
+    nums = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?(?:[eE]-?\d+)?", wkt)]
+    if len(nums) < 4 or len(nums) % 2:
+        return None
+    xs, ys = nums[0::2], nums[1::2]
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
+def _parse_detect(data) -> list[dict]:
+    back = {v: k for k, v in _DETECT_LABELS.items()}
+    out = []
+    for f in (data or {}).get("features") or []:
+        props = (f or {}).get("properties") if isinstance(f, dict) else None
+        if not isinstance(props, dict) or props.get("label") not in back:
+            continue
+        for det in props.get("detections") or []:
+            box = _bbox_of_wkt((det or {}).get("bbox")) if isinstance(det, dict) else None
+            if box is None:
+                continue
+            conf = _num(det.get("confidence"))
+            out.append({"feature": back[props["label"]], "bbox": [round(v, 7) for v in box],
+                        "confidence": round(conf, 2) if conf is not None else None})
+    out.sort(key=lambda o: (o["feature"], -(o["confidence"] or 0)))
+    return out
+
+
+def feature_outlines(lat: float, lon: float) -> list[dict] | None:
+    """Boxes around pools, sport courts and solar panels seen in the top-down photo square (2 x 60 m around the
+    point; may include neighbouring parcels), from Vexcel elements/detect:
+    [{"feature": "pool", "bbox": [w, s, e, n], "confidence": 0.81}, ...]. [] when nothing was found.
+    None on failure or timeout; never raises. Only successful answers are cached."""
+    try:
+        path = _dir(lat, lon) / f"outlines_v{OUTLINE_VERSION}.json"
+        if cachectl.hit(path):
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except ValueError:
+                pass
+        sq = _square(lat, lon, OUTLINE_HALF_M)
+        raw = _call("POST", "elements/detect", body={
+            "wkt": sq, "srid": 4326, "buffer-meter": 0,
+            "images": [{"endpoint": "ortho/extract",
+                        "request": {"layer": LAYERS, "srid": 4326, "wkt": sq, "crop": "bounding_box"}}],
+            "model-input": {"elements": [{"label": l, "model": "sam3", "detection-threshold": OUTLINE_THRESHOLD}
+                                         for l in _DETECT_LABELS.values()],
+                            "include": ["bbox", "confidence"]}}, timeout=OUTLINE_TIMEOUT_S)
+        data = json.loads(raw)
+        if not isinstance(data, dict) or "features" not in data:
+            return None
+        out = _parse_detect(data)
+        path.write_text(json.dumps(out, indent=1), encoding="utf-8")
+        return out
+    except Exception:  # never raise; nothing cached
+        return None
+
+
+def _to_px(lat: float, lon: float, half_m: int, size: tuple[int, int], x: float, y: float) -> tuple[float, float]:
+    """Map coordinates -> pixel in the top-down photo of the square _square(lat, lon, half_m) (north up)."""
+    dlat = half_m / 111_320
+    dlon = half_m / (111_320 * math.cos(math.radians(lat)))
+    w, n = lon - dlon, lat + dlat
+    return (x - w) / (2 * dlon) * size[0], (n - y) / (2 * dlat) * size[1]
+
+
+def draw_outlines(photo: Path, lat: float, lon: float, outlines: list[dict], out: Path,
+                  half_m: int = OUTLINE_HALF_M) -> Path:
+    """Thin box plus a short label ('Pool') per outline on a copy of the top-down photo."""
+    from PIL import ImageDraw, ImageFont
+    im = Image.open(photo).convert("RGB")
+    dr = ImageDraw.Draw(im)
+    lw = max(2, im.width // 500)
+    try:
+        font = ImageFont.load_default(size=max(12, im.width // 60))
+    except TypeError:  # Pillow < 10.1
+        font = ImageFont.load_default()
+    for o in outlines:
+        w, s, e, n = o["bbox"]
+        x0, y0 = _to_px(lat, lon, half_m, im.size, w, n)
+        x1, y1 = _to_px(lat, lon, half_m, im.size, e, s)
+        x0, x1 = sorted((max(0.0, min(im.width - 1.0, x0)), max(0.0, min(im.width - 1.0, x1))))
+        y0, y1 = sorted((max(0.0, min(im.height - 1.0, y0)), max(0.0, min(im.height - 1.0, y1))))
+        if x1 - x0 < 1 or y1 - y0 < 1:
+            continue  # wholly outside the photo
+        dr.rectangle([x0, y0, x1, y1], outline=(255, 214, 0), width=lw)
+        label = _SHOWN.get(o["feature"], o["feature"])
+        th = dr.textbbox((0, 0), label, font=font)[3] + 6
+        ty = y0 - th if y0 >= th else (y1 + 4 if y1 + th < im.height else y0 + 4)
+        tb = dr.textbbox((x0 + 4, ty), label, font=font)
+        dr.rectangle([tb[0] - 3, tb[1] - 3, tb[2] + 3, tb[3] + 3], fill=(0, 0, 0))
+        dr.text((x0 + 4, ty), label, fill=(255, 214, 0), font=font)
+    im.save(out, "JPEG", quality=85)
+    return out
+
+
+def outlined_image(lat: float, lon: float) -> dict | None:
+    """The top-down Vexcel aerial photo with detected pools / sport courts / solar panels boxed and labelled, as an
+    evidence image {"path", "caption"}. None when there is no photo, the detection failed or found nothing.
+    Never raises."""
+    try:
+        outlines = feature_outlines(lat, lon)
+        if not outlines:
+            return None
+        ev = aerial_images(lat, lon, OUTLINE_HALF_M)
+        top = next((i for i in ev.get("images") or [] if (i.get("caption") or "").startswith("Top-down")), None)
+        if ev.get("status") != "ok" or top is None or not Path(top["path"]).exists():
+            return None
+        out = _dir(lat, lon) / f"topdown_h{OUTLINE_HALF_M}_outlined_v{OUTLINE_VERSION}.jpg"
+        if not cachectl.hit(out):
+            draw_outlines(Path(top["path"]), lat, lon, outlines, out)
+        names = []
+        for o in outlines:
+            name = _SHOWN.get(o["feature"], o["feature"]).lower()
+            if name not in names:
+                names.append(name)
+        m = re.search(r"\((\d{4}-\d\d-\d\d)\)", top.get("caption") or "")
+        return {"path": str(out),
+                "caption": "Top-down Vexcel aerial photo" + (f" ({m.group(1)})" if m else "")
+                           + ", detected " + ", ".join(names) + " outlined"}
+    except Exception:
+        return None

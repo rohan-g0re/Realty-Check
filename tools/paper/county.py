@@ -18,7 +18,7 @@ from .owner import owner_type
 
 CENSUS = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
 NO_SOURCE = "No county source wired for this location yet."
-CACHE_VERSION = 2  # 2: land use and owner type added; evidence cached before lacks them
+CACHE_VERSION = 3  # 2: land use and owner type added; 3: Houston residential year/floors/units, address fallback
 
 
 def _key(*parts) -> str:
@@ -74,9 +74,9 @@ def _clean_use(v) -> str | None:
 def _summary(obs: dict) -> str:
     bits = []
     if "stories" in obs:
-        bits.append(f"{obs['stories']} floors")
+        bits.append(f"{obs['stories']} floor{'' if obs['stories'] == 1 else 's'}")
     if "unit_count" in obs:
-        bits.append(f"{obs['unit_count']} units")
+        bits.append(f"{obs['unit_count']} unit{'' if obs['unit_count'] == 1 else 's'}")
     if "building_sf" in obs:
         bits.append(f"{obs['building_sf']:,} sq ft of building")
     s = "County roll lists " + ", ".join(bits) if bits else "County roll has the parcel"
@@ -88,25 +88,56 @@ def _summary(obs: dict) -> str:
     return s
 
 
+def _zip(address: str) -> str:
+    m = re.search(r"\b(\d{5})(?:-\d{4})?\s*$", address or "")
+    return m.group(1) if m else ""
+
+
 def _houston(address: str, lat: float, lon: float) -> dict:
-    p, purl = hcad.parcel_at(lat, lon, _house_no(address))
+    num = _house_no(address)
+    p, purl = hcad.parcel_at(lat, lon, num)
+    how = "point"
+    if num and (not p or str(p.get("site_str_num") or "").strip() != num):
+        # the map point found no parcel, or one with another house number: look the parcel up by its address,
+        # accepted only when exactly one account has this house number and street, near the point (closer when
+        # the point did hit a parcel, so a good point hit is not traded for a far one)
+        q, qurl, n = hcad.parcel_by_address(num, _street(address), _zip(address), lat, lon,
+                                            max_m=1000 if not p else 250)
+        if q:
+            p, purl, how = q, qurl, "address"
+        elif not p:
+            return evidence("county", "no_evidence", "No Harris County parcel at this point.",
+                            detail=f"HCAD Parcels MapServer point query returned nothing: {purl}. Address lookup "
+                                   f"by house number and street found {n} matching accounts"
+                                   f"{' (ambiguous, not guessed)' if n > 1 else ''}: {qurl}")
     if not p:
         return evidence("county", "no_evidence", "No Harris County parcel at this point.",
                         detail=f"HCAD Parcels MapServer point query returned nothing: {purl}")
     acct = (p.get("HCAD_NUM") or p.get("acct_num") or "").strip()
     facts, zurl = hcad.building_facts(acct)
+    use = facts.pop("building_use", None)
     site = " ".join(str(p.get(k) or "") for k in ("site_str_num", "site_str_name", "site_str_sfx")).strip()
     withheld = str(p.pop("confidential_flag", "") or "").strip().upper() in ("Y", "YES", "1", "T", "TRUE")
     extra = _extras(hcad.land_use(p.get("state_class")), owner_type(p.pop("owner_name_1", None), withheld))
-    obs = {**facts, **extra, "parcel_id": acct, "parcel_address": site,
+    obs = {**facts, **extra, "parcel_id": acct, "parcel_address": site, "parcel_match": how,
            "source_name": "Harris County Appraisal District (HCAD)", "source_url": purl}
-    detail = (f"HCAD Parcels MapServer point query (gis.hctx.net, fields HCAD_NUM, state_class "
-              f"{p.get('state_class')}, tax_year {p.get('tax_year')}) gave account {acct}; building facts "
-              f"from HCAD certified bulk roll {zurl}: fixtures.txt type STC '# Stories' (max over "
-              f"buildings) -> stories; building_other.txt date_erected of the largest building -> "
-              f"year_built, units -> unit_count (fixtures UNT if empty), sum of im_sq_ft -> building_sf; "
-              f"state_class -> land_use; owner_name_1 -> owner_type (company or individual only, the name is "
-              f"not kept).")
+    found = ("HCAD Parcels MapServer point query" if how == "point" else
+             "HCAD Parcels MapServer address query (the map point found no parcel with this house number; the "
+             "one account with the same house number and street was taken)")
+    if use:
+        roll = (f"building_res.txt (residential, property use {use}): date_erected of the largest building -> "
+                f"year_built; fixtures.txt type STY 'Story Height Index' of that building -> stories "
+                f"(houses and duplex to fourplex only, not condo units); unit_count from the building type only "
+                f"(single-family 1, duplex 2, triplex 3, fourplex 4)")
+    else:
+        roll = ("fixtures.txt type STC '# Stories' (max over buildings) -> stories; building_other.txt "
+                "date_erected of the largest building -> year_built, units -> unit_count (fixtures UNT if empty), "
+                "sum of im_sq_ft -> building_sf")
+    detail = (f"{found} (gis.hctx.net, fields HCAD_NUM, state_class {p.get('state_class')}, tax_year "
+              f"{p.get('tax_year')}) gave account {acct}; building facts from HCAD certified bulk roll {zurl}: "
+              f"{roll}; state_class -> land_use; owner_name_1 -> owner_type (company or individual only, the name "
+              f"is not kept).")
+    summary = _summary(facts) + (" Parcel matched by address." if how == "address" else "")
     if not facts and extra:
         return evidence("county", "ok", f"Harris County parcel {acct} has no building data on the roll."
                         + (f" Land use: {extra['land_use']}." if extra.get("land_use") else ""),
@@ -114,9 +145,8 @@ def _houston(address: str, lat: float, lon: float) -> dict:
     if not facts:
         return evidence("county", "no_evidence",
                         f"Harris County parcel {acct} has no building data on the roll.",
-                        observed=obs, detail=detail + " No building rows for this account (residential "
-                                                      "accounts are not indexed).")
-    return evidence("county", "ok", _summary(facts), observed=obs, detail=detail)
+                        observed=obs, detail=detail + " No building or residential rows for this account.")
+    return evidence("county", "ok", summary, observed=obs, detail=detail)
 
 
 def _la(address: str, lat: float, lon: float) -> dict:
@@ -130,6 +160,8 @@ def _la(address: str, lat: float, lon: float) -> dict:
               f"roll year {p.get('Roll_Year')}): AIN {p.get('AIN')}, situs {p.get('SitusFullAddress')}, "
               f"use {p.get('UseDescription')}; YearBuilt1 -> year_built, sum Units1-5 -> unit_count, "
               f"sum SQFTmain1-5 -> building_sf, UseDescription -> land_use. Query: {purl}")
+    if facts.get("units_basis"):
+        detail += f" Units: {facts['units_basis']}."
     # stories: City of LA Certificates of Occupancy (assessor publishes no story count)
     tried = []
     for num, street in ((_house_no(address), _street(address)),
@@ -150,6 +182,8 @@ def _la(address: str, lat: float, lon: float) -> dict:
            "source_name": "Los Angeles County Assessor"
                           + (" + City of LA Certificates of Occupancy" if "stories" in facts else ""),
            "source_url": purl}
+    if (facts.get("parcels_combined") or 0) > 1:
+        obs["units_estimated"] = True  # a unit count summed over sibling parcels is an estimate
     if not facts:
         return evidence("county", "no_evidence",
                         f"Los Angeles County parcel {p.get('AIN')} has no building data on the roll.",

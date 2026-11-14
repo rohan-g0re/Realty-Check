@@ -204,7 +204,8 @@ def build_agent(run, model: BudgetedCLIModel):
 
     # outside
     def measure_building() -> str:
-        """Measure the roof height above ground from Vexcel elevation data, estimate floors, fetch the aerial photos."""
+        """Measure the roof height above ground from Vexcel elevation data, estimate floors, fetch the aerial photos
+        and Vexcel property data (pool, hot tub, courts, playground, solar marked on the parcel)."""
         return run.tool("outside", run.measure_building)
 
     def outdoor_feature_photos() -> str:

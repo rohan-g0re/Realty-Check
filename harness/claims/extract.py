@@ -569,6 +569,43 @@ def extract_claims(snapshot: dict, use_model: bool = True) -> list[dict]:
     return _finish([model, jsonld, fill])
 
 
+# ---------------------------------------------------------------- the page's own unit
+
+UNIT_HEAD_LINES = 6  # leading non-empty page lines read as the heading
+
+
+def _unit_tools():
+    """(unit_from_text, norm_unit) from tools.kit.units, loaded lazily; None when the kit is not importable."""
+    try:
+        from tools.kit.units import norm_unit, unit_from_text
+        return unit_from_text, norm_unit
+    except Exception:
+        return None
+
+
+def page_unit(snapshot: dict, claims: list[dict] | None = None) -> str | None:
+    """The one apartment the page is about ('1204' for "Unit 1204", "#1204", "Apt 1204"), read from the address
+    line, the page title and the heading lines (never the URL), and from unit claim labels when every one names
+    the same unit ("Unit 1204"). None when nothing names a unit, two different units are named, or the labels are
+    plan names ("Plan C", "The Aspen", "A1"). A unit, not a plan: the run looks it up in the kit's unit rows and
+    drops that label from its claims only when the building has that unit and no plan of that name."""
+    tools = _unit_tools()
+    if not tools:
+        return None
+    from_text, norm = tools
+    heads = [ln.strip() for ln in str(snapshot.get("text") or "")[:20000].splitlines() if ln.strip()]
+    found = [from_text(s) for s in [snapshot.get("address_text"), snapshot.get("title")]
+             + [ln for ln in heads[:UNIT_HEAD_LINES] if len(ln) <= 120]]
+    labels = {str(c.get("label")).strip() for c in claims or []
+              if c.get("label") and c.get("kind") in UNIT_KINDS}
+    named = {from_text(lab) for lab in labels}
+    if labels and None not in named and len({norm(u) for u in named}) == 1:
+        found.append(next(iter(named)))
+    found = [u for u in found if u]
+    keys = {norm(u) for u in found} | {norm(u) for u in named if u}  # labels naming other units: a list of homes
+    return found[0] if found and len(keys) == 1 else None
+
+
 # ---------------------------------------------------------------- validation
 
 def validate_claim(c: Any) -> list[str]:

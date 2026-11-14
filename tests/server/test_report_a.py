@@ -226,3 +226,38 @@ def test_dead_pictures_leave_no_broken_slot(tmp_path):
     html = render_report(run)
     assert "<img src='/img/" not in html and "data-proof='pictures'" not in html
     assert "Realty Check" in html
+
+def test_listing_vs_record_sits_after_the_hero():
+    html = render_report(_rich())
+    assert html.count("id=compare") == 1
+    assert html.index("</h1>") < html.index("id=compare") < html.index("id=mismatch") < html.index("id=sources")
+    table = html[html.index("id=compare"):html.index("id=mismatch")]
+    assert "Listing vs record" in table and "<table>" in table
+    assert len(re.findall(r"<tr class='lt-r-", table)) == 7  # every claim, once
+    ids = re.findall(r"data-claim='(\w+)'", table)
+    assert ids[:3] == ["c3", "c4", "c1"] and set(ids[3:5]) == {"c2", "c5"} and ids[5:] == ["c7", "c6"]
+
+
+def test_listing_vs_record_on_the_invented_sample_run(monkeypatch):
+    import server.fake_run as fake
+    monkeypatch.setattr(fake, "GAP", (0, 0))
+    events = []
+    fake.run_fake({"address_text": "418 Linden Grove Ave, Houston, TX 77006", "run_id": "sample"}, events.append)
+    run = {"run_id": "sample", "finished": True, "events": events, "images": {},
+           "snapshot": {"address_text": "418 Linden Grove Ave, Houston, TX 77006", "url": "", "title": "sample"}}
+    html = render_report(run, live_3d=False)
+    table = html[html.index("id=compare"):html.index("id=mismatch")]
+    assert len(re.findall(r"<tr class='lt-r-", table)) == 5
+    floors = re.search(r"<tr class='lt-r-contradicted' data-claim='c2'>.*?</tr>", table).group(0)
+    assert "High · 82" in floors and floors.count(">decides<") == 1
+    assert table.count("High · 82") == 1
+    # every mismatch carries an invented confidence block; the match and the couldn't-check row show none
+    rows = dict(re.findall(r"<tr class='lt-r-\w+' data-claim='(\w+)'>(.*?)</tr>", table))
+    for cid in ("c1", "c2", "c3"):
+        assert rows[cid].count(">decides<") == 1 and "<td class=lt-conf></td>" not in rows[cid]
+    for cid in ("c4", "c5"):
+        assert "<td class=lt-conf></td>" in rows[cid]
+    # source cells are short facts, never a cut sentence
+    assert "…" not in table[table.index("<tbody>"):] and "1 bed<" in rows["c1"]
+    # the pool is confirmed by the invented Vexcel property data
+    assert "Pool, ~1,900 sq ft (2025 survey)" in rows["c4"] and "Holds up" in rows["c4"]

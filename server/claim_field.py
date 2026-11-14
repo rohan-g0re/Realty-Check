@@ -123,12 +123,16 @@ def _parts(run: dict):
 def _relevant(claim: dict, evs: list) -> list:
     """This source's evidence that bears on the claim, by the judge's own relevance rule (`_usable`),
     plus picture checks naming the claim and the record's full plan list for unnamed unit claims."""
-    from harness.graph import amenities
+    from harness.graph import amenities, trust
     from harness.graph.judge import UNIT_KINDS, _usable
     if amenities.is_feature_claim(claim):
-        return [e for e in evs if e.get("status") == "ok" and claim.get("id") in
-                ((e.get("observed") or {}).get("claim_ids") or [])
-                and (e.get("observed") or {}).get("presence") not in (None, "skipped")]
+        pk = trust.property_key(claim)  # Vexcel property data names no claim: its yes / no for this feature counts
+        return [e for e in evs if e.get("status") == "ok" and (
+                (claim.get("id") in ((e.get("observed") or {}).get("claim_ids") or [])
+                 and (e.get("observed") or {}).get("presence") not in (None, "skipped"))
+                or (pk and isinstance((e.get("observed") or {}).get("property"), dict)
+                    and isinstance(e["observed"]["property"].get(pk), dict)
+                    and isinstance(e["observed"]["property"][pk].get("present"), bool)))]
     out = _usable(claim, evs, any_plan=True)
     if claim.get("kind") in UNIT_KINDS and not claim.get("label") and claim.get("scope") != "building":
         out += [e for e in evs if e.get("status") == "ok" and e not in out
@@ -293,12 +297,105 @@ def _cap(s: str) -> str:
     return s[:1].upper() + s[1:]
 
 
-def _cell(claim: dict, evs: list) -> dict:
+def _single_unit(run: dict, claims: list) -> bool:
+    """Whether the page is about one home, as the run judged it: the `done` event's harness.single_unit when the
+    run recorded it, else the run's own rule (harness.graph.run.Run.single_unit_page) on these claims and match."""
+    events = [e for e in (run or {}).get("events") or [] if isinstance(e, dict)]
+    for e in events:
+        if e.get("type") == "done" and isinstance((e.get("harness") or {}).get("single_unit"), bool):
+            return e["harness"]["single_unit"]
+    try:
+        from types import SimpleNamespace
+
+        from harness.graph.run import Run
+        match = next((e.get("match") for e in events if e.get("type") == "match" and isinstance(e.get("match"), dict)),
+                     None) or {}
+        return bool(Run.single_unit_page(SimpleNamespace(match=match, claims=list(claims))))
+    except Exception:  # noqa: BLE001  when unsure: not a single home, like the run
+        return False
+
+
+SHORT_MAX = 28  # longest derived short fact; anything longer reads as a sentence and is left out
+PROPERTY_SHORT = {"pool": "Pool", "hot_tub": "Hot tub", "sport_court": "Sport court", "playground": "Playground",
+                  "solar": "Solar panels"}
+_JUNK_FOUND = {"", "no data", "not checked", "nothing to measure", "no source covers this"}
+
+
+def compact(s, limit: int = SHORT_MAX) -> str:
+    """'1 bedroom and a den' -> '1 bed + den', 'built in 2016' -> 'Built 2016', '6 stories' -> '6 floors'. '' when the
+    text is a sentence or longer than `limit`: a short fact or nothing, never a cut sentence."""
+    s = re.sub(r"\s+", " ", str(s or "")).strip().rstrip(".")
+    s = re.sub(r"\bbedroom(s?)\b", r"bed\1", s, flags=re.I)
+    s = re.sub(r"\bbathroom(s?)\b", r"bath\1", s, flags=re.I)
+    s = re.sub(r"\s*(?:\+|\band\b|\bplus\b|\bwith\b)\s+(?:an?\s+)?den\b", " + den", s, flags=re.I)
+    s = re.sub(r"\bstories\b", "floors", s, flags=re.I)
+    s = re.sub(r"\bstory\b", "floor", s, flags=re.I)
+    s = re.sub(r"\bsquare feet\b", "sq ft", s, flags=re.I)
+    s = re.sub(r"^built (?:in )?(\d{4})$", r"Built \1", s, flags=re.I)
+    if not s or len(s) > limit or re.search(r"[.;!?]\s|:\s", s):
+        return ""
+    return _cap(s)
+
+
+def _property_short(claim: dict, rel: list) -> str:
+    """'Pool, ~1,900 sq ft (2025 survey)': what Vexcel property data marks for this claim, in a few words."""
+    from harness.graph.judge import property_reading
+    pr = property_reading(claim, rel)
+    if not pr:
+        return "In property data"
+    key, entry, e = pr
+    if not entry.get("present"):
+        return "Not in property data"
+    out = PROPERTY_SHORT.get(key) or _cap(key.replace("_", " "))
+    area = _num(entry.get("area_sqft"))
+    if key == "pool" and area and area > 0:
+        out += f", ~{_n_words(round(area))} sq ft"
+    captured = str(((e.get("observed") or {}).get("property") or {}).get("captured") or "")
+    if re.match(r"(19|20)\d\d", captured):
+        out += f" ({captured[:4]} survey)"
+    return out
+
+
+def _short_fact(claim: dict, v: dict, rel: list, prim: dict, state: str) -> str:
+    """A few words that answer the claim for the 'Listing vs record' table ('1 bed + den', '6 floors', 'Pool seen',
+    'Pool, ~1,900 sq ft (2025 survey)'); '' when no short fact can be made (the table then shows a dash)."""
+    found = str(v.get("found") or "").strip()
+    low = found.lower()
+    obs = prim.get("observed") or {}
+    feat = feature_words(obs.get("feature")) if obs.get("feature") else ""
+    if low == "in vexcel property data":
+        return _property_short(claim, rel)
+    if low == "not in vexcel property data":
+        return "Not in property data"
+    if low.startswith("visible in"):
+        return f"{_cap(feat)} seen" if feat else "Seen"
+    if low.startswith("not visible in"):
+        return "Not seen"
+    if low == "named in the building record":
+        return "Named in the record"
+    if low.startswith("3d scan titled"):
+        return "Named in a scan title"
+    if low == "unclear" or (state == "data" and obs.get("presence") == "unclear"):
+        return "Not clear in photos"
+    if low not in _JUNK_FOUND:
+        s = compact(found)
+        if s:
+            return s
+    if state == "data" and obs.get("presence") in PRESENCE_WORDS:
+        return PRESENCE_WORDS[obs["presence"]]
+    kind = str(claim.get("kind") or "")
+    if _num(obs.get(kind)) is not None:
+        from harness.graph.judge import phrase
+        return compact(phrase(kind, obs[kind]))
+    return ""
+
+
+def _cell(claim: dict, evs: list, single_unit: bool = False) -> dict:
     from harness.graph.judge import judge
     rel = _relevant(claim, evs)
     if not rel:
         return {"state": "none"}
-    v = judge(claim, evs)  # the judge's own rules, this source only
+    v = judge(claim, evs, single_unit=single_unit)  # the judge's own rules, this source only
     state = {"confirmed": "match", "contradicted": "contra", "close": "close"}.get(v.get("verdict"), "data")
     kind = str(claim.get("kind") or "")
     prim = _primary(rel, kind, v.get("found"), v.get("image"))
@@ -307,6 +404,7 @@ def _cell(claim: dict, evs: list) -> dict:
     summaries = list(dict.fromkeys(s for s in (_clean_summary(e.get("summary")) for e in rel) if s))[:3]
     imgs = _images(claim, prim, rel, evs, v.get("image"))
     return {"state": state, "verdict": v.get("verdict"), "found": _clean_summary(v.get("found")),
+            "short": _short_fact(claim, v, rel, prim, state),
             "reason": _clean_summary(v.get("reason")), "summary": summaries[0] if summaries else "",
             "summaries": summaries, "facts": _facts(obs, kind, str(prim.get("source") or ""), plan), "observed": obs,
             "raw": [clean_observed(e.get("observed")) for e in rel[:4]],
@@ -315,7 +413,8 @@ def _cell(claim: dict, evs: list) -> dict:
 
 def claim_field(run: dict) -> dict:
     """{"sources": [{key, name, count}], "claims": [{id, kind, quote, label, verdict, found, reason, highlight,
-    cells: {record|scan|aerial|county: {state, ...}}}], "counts": {state: n}}.
+    confidence, cells: {record|scan|aerial|county: {state, ...}}}], "counts": {state: n}}.
+    `confidence`: the verdict's own confidence block (judge, on a mismatch) or None.
 
     state: match | contra | close | data (source has relevant evidence but the judge could not compare) | none.
     """
@@ -324,13 +423,14 @@ def claim_field(run: dict) -> dict:
     claims, order, verdicts, evidence = _parts(run)
     by_src = {k: [e for e in evidence if e.get("source") == k] for k, _ in SOURCES}
     out_claims, counts = [], {s: 0 for s in STATE_WORDS}
+    single = _single_unit(run, [claims[cid] for cid in order])
     for cid in order:
         c = claims[cid]
         v = verdicts.get(cid) or {}
         cells = {}
         for k, _ in SOURCES:
             try:
-                cells[k] = _cell(c, by_src[k])
+                cells[k] = _cell(c, by_src[k], single)
             except Exception:  # noqa: BLE001  one odd evidence must not break the report
                 cells[k] = {"state": "none"}
             counts[cells[k]["state"]] += 1
@@ -340,7 +440,8 @@ def claim_field(run: dict) -> dict:
                            "claimed": _clean_summary(v.get("claimed"))[:80],
                            "verdict": verdict, "verdict_words": VERDICT_WORDS.get(verdict, "Couldn't check"),
                            "found": _clean_summary(v.get("found")), "reason": _clean_summary(v.get("reason")),
-                           "highlight": verdict in ("contradicted", "close"), "cells": cells})
+                           "highlight": verdict in ("contradicted", "close"), "cells": cells,
+                           "confidence": v.get("confidence") if isinstance(v.get("confidence"), dict) else None})
     sources = [{"key": k, "name": n, "count": sum(1 for c in out_claims if c["cells"][k]["state"] != "none")}
                for k, n in SOURCES]
     return {"sources": sources, "claims": out_claims, "counts": counts, "source_rows": source_rows(evidence)}
@@ -384,7 +485,7 @@ def source_rows(evidence: list) -> dict:
     {"aerial": [[label, value]], "county": [[label, value]]}; a source with nothing is left out.
     Aerial: roof height, floors measured from above, footprint, things seen or not seen in the photos (never a photo
     floor count). County: year built, building size, homes, floors, land use, owner type (company / individual, never
-    a name), 311 requests as a count only (never their text). Only what the evidence really carries."""
+    a name), 311 requests as a count only (never their text, never 0). Only what the evidence really carries."""
     rows: dict = {"aerial": {}, "county": {}}
 
     def put(src, key, label, value):
@@ -437,7 +538,7 @@ def source_rows(evidence: list) -> dict:
                 k = str(k)
                 if _COUNT_KEY.search(k):
                     n = _count_of(v)
-                    if n is not None and n >= 0:
+                    if n is not None and n > 0:  # 0 is left out like any blank value
                         label = "311 requests" if "311" in k else "Complaints on record"
                         put(src, "count:" + label, label, f"{n:,}")
                 elif _LAND_USE.search(k) and isinstance(v, str):
@@ -778,3 +879,198 @@ def claim_field_section(run: dict, tours: bool = True) -> str:
     h.append(f"<script type=application/json id=cf-data>{_json_script(field)}</script>")
     h.append(f"<script>{SCRIPT % json.dumps(STATE_WORDS)}</script></section>")
     return "".join(h)
+
+
+# ---------- "Listing vs record": one readable table ----------
+
+KIND_WORDS = {"bedrooms": "Bedrooms", "bathrooms": "Bathrooms", "area_sqft": "Size", "stories": "Floors",
+              "year_built": "Year built", "unit_count": "Homes", "building_sf": "Building size", "amenity": "Amenity",
+              "parking": "Parking", "laundry": "Laundry", "view": "View", "rent": "Rent", "pets": "Pets"}
+BAND_WORDS = {"high": "High", "medium": "Medium", "low": "Low"}
+_GROUP = {"contradicted": 0, "close": 1, "confirmed": 2}
+
+LT_CSS = """
+.lt{--lt-ink:var(--ink,#111);--lt-blue:var(--blue,#1a4be0);--lt-mute:var(--mute,#6b6b6b);--lt-ghost:var(--ghost,#858585);
+--lt-line:var(--line,#d9d9d9);--lt-soft:var(--soft,#f4f4f4);--lt-bg:var(--bg,#fff);--lt-tint:#e7ecfc;--lt-near:#f1f4fd;
+--lt-close:#a9baf2;padding-bottom:clamp(96px,11vw,180px);font-family:Newsreader,Georgia,'Times New Roman',serif;
+color:var(--lt-ink);padding-top:8px}
+.lt h2{margin:0;font-weight:300;font-size:clamp(46px,6vw,96px);line-height:.95;letter-spacing:-.045em}
+.lt .lt-sub{margin:14px 0 clamp(24px,3vw,40px);font-size:17px;color:var(--lt-mute)}
+.lt-scroll{overflow:auto;max-height:min(80vh,960px);border-top:1px solid var(--lt-ink);-webkit-overflow-scrolling:touch}
+.lt-scroll:focus-visible{outline:2px solid var(--lt-blue);outline-offset:3px}
+.lt table{border-collapse:separate;border-spacing:0;width:100%;min-width:1040px;font-size:16px;line-height:1.3}
+.lt th,.lt td{text-align:left;vertical-align:top;padding:12px 14px;border-bottom:1px solid var(--lt-line)}
+.lt thead th{position:sticky;top:0;z-index:2;background:var(--lt-bg);font-weight:400;font-size:14px;color:var(--lt-mute);
+padding-top:12px;padding-bottom:10px;white-space:nowrap;box-shadow:inset 0 -1px 0 var(--lt-ink)}
+.lt thead th.lt-src{width:13%}
+.lt tbody th{position:sticky;left:0;z-index:1;background:var(--lt-bg);font-weight:400;width:120px;min-width:110px}
+.lt thead th:first-child{left:0;z-index:3}
+.lt tbody th small{display:block;font-size:13px;color:var(--lt-mute);margin-top:2px}
+.lt .lt-said{min-width:150px;max-width:220px}
+.lt .lt-said b{font-weight:500}
+.lt .lt-said small,.lt .lt-conf small{display:block;font-size:13px;color:var(--lt-mute);margin-top:3px}
+.lt .lt-v{display:flex;gap:8px;align-items:baseline;overflow-wrap:anywhere}
+.lt .lt-v::before{content:"";flex:none;width:9px;height:9px;background:var(--lt-line);transform:translateY(-1px)}
+.lt td.lt-match{background:var(--lt-soft)}.lt td.lt-match .lt-v::before{background:var(--lt-ink)}
+.lt td.lt-contra{background:var(--lt-tint);color:var(--lt-blue)}.lt td.lt-contra .lt-v::before{background:var(--lt-blue)}
+.lt td.lt-close{background:var(--lt-near)}.lt td.lt-close .lt-v::before{background:var(--lt-close)}
+.lt td.lt-data .lt-v::before{background:var(--lt-bg);box-shadow:inset 0 0 0 1.5px var(--lt-ink)}
+.lt td.lt-none{color:var(--lt-ghost)}
+.lt td.lt-dec{box-shadow:inset 0 0 0 2px var(--lt-blue)}
+.lt .lt-tag{display:inline-block;margin-top:6px;font-size:12px;line-height:1;padding:3px 6px;background:var(--lt-blue);
+color:#fff;letter-spacing:.02em}
+.lt .lt-res{white-space:nowrap}
+.lt tr.lt-r-contradicted .lt-res{color:var(--lt-blue);font-weight:500}
+.lt tr.lt-r-cant_check .lt-res{color:var(--lt-mute)}
+.lt .lt-conf{min-width:170px;max-width:240px}
+.lt .lt-conf b{font-weight:500;white-space:nowrap}
+.lt .lt-conf small{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.lt .lt-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (max-width:560px){.lt table{font-size:15px}.lt th,.lt td{padding:10px}.lt tbody th{width:96px;min-width:96px}}
+"""
+
+
+def _short(s, n: int = 44) -> tuple[str, bool]:
+    s = re.sub(r"\s+", " ", str(s or "")).strip()
+    return (s, False) if len(s) <= n else (s[:n - 1].rstrip(" ,;:.") + "…", True)
+
+
+def _words(s) -> list:
+    """'Built in 2016' and 'built 2016' read the same: lower-case words, no small words or punctuation."""
+    return [w for w in re.findall(r"[a-z0-9]+", str(s or "").lower()) if w not in ("in", "the", "a", "an", "of")]
+
+
+def _cell_text(cell: dict) -> str:
+    """What one source found: its judged value, else (data, no judgement) its summary, else its first fact."""
+    st = cell.get("state")
+    if st == "none":
+        return ""
+    found = str(cell.get("found") or "").strip()
+    if st != "data" and found and found.lower() not in ("no data", "not checked", "unclear"):
+        return _cap(found)
+    if cell.get("summary"):
+        return str(cell["summary"])
+    facts = cell.get("facts") or []
+    if facts:
+        return f"{facts[0][0]}: {facts[0][1]}"
+    return _cap(found)
+
+
+def _confidence(conf) -> dict | None:
+    """A verdict's confidence block made safe to show: {"label": "High · 82", "why": str, "decided_by": key}."""
+    if not isinstance(conf, dict):
+        return None
+    score = _num(conf.get("score"))
+    band = BAND_WORDS.get(str(conf.get("band") or "").lower(), "")
+    if score is not None:
+        score = max(0, min(100, int(round(score))))
+    label = " · ".join(x for x in (band, "" if score is None else str(score)) if x)
+    if not label:
+        return None
+    dec = conf.get("decided_by")
+    return {"label": label, "why": _clean_summary(conf.get("why")), "decided_by": dec if dec in SOURCE_NAME else None}
+
+
+def _compare_order(run: dict, claims: list) -> list:
+    """Mismatches (doesn't match, then close), then matches, then couldn't check; inside the mismatches the report's
+    own ranking (server.report_a._rank: renter impact, then the bigger gap), elsewhere page order."""
+    rank: dict = {}
+    try:
+        from server.report import Run
+        from server.report_a import _rank
+        r = Run(run)
+        for v in r.verdicts:
+            if v.get("claim_id") is not None:
+                rank[v["claim_id"]] = _rank(r, v)
+    except Exception:  # noqa: BLE001  page order is a fine fallback
+        rank = {}
+
+    def key(ic):
+        i, c = ic
+        g = _GROUP.get(c["verdict"], 3)
+        r = rank.get(c["id"]) if g < 2 else None
+        return (g, tuple(r[1:3]) if r else (0, 0.0), i)
+    return [c for _, c in sorted(enumerate(claims), key=key)]
+
+
+def _says(conf, key: str) -> str:
+    """This source's reading from the verdict's confidence rows, in a few words. Two Vexcel rows (the photo look and
+    the property data) share one cell: 'Photo: not seen · Data: not shown'. '' when the rows say nothing short."""
+    if not isinstance(conf, dict) or not isinstance(conf.get("sources"), list):
+        return ""
+    says = [str(r.get("says") or "").strip() for r in conf["sources"]
+            if isinstance(r, dict) and r.get("source") == key and str(r.get("says") or "").strip()]
+    if not says:
+        return ""
+    if key == "aerial" and len(says) > 1:
+        parts = []
+        for s in says:
+            if "property data" in s.lower():
+                parts.append("Data: " + ("not shown" if s.lower().startswith("not") else "shown"))
+            elif compact(s):
+                parts.append("Photo: " + compact(s).lower())
+        return " · ".join(dict.fromkeys(parts))
+    parts = [compact(s) for s in says]
+    return " · ".join(dict.fromkeys(p for p in parts if p)) if all(parts) else ""
+
+
+def _td_source(cell: dict, name: str, decides: bool, says: str = "") -> str:
+    """One source's cell: a short fact (`says` from the confidence rows, else the cell's own `short`), a dash when
+    there is none; the longer text it stands for goes in `title`."""
+    st = cell.get("state") or "none"
+    if st not in STATE_WORDS:
+        st = "none"
+    if st == "none":
+        return (f"<td class='lt-c lt-none'><span aria-hidden=true>—</span>"
+                f"<span class=lt-sr>Nothing from {escape(name)}</span></td>")
+    full = _cell_text(cell)
+    short = says or str(cell.get("short") or "").strip()
+    title = f" title='{escape(full, True)}'" if full and full != short else ""
+    tag = "<span class=lt-tag>decides</span>" if decides else ""
+    shown = escape(short) if short else "<span aria-hidden=true>—</span>"
+    return (f"<td class='lt-c lt-{st}{' lt-dec' if decides else ''}'{title}><span class=lt-v><span>"
+            f"<span class=lt-sr>{escape(STATE_WORDS[st])}{': ' if short else ''}</span>{shown}</span></span>{tag}</td>")
+
+
+def compare_table(run: dict, field: dict | None = None) -> str:
+    """'Listing vs record': one row per claim (mismatches first, then matches, then couldn't check), what the listing
+    says next to what CoStar, Matterport, Vexcel and the county found (a short fact each, never a cut sentence), the
+    result, and on a mismatch the judge's confidence (band and score, one sentence, the deciding source's cell
+    marked). Self-contained (`lt-` CSS), no script. '' when the run has no claims."""
+    field = field or claim_field(run)
+    claims = field.get("claims") or []
+    if not claims:
+        return ""
+    head = "".join(f"<th scope=col class=lt-src>{escape(n)}</th>" for _, n in SOURCES)
+    rows = []
+    for c in _compare_order(run, claims):
+        kind = str(c.get("kind") or "")
+        what = KIND_WORDS.get(kind) or _cap(kind.replace("_", " ")) or "Claim"
+        plan = f"<small>{escape(str(c['label']))}</small>" if c.get("label") else ""
+        quote = str(c.get("quote") or "").strip()
+        said = str(c.get("claimed") or "").strip() or quote
+        said_s, said_cut = _short(_cap(said), 40)
+        q = ""
+        if quote and _words(quote) != _words(said) and len(quote) <= 60:
+            q = f"<small>“{escape(quote)}”</small>"
+        said_title = f" title='{escape(said, True)}'" if said_cut else ""
+        mismatch = c["verdict"] in ("contradicted", "close")
+        conf = _confidence(c.get("confidence")) if mismatch else None
+        dec = conf["decided_by"] if conf else None
+        cells = "".join(_td_source(c["cells"].get(k) or {"state": "none"}, n, k == dec,
+                                   _says(c.get("confidence"), k) if conf else "") for k, n in SOURCES)
+        conf_td = "<td class=lt-conf></td>"
+        if conf:
+            why = f"<small title='{escape(conf['why'], True)}'>{escape(conf['why'])}</small>" if conf["why"] else ""
+            conf_td = f"<td class=lt-conf><b>{escape(conf['label'])}</b>{why}</td>"
+        rows.append(f"<tr class='lt-r-{escape(str(c['verdict']))}' data-claim='{escape(str(c['id']), True)}'>"
+                    f"<th scope=row>{escape(what)}{plan}</th>"
+                    f"<td class=lt-said{said_title}><b>{escape(said_s)}</b>{q}</td>{cells}"
+                    f"<td class=lt-res>{escape(c['verdict_words'])}</td>{conf_td}</tr>")
+    return (f"<style>{LT_CSS}</style><section class='wrap lt' id=compare aria-labelledby=lt-h>"
+            "<h2 id=lt-h>Listing vs record</h2>"
+            "<p class=lt-sub>What the listing says, next to what each source found.</p>"
+            "<div class=lt-scroll role=region aria-labelledby=lt-h tabindex=0><table>"
+            f"<thead><tr><th scope=col>Claim</th><th scope=col>Listing says</th>{head}"
+            "<th scope=col>Result</th><th scope=col>Confidence</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div></section>")

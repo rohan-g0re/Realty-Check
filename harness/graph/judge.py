@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import amenities
+from . import amenities, trust
 from .plans import title_count, title_sqft
 
 COUNT_KINDS = ("bedrooms", "bathrooms", "stories", "unit_count", "year_built")
@@ -78,6 +78,8 @@ def _usable(claim: dict, evidences: list[dict], any_plan: bool = False) -> list[
         if (scope == "unit" or kind in UNIT_KINDS) and src == "aerial":
             continue
         plan = obs.get("plan")
+        if label and (obs.get("unit_row") or obs.get("scan_of")):
+            continue  # the page's own unit (its record row or scan) says nothing about a named floor plan
         if obs.get("kit_plan") and not label and not any_plan:
             continue  # one kit floor plan's numbers say nothing about an unnamed unit
         if label and plan and not _same_plan(str(plan), str(label)):
@@ -89,9 +91,10 @@ def _usable(claim: dict, evidences: list[dict], any_plan: bool = False) -> list[
 
 
 def _specific(e: dict) -> bool:
-    """Evidence about one floor plan or one scan (not the whole building)."""
+    """Evidence about one floor plan, one unit or one scan (not the whole building)."""
     obs = e.get("observed") or {}
-    return e.get("source") == "scan" or bool(obs.get("plan") or obs.get("kit_plan") or obs.get("floorplans"))
+    return e.get("source") == "scan" or bool(obs.get("plan") or obs.get("kit_plan") or obs.get("floorplans")
+                                             or obs.get("unit_row"))
 
 
 def _same(a: float, b: float) -> bool:
@@ -201,7 +204,8 @@ def _judge_unnamed(claim: dict, evidences: list[dict], base: dict) -> dict | Non
         else:
             ok = _same(v, claimed) if kind != "area_sqft" else _written_band(v, claimed) == "confirmed"
             name = obs.get("kit_plan") or obs.get("plan")
-            how = (f"the building record's plan {name} has {phrase(kind, v)}" if name
+            how = (f"the building record lists unit {obs.get('unit')} with {phrase(kind, v)}" if obs.get("unit_row")
+                   else f"the building record's plan {name} has {phrase(kind, v)}" if name
                    else f"{SOURCE_NAME[src]} {VERB[src]} {phrase(kind, v)}")
         if ok:
             gap = abs(v - claimed) / claimed if claimed else 0.0
@@ -328,18 +332,74 @@ def record_names(claim: dict, evidences: list[dict]) -> str | None:
     return ", ".join(wanted)
 
 
+PROPERTY_NICE = {"pool": "a pool", "hot_tub": "a hot tub", "sport_court": "a sport court",
+                 "playground": "a playground", "solar": "solar panels"}
+PROPERTY_MISS = {"pool": "it can miss rooftop and indoor pools", "hot_tub": "it can miss rooftop and indoor ones",
+                 "solar": "small or flat panels can be missed"}
+
+
+def property_reading(claim: dict, evidences: list[dict]) -> tuple[str, dict, dict] | None:
+    """(key, entry, evidence) from Vexcel property data (aerial Evidence observed.property) for a pool, hot tub,
+    sport court, playground or solar claim, when it gives a yes or no; else None."""
+    key = trust.property_key(claim)
+    if not key:
+        return None
+    for e in evidences or []:
+        if not isinstance(e, dict) or e.get("source") != "aerial" or e.get("status") != "ok":
+            continue
+        prop = (e.get("observed") or {}).get("property")
+        entry = prop.get(key) if isinstance(prop, dict) else None
+        if isinstance(entry, dict) and isinstance(entry.get("present"), bool):
+            return key, entry, e
+    return None
+
+
+def _property_says(key: str, entry: dict) -> str:
+    """'Vexcel property data shows a pool, about 1,900 sq ft' / 'Vexcel property data does not show a hot tub'."""
+    thing = PROPERTY_NICE.get(key, key.replace("_", " "))
+    if not entry.get("present"):
+        return f"Vexcel property data does not show {thing}"
+    area = _num(entry.get("area_sqft"))
+    size = f", about {_n(round(area))} sq ft" if key == "pool" and area and area > 0 else ""
+    return f"Vexcel property data shows {thing}{size}"
+
+
+def _property_unsure(entry: dict) -> str:
+    return (" The two latest surveys do not agree on this, or only one exists, so it is less certain."
+            if entry.get("stable") is False else "")
+
+
+def _aerial_image(evidences: list[dict], prefer: dict | None = None) -> str | None:
+    for e in [prefer] + [x for x in evidences or [] if isinstance(x, dict)]:
+        if e and e.get("source") == "aerial" and e.get("status") == "ok":
+            img = _first_image(e)
+            if img:
+                return img
+    return None
+
+
 def judge_feature(claim: dict, evidences: list[dict], base: dict) -> dict:
     """Amenity / parking / laundry / view claims: the building record's amenity names, else presence answers from
-    pictures or scan titles (soft checks)."""
+    pictures, scan titles or Vexcel property data (soft checks). A "no" never makes a mismatch on its own."""
     quote = amenities.text_of(claim).strip()
     said = f"Listing says \u201c{quote}\u201d."
     named = record_names(claim, evidences)
     if named:
         return {**base, "verdict": "confirmed", "found": "Named in the building record", "source": "record",
                 "reason": f"{said} The building record names it.", "image": None}
+    pr = property_reading(claim, evidences)
+    yes = bool(pr and pr[1].get("present"))
+    no = bool(pr and not pr[1].get("present"))
+    p_says = _property_says(pr[0], pr[1]) if pr else ""
+    p_miss = PROPERTY_MISS.get(pr[0], "not seeing something proves little") if pr else ""
     mine = [e for e in evidences or [] if isinstance(e, dict)
             and claim.get("id") in ((e.get("observed") or {}).get("claim_ids") or [])]
     if not mine:
+        if yes:
+            return _property_confirmed(evidences, base, said, pr, None)
+        if no:
+            return {**base, "verdict": "cant_check", "found": "Not in Vexcel property data", "source": None,
+                    "reason": f"{said} {p_says}, but {p_miss}, so we could not check it.{_property_unsure(pr[1])}"}
         why = ("We had no photos that could show this." if amenities.feature_for(claim)
                else "Nothing in our data measures this.")
         return {**base, "verdict": "cant_check", "found": "no data", "source": None, "reason": f"{said} {why}"}
@@ -351,30 +411,80 @@ def judge_feature(claim: dict, evidences: list[dict], base: dict) -> dict:
     title = str(obs.get("scan_title") or "")
     where = "the Vexcel aerial photos" if src == "aerial" else (f"photos from the 3D scan '{title}'" if title
                                                          else "photos from the 3D scan")
+    also_p = (f" {p_says} as well." if yes else
+              f" {p_says}, but {p_miss}; a sighting counts." if no else "")
     if out == "confirmed" and obs.get("how") == "scan_title":
         aerial = [amenities.outcome(e.get("observed") or {}) for e in mine if e.get("source") == "aerial"]
         also = (" The Vexcel aerial photos did not show it from above, so it may be indoors."
-                if aerial and "confirmed" not in aerial else "")
+                if aerial and "confirmed" not in aerial and not yes else "")
         return {**base, "verdict": "confirmed", "found": f"3D scan titled '{title}'", "source": "scan",
                 "reason": f"{said} The building's 3D scans include one titled '{title}', which matches this by "
-                          f"name.{also}", "image": _first_image(best)}
+                          f"name.{also}{also_p}", "image": _first_image(best)}
     if out == "confirmed":
         found = "Visible in the Vexcel aerial photo" if src == "aerial" else "Visible in the 3D scan photos"
         return {**base, "verdict": "confirmed", "found": found, "source": src, "image": _first_image(best),
                 "reason": f"{said} A vision model looked for {nice} in {where} and saw it (confidence {conf:.2f}). "
-                          "This is a picture check, not a measurement."}
+                          f"This is a picture check, not a measurement.{also_p}"}
+    if yes:  # the property data saw it; the vision model did not (or could not tell)
+        return _property_confirmed(evidences, base, said, pr, best if src == "aerial" else None,
+                                   vision_missed=out == "close" and src == "aerial")
     if out == "close":
         found = "Not visible in the Vexcel aerial photo" if src == "aerial" else "Not visible in the 3D scan photos"
         why = ("it may be indoors or on a part of the site the photo does not show" if src == "aerial"
                else "the scan photos show only some rooms")
+        p_note = f" {p_says} either, but {p_miss}." if no else ""
         return {**base, "verdict": "close", "found": found, "source": src, "image": _first_image(best),
                 "reason": f"{said} A vision model looked for {nice} in {where} and did not see it "
-                          f"(confidence {conf:.2f}). A photo cannot prove something is absent: {why}."}
+                          f"(confidence {conf:.2f}). A photo cannot prove something is absent: {why}.{p_note}",
+                "confidence": _feature_confidence(claim, evidences, best, mine, pr)}
+    p_note = f" {p_says}, but {p_miss}." if no else ""
     if out == "skipped":
         return {**base, "verdict": "cant_check", "found": "not checked", "source": None,
-                "reason": f"{said} {best.get('summary') or 'The photos were not checked.'}"}
+                "reason": f"{said} {best.get('summary') or 'The photos were not checked.'}{p_note}"}
     return {**base, "verdict": "cant_check", "found": "unclear", "source": None,
-            "reason": f"{said} The photos don't show this clearly (we looked for {nice} in {where})."}
+            "reason": f"{said} The photos don't show this clearly (we looked for {nice} in {where}).{p_note}"}
+
+
+def _property_confirmed(evidences: list[dict], base: dict, said: str, pr: tuple, vision: dict | None,
+                        vision_missed: bool = False) -> dict:
+    key, entry, _ = pr
+    miss = (" A vision model did not see it on the aerial photos, but the property data counts as a sighting."
+            if vision_missed else "")
+    return {**base, "verdict": "confirmed", "found": "In Vexcel property data", "source": "aerial",
+            "image": _aerial_image(evidences, vision),
+            "reason": f"{said} {_property_says(key, entry)}.{miss}{_property_unsure(entry)}"}
+
+
+def _feature_confidence(claim: dict, evidences: list[dict], best: dict, mine: list[dict],
+                        pr: tuple | None = None) -> dict:
+    """Confidence on a "not seen" amenity verdict. An absence never outvotes a sighting or a naming (that is
+    why such a verdict exists only when nothing saw or named it), so this score always stays modest. Vexcel
+    property data saying no too is a second reading from the same source: it raises the aerial look's weight a
+    little (trust "property_agrees") and shows as its own row, but never counts as an independent source."""
+    rows = []
+    for e in [best, *[x for x in mine if x is not best]]:
+        p = (e.get("observed") or {}).get("presence")
+        if p not in ("seen", "not_seen"):
+            continue  # an unclear look says nothing either way
+        if pr and e.get("source") == "aerial":
+            e = {**e, "observed": {**(e.get("observed") or {}), "property_present": bool(pr[1].get("present"))}}
+        rows.append({"source": e["source"], "says": "seen" if p == "seen" else "not seen",
+                     "weight": trust.weight(e, claim), "agrees_with_listing": p == "seen",
+                     "same_as_decider": p == "not_seen", "covers_listing": False})
+    if pr:  # only a "no" reaches here (a "yes" confirms)
+        rows.append({"source": "aerial", "says": "not in property data",
+                     "weight": trust.weight(trust.property_evidence(pr[2], pr[0], pr[1]), claim),
+                     "agrees_with_listing": False, "same_as_decider": True, "covers_listing": False})
+    has_list = any(isinstance(e, dict) and e.get("source") == "record" and e.get("status") == "ok"
+                   and isinstance((e.get("observed") or {}).get("amenities"), list) for e in evidences or [])
+    if has_list:  # the record's amenity list does not name it (a naming would have confirmed it)
+        rows.append({"source": "record", "says": "not named", "weight": trust.named_weight(claim, False),
+                     "agrees_with_listing": False, "same_as_decider": True, "covers_listing": False})
+    out = trust.confidence(trust.kind_key(claim), str(claim.get("kind")), None, None, best["source"], rows,
+                           absence=True)
+    if pr and best["source"] == "aerial":
+        out["why"] = out["why"][:-1] + "; Vexcel property data does not show it either."
+    return out
 
 
 def _unit_scan_value(kind: str, e: dict) -> tuple[float, str] | None:
@@ -385,16 +495,21 @@ def _unit_scan_value(kind: str, e: dict) -> tuple[float, str] | None:
             or obs.get("feature_check") or obs.get("kit_plan")):
         return None
     title = str(obs.get("model_name") or "").strip()
+    who = "the 3D scan of this home"
+    if obs.get("scan_of") == "unit" and obs.get("unit"):
+        who = f"the 3D scan of unit {obs['unit']}"
+    elif obs.get("scan_of") == "plan":  # the unit's record plan's scan: the same layout, not this very home
+        who = f"the 3D scan of this unit's floor plan{' ' + str(obs['unit_plan']) if obs.get('unit_plan') else ''}"
     if kind in ("bedrooms", "bathrooms"):
         v = _num(obs.get(kind)) if obs.get("counts_from") == "model_name" else title_count(kind, title)
         if v is None or not title:
             return None
-        return v, f"the 3D scan of this home is titled '{title}', which gives {phrase(kind, v)}"
+        return v, f"{who} is titled '{title}', which gives {phrase(kind, v)}"
     ts = title_sqft(title) if title else None
     if ts:
-        return ts, f"the 3D scan of this home is titled '{title}', which gives {phrase(kind, ts)}"
+        return ts, f"{who} is titled '{title}', which gives {phrase(kind, ts)}"
     v = _num(obs.get(kind))
-    return (v, f"the 3D scan of this home measures {phrase(kind, v)} of floor") if v is not None else None
+    return (v, f"{who} measures {phrase(kind, v)} of floor") if v is not None else None
 
 
 def _judge_single_unit(claim: dict, evidences: list[dict], base: dict) -> dict | None:
@@ -411,6 +526,13 @@ def _judge_single_unit(claim: dict, evidences: list[dict], base: dict) -> dict |
         if got:
             title = str((e.get("observed") or {}).get("model_name") or "")
             cands.append((got[0], got[1], e, kind == "area_sqft" and not (title and title_sqft(title))))
+    for e in evidences or []:  # the building record's own row for the page's unit (run.Run.unit_record)
+        obs = (e.get("observed") or {}) if isinstance(e, dict) else {}
+        if obs.get("unit_row") and e.get("source") == "record" and e.get("status") == "ok":
+            v = _num(obs.get(kind))
+            if v is not None:
+                says = obs.get("unit_says") or phrase(kind, v)
+                cands.append((v, f"the building record lists unit {obs.get('unit')} as {says}", e, False))
     key = {"bedrooms": "beds", "bathrooms": "baths", "area_sqft": "sqft"}[kind]
     for e in evidences or []:
         fps = (e.get("observed") or {}).get("floorplans") if isinstance(e, dict) else None
@@ -421,14 +543,110 @@ def _judge_single_unit(claim: dict, evidences: list[dict], base: dict) -> dict |
                 cands.append((v, f"the building record's only floor plan, {name}, has {phrase(kind, v)}", e, False))
     if not cands or claimed is None:
         return None
-    v, how, e, floor = sorted(cands, key=lambda c: 0 if c[2].get("source") == "scan" else 1)[0]
+    # the fixed order: this home's scan, the record's row for this unit, the unit's plan scan, the only record plan
+    def order(c):
+        e = c[2]
+        obs = e.get("observed") or {}
+        if e.get("source") == "scan":
+            return 2 if obs.get("scan_of") == "plan" else 0
+        return 1 if obs.get("unit_row") else 3
+    cands = sorted(cands, key=order)
+    items = [(c[2], c[0], _reading(kind, claimed, c[2], (c[0], c[3]))[1]) for c in cands]
+    pick = _pick(claim, kind, claimed, items, cands[0][2])
+    v, how, e, floor = next(c for c in cands if c[2] is pick)
+    verdict = _reading(kind, claimed, e, (v, floor))[1]
+    out = {**base, "verdict": verdict, "found": phrase(kind, v), "source": e["source"],
+           "reason": f"Listing says {claimed_txt} for this home; {how}.",
+           "image": _image(e, [e], evidences) if e["source"] == "scan" else None}
+    if verdict in MISMATCH:
+        out["confidence"] = _numeric_confidence(claim, kind, claimed, e, v, items)
+    return out
+
+
+# ---- source trust: the tiebreak when our sources disagree, and the confidence on a mismatch (trust.py) -----
+
+MISMATCH = ("contradicted", "close")
+
+
+def _reading(kind: str, claimed: float, e: dict, single: tuple[float, bool] | None = None) -> tuple[float, str]:
+    """(value, verdict this evidence alone would give) by the same rules the judge uses. single: (value, measured
+    scan floor) from the single-unit path, which reads a scan's title or measured floor itself."""
+    obs, src = e.get("observed") or {}, e.get("source")
+    if single is not None:
+        v, floor = single
+        if kind == "area_sqft":
+            return v, (_scan_band(v, claimed) if floor else _written_band(v, claimed))
+        return v, ("confirmed" if _same(v, claimed) else "contradicted")
+    v = _num(obs.get(kind))
     if kind == "area_sqft":
-        verdict = _scan_band(v, claimed) if floor else _written_band(v, claimed)
-    else:
-        verdict = "confirmed" if _same(v, claimed) else "contradicted"
-    return {**base, "verdict": verdict, "found": phrase(kind, v), "source": e["source"],
-            "reason": f"Listing says {claimed_txt} for this home; {how}.",
-            "image": _image(e, [e], evidences) if e["source"] == "scan" else None}
+        title = str(obs.get("model_name") or "").strip() if src == "scan" else ""
+        titled = title_sqft(title) if title else None
+        if titled:
+            return titled, _written_band(titled, claimed)
+        return v, (_scan_band(v, claimed) if src == "scan" else _written_band(v, claimed))
+    gap = abs(v - claimed)
+    if round(v) == round(claimed):
+        return v, "confirmed"
+    if (kind == "year_built" and gap <= 1) or (kind == "unit_count" and gap <= max(1.0, 0.02 * claimed)):
+        return v, "close"
+    return v, "contradicted"
+
+
+def _says(kind: str, v: float) -> str:
+    return phrase(kind, v)
+
+
+def _alike(kind: str, a: float, b: float) -> bool:
+    if kind == "area_sqft":
+        return abs(a - b) <= 0.05 * max(a, b)
+    return round(a) == round(b)
+
+
+def _pick(claim: dict, kind: str, claimed: float, items: list[tuple[dict, float, str]], default: dict) -> dict:
+    """The deciding evidence. items: (evidence, its value, the verdict it alone gives). When the values disagree,
+    the evidence with the highest trust weight decides; a tie keeps `default` (the old fixed order). Nothing
+    changes when the sources agree, only one speaks, or every one of them backs the listing."""
+    if len({round(v, 1) for _, v, _ in items}) <= 1 or all(alone == "confirmed" for _, _, alone in items):
+        return default
+    order = [e for e, _, _ in items]
+    first = next(i for i, e in enumerate(order) if e is default)
+    ranked = sorted(range(len(order)), key=lambda i: (-trust.weight(order[i], claim), i != first,
+                                                      RANK[order[i]["source"]], i))
+    return order[ranked[0]]
+
+
+def _numeric_confidence(claim: dict, kind: str, claimed: float, winner: dict, found: float,
+                        items: list[tuple[dict, float, str]]) -> dict:
+    """items: (evidence, value, verdict alone) for every evidence that could speak; winner among them."""
+    rows = []
+    for e, v, alone in items:
+        obs = e.get("observed") or {}
+        rng = obs.get("stories_range") if kind == "stories" else None
+        covers = (isinstance(rng, list) and len(rng) == 2 and all(_num(x) is not None for x in rng)
+                  and _num(rng[0]) <= claimed <= _num(rng[1]))
+        says = _says(kind, v)
+        if covers:
+            says = f"about {says} ({_n(_num(rng[0]))} to {_n(_num(rng[1]))})"
+        rows.append({"source": e["source"], "says": says, "weight": trust.weight(e, claim),
+                     "agrees_with_listing": alone == "confirmed", "same_as_decider": _alike(kind, v, found),
+                     "covers_listing": bool(covers), "_e": e})
+    rows.sort(key=lambda r: r["_e"] is not winner)
+    seen, out = set(), []
+    for r in rows:  # one row per distinct (source, says): the same reading twice adds nothing
+        k = (r["source"], r["says"])
+        if k in seen:
+            continue
+        seen.add(k)
+        r.pop("_e")
+        out.append(r)
+    small = None
+    if kind == "stories" and claimed >= 10:
+        small = "one or two floors on a tall building is a small difference"
+    elif kind == "year_built":
+        small = "records often differ by a year"
+    elif kind == "unit_count":
+        small = "records often differ by a few homes"
+    return trust.confidence(trust.kind_key(claim), kind, claimed, found, winner["source"], out, small)
 
 
 def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict:
@@ -482,7 +700,9 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
         return {**base, "verdict": "cant_check", "found": "no data", "source": None,
                 "reason": f"Listing says {claimed_txt}. None of our sources measured this."}
 
-    winner = sorted(usable, key=lambda e: RANK[e["source"]])[0]  # stable: first found wins a tie
+    first = sorted(usable, key=lambda e: RANK[e["source"]])[0]  # the fixed order: stable, first found wins a tie
+    readings = [(e, *_reading(kind, claimed, e)) for e in usable]
+    winner = _pick(claim, kind, claimed, readings, first)
     obs = winner["observed"]
     found = _num(obs[kind])
     src = winner["source"]
@@ -539,6 +759,10 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
         if kind == "stories" and src == "aerial" and _num(obs.get("height_m")) is not None:
             how = (f"The measured roof height from Vexcel aerial imagery ({_n(_num(obs['height_m']))} m) means "
                    f"about {found_txt}.")
+        if _estimate_alone(kind, winner, found, usable) and verdict == "contradicted":
+            verdict = "close"  # a count added up over several parcels never makes a firm mismatch on its own
+            how = (f"County records give about {found_txt}, but that count is added up over several parcels, so it "
+                   "is only an estimate.")
     if obs.get("plan_match"):
         how += " " + str(obs["plan_match"]).strip()
     for note in dict.fromkeys(misfit_notes):
@@ -557,5 +781,27 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
             others.append(bit)
     extra = (" " + _cap("; ".join(others)) + ".") if others else ""
     reason = f"Listing says {claimed_txt}. {how}{extra}"
-    return {**base, "verdict": verdict, "found": found_txt, "source": src, "reason": reason,
-            "image": _image(winner, usable, evidences)}
+    image = _image(winner, usable, evidences) or (_image(first, usable, evidences) if winner is not first else None)
+    out = {**base, "verdict": verdict, "found": found_txt, "source": src, "reason": reason, "image": image}
+    if verdict in MISMATCH:
+        out["confidence"] = _numeric_confidence(claim, kind, claimed, winner, found, readings)
+        if _estimate_alone(kind, winner, found, usable):
+            c = out["confidence"]
+            c["score"] = min(c["score"], ESTIMATE_MAX_SCORE)
+            c["band"] = trust.band(c["score"])
+            c["why"] = c["why"][:-1] + "; the county count is an estimate added up over several parcels."
+    return out
+
+
+ESTIMATE_MAX_SCORE = 40  # an estimated county unit count alone: low confidence at most
+
+
+def _estimate_alone(kind: str, winner: dict, found: float, usable: list[dict]) -> bool:
+    """The deciding evidence is a county unit count added up over several parcels (observed.units_estimated) and
+    no other source with a firm count says the same."""
+    if kind != "unit_count" or winner.get("source") != "county" or not (winner.get("observed") or {}).get(
+            "units_estimated"):
+        return False
+    return not any(e is not winner and not (e.get("observed") or {}).get("units_estimated")
+                   and _num(e["observed"].get(kind)) is not None and _alike(kind, _num(e["observed"][kind]), found)
+                   for e in usable)

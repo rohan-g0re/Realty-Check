@@ -2,7 +2,7 @@
 import json
 import re
 
-from server.claim_field import SOURCES, claim_field, claim_field_section, clean_observed
+from server.claim_field import SOURCES, claim_field, claim_field_section, clean_observed, compare_table
 
 IMG = "/img/0123456789abcdef"
 
@@ -209,3 +209,227 @@ def test_dead_pictures_are_left_out(tmp_path):
     run["images"] = {dead_tok: str(tmp_path / "gone.jpg"), live_tok: str(live)}
     cell = claim_field(run)["claims"][0]["cells"]["aerial"]
     assert [i["url"] for i in cell["images"]] == ["/img/" + live_tok]
+
+
+def test_source_rows_311_zero_is_left_out():
+    run = run_of([], [ev("county", {"year_built": 2001, "houston_311_count": 0, "complaints": []})], [])
+    county = dict(claim_field(run)["source_rows"]["county"])
+    assert "311 requests" not in county and "Complaints on record" not in county and county["Year built"] == "2001"
+
+
+def _one_home_run(done_harness=None):
+    c = claim("c1", "bedrooms", 2, "2 Beds", scope="unit")
+    record = ev("record", {"floorplans": [{"name": "A1", "beds": 1, "baths": 1, "sqft": 700}]})
+    events = [{"type": "claims", "claims": [c]},
+              {"type": "match", "match": {"status": "matched", "kind": "home", "floorplans": []}}, record,
+              verdict("c1", "cant_check")]
+    if done_harness is not None:
+        events.append({"type": "done", "run_id": "t", "harness": done_harness})
+    return {"run_id": "t", "events": events}
+
+
+def test_judge_gets_single_unit_like_the_run(monkeypatch):
+    import importlib
+    judge_mod = importlib.import_module("harness.graph.judge")
+    seen = []
+    real = judge_mod.judge
+
+    def spy(claim, evs, single_unit=False):
+        seen.append(single_unit)
+        return real(claim, evs, single_unit=single_unit)
+
+    monkeypatch.setattr(judge_mod, "judge", spy)
+    claim_field(_one_home_run())  # no done yet: the run's own rule (a single home match)
+    assert seen and all(seen)
+    seen.clear()
+    claim_field(_one_home_run({"single_unit": False}))  # the run's recorded answer wins
+    assert seen and not any(seen)
+
+
+# ---------- "Listing vs record" table ----------
+
+CONF = {"score": 82, "band": "high", "decided_by": "aerial",
+        "why": "Vexcel measures the roof height directly; County agrees.",
+        "sources": [{"source": "aerial", "says": "about 6 floors", "weight": 0.8, "agrees_with_listing": False},
+                    {"source": "record", "says": "5 floors", "weight": 0.6, "agrees_with_listing": True}]}
+
+
+def _with_conf(run, cid, conf):
+    out = json.loads(json.dumps(run))
+    for e in out["events"]:
+        if e["type"] == "verdict" and e["verdict"]["claim_id"] == cid:
+            e["verdict"]["confidence"] = conf
+    return out
+
+
+def _rows(html):
+    body = html[html.index("<tbody>"):html.index("</tbody>")]
+    return re.findall(r"<tr class='lt-r-(\w+)' data-claim='(\w+)'>(.*?)</tr>", body)
+
+
+def test_confidence_passes_through_claim_field():
+    f = claim_field(_with_conf(BASE, "c1", CONF))
+    c1 = next(c for c in f["claims"] if c["id"] == "c1")
+    assert c1["confidence"]["decided_by"] == "aerial" and c1["confidence"]["score"] == 82
+    assert all(c["confidence"] is None for c in f["claims"] if c["id"] != "c1")
+
+
+def test_compare_table_one_row_per_claim_in_order():
+    html = compare_table(BASE)
+    assert "<table>" in html and "Listing vs record" in html
+    heads = re.findall(r"<th scope=col[^>]*>([^<]+)</th>", html)
+    assert heads == ["Claim", "Listing says", "CoStar", "Matterport", "Vexcel", "County", "Result", "Confidence"]
+    rows = _rows(html)
+    assert len(rows) == 5 and {cid for _, cid, _ in rows} == {"c1", "c2", "c3", "c4", "c5"}
+    # mismatches first (doesn't match, then close), then matches, then couldn't check (page order)
+    assert [cid for _, cid, _ in rows] == ["c1", "c2", "c4", "c3", "c5"]
+    assert "position:sticky" in html and "overflow:auto" in html
+
+
+def test_compare_table_cells():
+    rows = {cid: body for _, cid, body in _rows(compare_table(BASE))}
+    cells = lambda body: re.findall(r"<td class='lt-c lt-(\w+)", body)
+    # c1 (5 floors): CoStar matches, no scan, Vexcel and County don't match
+    assert cells(rows["c1"]) == ["match", "none", "contra", "contra"]
+    assert "6 floors" in rows["c1"] and "5 floors" in rows["c1"] and "Doesn&#x27;t match" in rows["c1"]
+    assert "—" in rows["c1"] and "Nothing from Matterport" in rows["c1"]
+    # c5 has no source at all: four dashes, and the quote stands in for the claimed value
+    assert rows["c5"].count(">—<") == 4 and "Great vibes" in rows["c5"] and "Couldn&#x27;t check" in rows["c5"]
+    # listing quote as secondary text when it differs from the claimed value
+    assert "<b>5 floors</b><small>“5-story building”</small>" in rows["c1"]
+
+
+def test_compare_table_confidence_only_on_mismatch_and_decides_mark():
+    run = _with_conf(BASE, "c1", CONF)
+    run = _with_conf(run, "c4", dict(CONF, decided_by="aerial"))  # a match carrying one: never shown
+    rows = {cid: body for _, cid, body in _rows(compare_table(run))}
+    assert "<b>High · 82</b>" in rows["c1"] and "Vexcel measures the roof height directly" in rows["c1"]
+    assert rows["c1"].count("lt-dec") == 1 and rows["c1"].count(">decides<") == 1
+    vex = re.findall(r"<td class='lt-c [^']*'[^>]*>.*?</td>", rows["c1"])[2]
+    assert "lt-dec" in vex and "decides" in vex
+    for cid in ("c2", "c3", "c4", "c5"):
+        assert "<td class=lt-conf></td>" in rows[cid] and "decides" not in rows[cid]
+
+
+def test_compare_table_odd_or_absent_confidence_never_breaks():
+    for conf in (None, {}, "high", {"band": "weird"}, {"score": "x"}, {"score": 140, "decided_by": "nowhere"}):
+        html = compare_table(_with_conf(BASE, "c1", conf))
+        assert len(_rows(html)) == 5
+    html = compare_table(_with_conf(BASE, "c1", {"score": 140, "decided_by": "nowhere"}))
+    assert "<b>100</b>" in html and "decides" not in html
+    assert compare_table(run_of([], [], [])) == ""
+
+
+def test_compare_table_cell_is_a_short_fact_never_a_cut_sentence():
+    from server.claim_field import _td_source
+    long = "The building record lists an unusually long description of floors that goes on and on and on."
+    td = _td_source({"state": "data", "found": "", "summary": long}, "CoStar", False)  # no short fact: a dash
+    assert "lt-data" in td and f"title='{long}'" in td and "…" not in td and ">—<" in td
+    assert long not in td.split("title=")[0] and long[:20] not in td.split("'>", 1)[1]
+    td = _td_source({"state": "match", "found": "6 floors", "short": "6 floors", "summary": long}, "County", True)
+    assert "6 floors</span>" in td and "title=" not in td and "lt-dec" in td and long[:20] not in td
+    td = _td_source({"state": "contra", "found": "1 bedroom and a den", "short": "1 bed + den"}, "Matterport", False)
+    assert "1 bed + den</span>" in td and "title='1 bedroom and a den'" in td
+    assert ">—<" in _td_source({"state": "none"}, "Vexcel", False)
+    body = compare_table(BASE)
+    body = body[body.index("<tbody>"):]
+    assert "…" not in body
+    rows = {cid: b for _, cid, b in _rows(compare_table(BASE))}
+    assert "Pool seen" in rows["c4"] and "Built 2000" in rows["c2"] and "Built 2001" in rows["c2"]
+
+
+def test_compact_short_facts():
+    from server.claim_field import compact
+    assert compact("1 bedroom and a den") == "1 bed + den"
+    assert compact("1 bedroom + den") == "1 bed + den"
+    assert compact("2 bathrooms") == "2 baths"
+    assert compact("built in 2016") == "Built 2016"
+    assert compact("6 stories") == "6 floors"
+    assert compact("about 6 floors (6 to 7)") == "About 6 floors (6 to 7)"
+    assert compact("1,184 sq ft.") == "1,184 sq ft"
+    for sentence in ("The 3D scan shows 1 bedroom and a den, about 968 sq ft.", "Seen. Twice", "Rooms: Bedroom", ""):
+        assert compact(sentence) == ""
+
+
+def test_compare_table_prefers_the_confidence_says():
+    rows = {cid: b for _, cid, b in _rows(compare_table(_with_conf(BASE, "c1", CONF)))}
+    assert "About 6 floors" in rows["c1"]  # the Vexcel row's own words
+    # a match carrying a confidence block shows the cell's own fact, not the block's words
+    rows = {cid: b for _, cid, b in _rows(compare_table(_with_conf(BASE, "c4", CONF)))}
+    assert "Pool seen" in rows["c4"] and "About 6 floors" not in rows["c4"]
+
+
+# ---------- Vexcel property data in the table (invented: 418 Linden Grove Ave, ids 900001 / 900002) ----------
+
+def prop_data(**over):
+    base = {"captured": "2025-12-19", "source": "Vexcel property data",
+            "pool": {"present": True, "confidence": 0.95, "area_sqft": 1900, "kind": "in-ground", "stable": True},
+            "hot_tub": {"present": False, "stable": True}, "vehicles": 12, "tree_cover_pct": 18.5, "buildings": 2}
+    base.update(over)
+    return ev("aerial", {"property": base}, summary="Vexcel property data (survey of 2025-12-19) shows a pool.")
+
+
+def look(cid, presence, feat="pool"):
+    return ev("aerial", {"feature_check": True, "claim_ids": [cid], "feature": feat, "presence": presence,
+                         "presence_confidence": 0.9}, images=[{"path": IMG, "caption": "Top-down"}])
+
+
+def judged_run(claims, evidence):
+    """A run whose verdicts come from the real judge on all the evidence (confidence blocks included)."""
+    from harness.graph.judge import judge
+    evs = [e["evidence"] for e in evidence]
+    return run_of(claims, evidence, [{"type": "verdict", "verdict": judge(c, evs)} for c in claims])
+
+
+def _vexcel(row):
+    return re.findall(r"<td class='lt-c [^']*'[^>]*>.*?</td>", row)[2]
+
+
+def test_property_data_confirmation_in_the_vexcel_cell():
+    c = claim("p1", "amenity", "pool", "Resort-style pool")
+    run = judged_run([c], [prop_data()])
+    f = claim_field(run)
+    assert f["claims"][0]["verdict"] == "confirmed" and state(f, "p1", "aerial") == "match"
+    vex = _vexcel(_rows(compare_table(run))[0][2])
+    assert "Pool, ~1,900 sq ft (2025 survey)" in vex and "lt-match" in vex and "…" not in vex
+    assert "title='In Vexcel property data'" in vex
+    run = judged_run([c], [prop_data(captured=None)])
+    assert "Pool, ~1,900 sq ft</span>" in _vexcel(_rows(compare_table(run))[0][2])
+    # a "no" alone: couldn't check, said softly
+    run = judged_run([c], [prop_data(pool={"present": False, "stable": True})])
+    row = _rows(compare_table(run))[0]
+    assert row[0] == "cant_check" and "Not in property data" in _vexcel(row[2])
+    # a feature property data does not cover never picks it up
+    run = judged_run([claim("r1", "amenity", "rooftop deck", "Rooftop deck")], [prop_data()])
+    assert state(claim_field(run), "r1", "aerial") == "none"
+
+
+def test_two_vexcel_rows_share_one_cell():
+    c = claim("p1", "amenity", "pool", "Pool")
+    rec = ev("record", {"property_id": "900001", "amenities": ["Fitness center"]}, summary="Amenities.")
+    run = judged_run([c], [rec, look("p1", "not_seen"), prop_data(pool={"present": False, "stable": True})])
+    conf = claim_field(run)["claims"][0]["confidence"]
+    assert sum(1 for s in conf["sources"] if s["source"] == "aerial") == 2
+    row = _rows(compare_table(run))[0]
+    assert row[0] == "close"
+    vex = _vexcel(row[2])
+    assert "Photo: not seen · Data: not shown" in vex and "lt-dec" in vex and vex.count("not seen") == 1
+    html = compare_table(run).lower()
+    for bad in ("fake", " lie", "scam", "fraud"):
+        assert bad not in html
+
+
+def test_says_with_odd_rows_never_breaks():
+    from server.claim_field import _says
+    assert _says(None, "aerial") == "" and _says({"sources": "x"}, "aerial") == ""
+    assert _says({"sources": [{"source": "aerial", "says": ""}, "x"]}, "aerial") == ""
+    two = {"sources": [{"source": "aerial", "says": "seen"}, {"source": "aerial", "says": "in property data"}]}
+    assert _says(two, "aerial") == "Photo: seen · Data: shown"
+    long = {"sources": [{"source": "county", "says": "a very long reading that would never fit in the cell"}]}
+    assert _says(long, "county") == ""
+
+
+def test_compare_table_soft_words_only():
+    html = compare_table(_with_conf(BASE, "c1", CONF)).lower()
+    for bad in ("fake", " lie", "scam", "fraud"):
+        assert bad not in html

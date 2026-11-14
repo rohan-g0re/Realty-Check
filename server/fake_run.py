@@ -98,10 +98,10 @@ def run_fake(snapshot: dict, emit) -> dict:
          "quote": "5-story building", "checkable": True},
         {"id": "c3", "kind": "area_sqft", "value": 1100, "unit": "sqft", "scope": "unit", "label": "Plan E",
          "quote": "1,100 sq ft", "checkable": True},
-        {"id": "c4", "kind": "year_built", "value": 2016, "unit": None, "scope": "building", "label": None,
-         "quote": "Built in 2016", "checkable": True},
-        {"id": "c5", "kind": "amenity", "value": "pool", "unit": None, "scope": "building", "label": None,
+        {"id": "c4", "kind": "amenity", "value": "pool", "unit": None, "scope": "building", "label": None,
          "quote": "Resort-style pool", "checkable": True},
+        {"id": "c5", "kind": "amenity", "value": "rooftop deck", "unit": None, "scope": "building", "label": None,
+         "quote": "Rooftop deck", "checkable": True},
     ]
     match = {"status": "matched", "confidence": 0.97, "property_id": "900001", "name": "Linden Grove Lofts",
              "address": address, "city": "Houston", "state": "TX", "lat": 29.7520, "lon": -95.3700,
@@ -133,9 +133,16 @@ def run_fake(snapshot: dict, emit) -> dict:
         [{"path": aerial_path, "caption": "Oblique view from the north"}], detail="Aerial height estimate")})
     say({"type": "evidence", "evidence": evidence(  # invented picture check: the photo could not tell
         "aerial", "ok", "Looking at the Vexcel aerial photos for a pool: the vision model could not tell.",
-        {"feature_check": True, "claim_ids": ["c5"], "feature": "pool", "looked_at": "Vexcel aerial photos",
+        {"feature_check": True, "claim_ids": ["c4"], "feature": "pool", "looked_at": "Vexcel aerial photos",
          "presence": "unclear", "presence_confidence": 0.5},
         [{"path": aerial_path, "caption": "Oblique view from the north"}], detail="Aerial picture check")})
+    say({"type": "evidence", "evidence": evidence(  # invented Vexcel property data for the parcel
+        "aerial", "ok", "Vexcel property data (survey of 2025-12-19) shows a pool (about 1,900 sq ft); it shows no "
+        "hot tub.", {"property": {"captured": "2025-12-19", "source": "Vexcel property data",
+                                  "pool": {"present": True, "confidence": 0.93, "area_sqft": 1900, "kind": "in-ground",
+                                           "stable": True},
+                                  "hot_tub": {"present": False, "stable": True}, "vehicles": 14, "buildings": 1}},
+        detail="Vexcel property data: outdoor features marked on the parcel from the aerial surveys")})
     say({"type": "step", "agent": "paper", "text": "Checking the county property record."})
     say({"type": "evidence", "evidence": evidence(
         "county", "ok", "The county lists 6 stories, built in 2016.", {"stories": 6, "year_built": 2016},
@@ -143,16 +150,37 @@ def run_fake(snapshot: dict, emit) -> dict:
     say({"type": "step", "agent": "judge", "text": "Comparing each claim with what we found."})
     verdicts = [
         {"claim_id": "c1", "verdict": "contradicted", "claimed": "2 bedrooms", "found": "1 bedroom + den",
-         "source": "scan", "reason": "The 3D scan labels this plan as one bedroom with a den.", "image": scan_path},
+         "source": "scan", "reason": "The 3D scan labels this plan as one bedroom with a den.", "image": scan_path,
+         "confidence": {  # invented, in the judge's shape (docs/CONTRACT.md 2.9)
+             "score": 64, "band": "medium", "decided_by": "scan",
+             "why": "Matterport walks through the home and its title states the room count; CoStar matches the "
+                    "listing, so we are less sure.",
+             "sources": [{"source": "scan", "says": "1 bedroom", "weight": 0.9, "agrees_with_listing": False},
+                         {"source": "record", "says": "2 bedrooms", "weight": 0.81, "agrees_with_listing": True}]}},
         {"claim_id": "c2", "verdict": "contradicted", "claimed": "5 stories", "found": "6 stories",
          "source": "aerial", "reason": "The roof is 23.1 m high, about 6 floors, and the county also lists 6.",
-         "image": aerial_path},
+         "image": aerial_path,
+         "confidence": {  # invented, in the judge's shape (docs/CONTRACT.md 2.9)
+             "score": 82, "band": "high", "decided_by": "aerial",
+             "why": "Vexcel measures the roof height directly; County agrees; CoStar matches the listing, so we are "
+                    "less sure.",
+             "sources": [{"source": "aerial", "says": "about 6 floors", "weight": 0.8, "agrees_with_listing": False},
+                         {"source": "county", "says": "6 floors", "weight": 0.7, "agrees_with_listing": False},
+                         {"source": "record", "says": "5 floors", "weight": 0.6, "agrees_with_listing": True}]}},
         {"claim_id": "c3", "verdict": "contradicted", "claimed": "1,100 sq ft", "found": "968 sq ft",
-         "source": "scan", "reason": "The 3D scan measures about 968 sq ft, 12% smaller than listed.", "image": None},
-        {"claim_id": "c4", "verdict": "confirmed", "claimed": "built 2016", "found": "built 2016",
-         "source": "county", "reason": "The county record shows the building was finished in 2016.", "image": None},
-        {"claim_id": "c5", "verdict": "cant_check", "claimed": "resort-style pool", "found": "not checked",
-         "source": "record", "reason": "None of our sources say whether there is a pool.", "image": None},
+         "source": "scan", "reason": "The 3D scan measures about 968 sq ft, 12% smaller than listed.", "image": None,
+         "confidence": {  # invented, in the judge's shape
+             "score": 58, "band": "medium", "decided_by": "scan",
+             "why": "Matterport measures the floor of the scanned home; CoStar matches the listing, so we are less "
+                    "sure.",
+             "sources": [{"source": "scan", "says": "968 sq ft", "weight": 0.85, "agrees_with_listing": False},
+                         {"source": "record", "says": "1,100 sq ft", "weight": 0.77, "agrees_with_listing": True}]}},
+        {"claim_id": "c4", "verdict": "confirmed", "claimed": "resort-style pool", "found": "In Vexcel property data",
+         "source": "aerial", "reason": "Listing says “Resort-style pool”. Vexcel property data shows a pool, "
+                                      "about 1,900 sq ft.", "image": None},
+        {"claim_id": "c5", "verdict": "cant_check", "claimed": "rooftop deck", "found": "no data",
+         "source": None, "reason": "Listing says “Rooftop deck”. We had no photos that could show this.",
+         "image": None},
     ]
     for v in verdicts:
         say({"type": "verdict", "verdict": v})

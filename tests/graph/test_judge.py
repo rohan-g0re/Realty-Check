@@ -23,14 +23,17 @@ def test_bedrooms_2_vs_scan_1_is_contradicted_by_scan():
     assert v["reason"] == "Listing says 2 bedrooms. The 3D scan shows 1 bedroom + den."
 
 
-def test_stories_aerial_beats_county_and_record():
+def test_stories_county_decides_over_the_aerial_estimate():
+    # floors: county and the building record are the better sources (trust.py), the roof height an estimate;
+    # county and record tie on trust, so the old fixed order (county before record) decides
     v = judge(claim("stories", 5, scope="building"),
               [ev("record", {"stories": 5}), ev("county", {"stories": 6}),
                ev("aerial", {"stories": 6, "height_m": 23.1}),
                ev("aerial", {}, images=[{"path": "C:/x/oblique.jpg", "caption": "Angled"}])])
-    assert v["verdict"] == "contradicted" and v["source"] == "aerial"
-    assert v["reason"].startswith("Listing says 5 floors. The measured roof height from Vexcel aerial imagery (23.1 m) means about 6 floors.")
-    assert v["image"] == "C:/x/oblique.jpg"
+    assert v["verdict"] == "contradicted" and v["source"] == "county"
+    assert v["reason"].startswith("Listing says 5 floors. County records say 6 floors.")
+    assert v["image"] == "C:/x/oblique.jpg"  # the aerial picture is still shown
+    assert v["confidence"]["decided_by"] == "county"
 
 
 def test_area_bands_for_county_and_record():

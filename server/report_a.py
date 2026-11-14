@@ -3,6 +3,9 @@
 Sections, top to bottom (each one adapts to the run; nothing is invented):
   hero          headline from counts ("3 things don't match." / calm "Everything we could check matches."), the
                 address, the run meta, and the claim field (server.claim_field, or a simple grid when it is missing)
+  compare       "Listing vs record": one table, a row per claim (mismatches first), what the listing says beside what
+                CoStar, Matterport, Vexcel and the county found, the result, and the judge's confidence on a mismatch
+                (server.claim_field.compare_table)
   findings      one module per hard mismatch item (contradicted; plan claims grouped as in server.report), ranked by
                 what costs the renter most (beds/baths/size, then rent and fees, then building facts, then
                 amenities; a bigger relative gap first): the listing's words struck through in blue, the truth set
@@ -817,6 +820,15 @@ def _field(run: Run, live_3d: bool = True) -> str:
     return _fallback_field(run)
 
 
+def _compare(run_dict: dict) -> str:
+    """'Listing vs record' (server.claim_field.compare_table): one table, every claim, right after the hero."""
+    try:
+        from server.claim_field import compare_table
+        return compare_table(run_dict)
+    except Exception:  # noqa: BLE001  the table must never break the report
+        return ""
+
+
 def _hero(run: Run, n: dict, first_find: str | None, live_3d: bool = True, top=None) -> str:
     l1, l2, calm = _headline(n)
     address = run.snap.get("address_text") or run.match.get("address") or "Unknown address"
@@ -1395,7 +1407,7 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
          PRECONNECT if used_walk and live_3d else "",
          f"<style>{CSS}</style></head><body id=top>",
          f"<div class=wrap><header class=top><a class=brand href='#top'>{BRAND}</a><nav aria-label=Report>{''.join(nav)}</nav></header>",
-         hero, "</div>", err, findings, _sources(run, facts), _extra(run, facts), _matches(run, ok, used_walk, live_3d),
+         hero, "</div>", _compare(run_dict), err, findings, _sources(run, facts), _extra(run, facts), _matches(run, ok, used_walk, live_3d),
          _cant(run, cant), _questions(run, off, cant, lead_pic), _footer(run),
          "<div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"
          "<button type=button class=btn>Close</button><img alt=''><p></p></div>",

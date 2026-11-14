@@ -44,6 +44,7 @@ MAX_FEATURE_SCANS = 2   # scans whose photos are searched for in-unit features p
 MAX_STILLS_FETCH = 3    # uncached scan stills (proof pictures) fetched per run; cached ones are free
 HELPERS = ("inside", "outside", "paper")
 ALWAYS_RESERVE_S = 1.5  # the close's direct aerial / county / record calls stop this far before the run's hard end
+PROPERTY_WAIT_S = 10.0  # the amenity photo check waits at most this long for Vexcel property data after its look
 MATCH_WAIT_S = 10.0     # read_claims waits this long for a match in progress, so "Helpers needed" knows the location
 
 
@@ -97,6 +98,12 @@ class Run:
         self._match_evt = threading.Event()    # set once the match (and its map location) is known
         self.single_unit = False               # the page lists one home (set when judging; see single_unit_page())
         self.direct: list[str] = []            # always-run helpers the run called itself (the agent skipped them)
+        # the page's own apartment, when the kit has exactly one unit row for it (settle_unit())
+        self.unit: str | None = None           # unit text as the page names it ("1204")
+        self.unit_row: dict | None = None      # tools.kit.find_unit row
+        self.unit_scan_id: str | None = None   # that unit's own 3D scan
+        self.unit_plan_scan: str | None = None  # else the scan of the unit's record plan
+        self._unit_settled = False
 
     def time_left(self) -> float:
         return self.budget_s - (time.monotonic() - self.t0)
@@ -237,7 +244,11 @@ class Run:
             r = {"label": label, "kit": None, "kit_plans": [], "how": None, "ambiguous": False, "scan_id": None,
                  "scan_how": None, "scan_title": None, "note": ""}
             ids = self.match.get("matterport_model_ids") or []
-            if len(ids) == 1:
+            if self.unit_scan_id:  # the page's own unit has its own scan: it goes ahead of any plan or building scan
+                r.update(scan_id=self.unit_scan_id, scan_how="unit")
+            elif self.unit_plan_scan:
+                r.update(scan_id=self.unit_plan_scan, scan_how="unit_plan")
+            elif len(ids) == 1:
                 r.update(scan_id=ids[0], scan_how="only")
         else:
             scans = self.property_scans() if self.match.get("status") == "matched" else {}
@@ -318,14 +329,117 @@ class Run:
                              f"{'s' if len(fps) != 1 else ''}.", {"floorplans": fps},
                              detail=f"CoStar hackathon kit floor plan list of property {self.match.get('property_id')}.")
 
+    # ---- the page's own unit ----------------------------------------------------------------------
+    def settle_unit(self) -> None:
+        """Once the claims and the match are known: the apartment the page names (harness.claims.extract.page_unit)
+        looked up in the kit's unit rows. With exactly one row, self.unit / unit_row / unit_scan_id are set, the
+        claims' labels naming that unit are dropped (it is this home, not a floor plan) and the page counts as one
+        home. A unit the kit does not have, a repeated number beds and baths cannot settle, a name that is also one
+        of the building's floor plans, a unit store not built, or no lookup at all: nothing changes."""
+        with self._lock:
+            if self._unit_settled or not self.match_ready:
+                return
+            self._unit_settled = True
+        m = self.match or {}
+        if m.get("status") != "matched" or m.get("kind", "building") != "building":
+            return
+        fns = _unit_fns(self.tb)
+        if not fns:
+            return
+        from harness.claims.extract import _unit_tools, page_unit  # lazy: the run imports without the kit
+        tools = _unit_tools()
+        unit = page_unit(self.snapshot, self.claims) if tools else None
+        if not unit:
+            return
+        norm = tools[1]
+        key = norm(unit)
+        if key in {k for fp in m.get("floorplans") or [] if isinstance(fp, dict) for k in _plan_keys(fp.get("name"))}:
+            return  # also a floor plan of this building: read as the plan, as before
+        pid = m.get("property_id")
+        try:
+            row = fns["find_unit"](pid, unit, self._unit_value("bedrooms", key, norm),
+                                   self._unit_value("bathrooms", key, norm))
+        except Exception:
+            row = None
+        if not isinstance(row, dict) or row.get("ambiguous"):
+            return
+        try:
+            scan = fns["unit_scan"](pid, unit)
+        except Exception:
+            scan = None
+        own = [s for s in row.get("scan_ids") or [] if isinstance(s, str) and s]
+        if not isinstance(scan, str) or not scan:
+            scan = own[0] if len(own) == 1 else None
+        plan_scan = None
+        if not scan and row.get("plan"):
+            plan_scan = next((fp.get("matterport_model_id") for fp in m.get("floorplans") or []
+                              if isinstance(fp, dict) and fp.get("matterport_model_id")
+                              and str(fp.get("name") or "").strip().lower() == str(row["plan"]).strip().lower()), None)
+        claims = [{**c, "label": None} if c.get("label") and norm(c["label"]) == key else c for c in self.claims]
+        with self._lock:
+            self.claims, self.unit, self.unit_row = claims, unit, row
+            self.unit_scan_id, self.unit_plan_scan = scan, plan_scan
+        with self._plan_lock:
+            self._plans.pop("", None)  # an unnamed resolution made before this knew nothing of the unit
+        self.step("matcher", f"The page is about unit {unit}; the building record has a row for it.")
+
+    def _unit_value(self, kind: str, key: str, norm: Callable) -> Any:
+        """The one value the page gives for this unit kind (unnamed, or naming the unit), else None."""
+        vals = {c.get("value") for c in self.claims if c.get("checkable") and c.get("kind") == kind
+                and (not c.get("label") or norm(c["label"]) == key)}
+        return vals.pop() if len(vals) == 1 else None
+
+    def _unit_scan_tags(self, how: str) -> dict:
+        """observed keys on the scan the unit's run uses: its own scan (scan_of "unit"), or its record plan's."""
+        tags = {"unit": self.unit, "scan_of": "unit" if how == "unit" else "plan"}
+        if (self.unit_row or {}).get("plan"):
+            tags["unit_plan"] = self.unit_row["plan"]
+        return tags
+
+    def unit_record(self, agent: str = "paper") -> str:
+        """The building record's row for the page's unit, as record Evidence (once per run): observed.unit,
+        unit_row: true, bedrooms / bathrooms / area_sqft (the unit's minimum size), unit_plan, unit_says."""
+        def body():
+            row, unit = self.unit_row or {}, self.unit
+            obs: dict[str, Any] = {"unit": unit, "unit_row": True}
+            bits = []
+            beds, baths, sqft = row.get("beds"), row.get("baths"), row.get("sqft")
+            if isinstance(beds, (int, float)) and not isinstance(beds, bool):
+                obs["bedrooms"] = beds
+                bits.append("a studio" if beds == 0 else f"{beds:g} bed" + ("s" if beds != 1 else ""))
+            if isinstance(baths, (int, float)) and not isinstance(baths, bool) and baths > 0:
+                obs["bathrooms"] = baths
+                bits.append(f"{baths:g} bath" + ("s" if baths != 1 else ""))
+            if isinstance(sqft, (int, float)) and not isinstance(sqft, bool) and sqft > 0:
+                obs["area_sqft"] = sqft
+                obs["sqft_min"] = True
+                bits.append(f"{int(sqft):,} sq ft" if float(sqft).is_integer() else f"{sqft:,.1f} sq ft")
+            if row.get("plan"):
+                obs["unit_plan"] = row["plan"]
+            if self.unit_scan_id:
+                obs["unit_scan"] = self.unit_scan_id
+            if not bits:
+                ev = make_evidence("record", "no_evidence", f"The building record has unit {unit} but no numbers for it.",
+                                   obs)
+                return self.line(self.add(ev, "record"))
+            obs["unit_says"] = ", ".join(bits)
+            plan = f" (floor plan {row['plan']})" if row.get("plan") else ""
+            ev = make_evidence("record", "ok", f"The building record lists unit {unit} as {obs['unit_says']}{plan}.",
+                               obs, detail=f"CoStar hackathon kit unit row of property {self.match.get('property_id')}; "
+                                           "the size is the unit's listed minimum.")
+            return self.line(self.add(ev, "record"))
+        return self._check("unit_record", agent, f"Reading the building record's row for unit {self.unit}.", body)
+
     def scan_rooms(self, plan: str = "", agent: str = "inside") -> str:
         plan = self.canon_plan(plan)
-        name = plan or "this unit"
+        name = plan or (f"unit {self.unit}" if self.unit_row else "this unit")
 
         def body():
             r = self.resolve(plan)
             out = []
             example = bool(r.get("ambiguous"))  # type-level: several record plans fit, none was picked
+            if not plan and self.unit_row:
+                out.append(self.unit_record(agent))
             if plan and example:
                 out.append(self.line(self.add(_type_parts()[1](r, self.match), "record")))
             elif plan and r["kit"]:
@@ -336,7 +450,8 @@ class Run:
                     {"plan": plan, "plan_missing": True},
                     detail="No kit floor plan has this name, or the same beds and baths within 8% of its size."),
                     "record")))
-            elif not plan and self.match.get("status") == "matched" and self.match.get("floorplans"):
+            elif not plan and self.match.get("status") == "matched" and self.match.get("floorplans") \
+                    and not self.unit_row:
                 out.append(self.line(self.add(self._all_plans(), "record")))
             if not r["scan_id"]:
                 out.append(self.line(self.add(make_evidence("scan", "no_evidence", f"No 3D scan was found for {name}."),
@@ -345,6 +460,8 @@ class Run:
             ev = self._safe("scan", self.tb.scan_summary, r["scan_id"])
             if r["note"] and isinstance(ev, dict) and ev.get("status") == "ok":
                 ev = {**ev, "observed": {**(ev.get("observed") or {}), "plan_match": r["note"]}}
+            if r.get("scan_how") in ("unit", "unit_plan") and isinstance(ev, dict) and ev.get("status") == "ok":
+                ev = {**ev, "observed": {**(ev.get("observed") or {}), **self._unit_scan_tags(r["scan_how"])}}
             if example and isinstance(ev, dict):
                 # an example of the kind of home only: not tied to the listing's plan, so it never decides its claims
                 ev = {**ev, "observed": {**(ev.get("observed") or {}), "example_for": plan}}
@@ -426,9 +543,39 @@ class Run:
         def body():
             if self.lat is None or self.lon is None:
                 return self._no_location()
-            h = self.line(self.add(self._safe("aerial", self.tb.building_height, self.lat, self.lon), "aerial"))
-            return h + "\n" + self.aerial_photos(agent)
+            h, p = _ctx_map(lambda f: f(), [
+                lambda: self.line(self.add(self._safe("aerial", self.tb.building_height, self.lat, self.lon),
+                                           "aerial")),
+                lambda: self.property_data(agent)], 2)  # roof height and property data side by side
+            return h + "\n" + p + "\n" + self.aerial_photos(agent)
         return self._check("measure_building", agent, "Measuring the roof height from Vexcel aerial imagery.", body)
+
+    def property_data(self, agent: str = "outside") -> str:
+        """Vexcel property data for the parcel (pool, hot tub, sport court, playground, solar, ...), fetched once per
+        run and stored as its own aerial Evidence with the whole answer under observed.property. Nothing is stored
+        when it fails or has no answer: the run goes on without it."""
+        def body():
+            fn = _property_fn(self.tb)
+            if self.lat is None or self.lon is None or fn is None:
+                return "No Vexcel property data for this location."
+            try:
+                prop = fn(self.lat, self.lon)
+            except Exception:
+                prop = None
+            if not isinstance(prop, dict) or not prop:
+                return "No Vexcel property data for this location."
+            ev = make_evidence("aerial", "ok", _property_summary(prop), {"property": prop},
+                               detail="Vexcel property data: outdoor features marked on the parcel from the aerial "
+                                      "survey (newest year; 'stable' = the year before agrees).")
+            return self.line(self.add(ev, "aerial"))
+        return self._check("property_data", agent, "Reading Vexcel property data for the parcel.", body)
+
+    def _property_soon(self) -> threading.Thread:
+        """property_data() in a background thread (same context), for the amenity photo check to run alongside."""
+        th = threading.Thread(target=contextvars.copy_context().run, args=(self.property_data,), daemon=True,
+                              name="rc-property")
+        th.start()
+        return th
 
     def count_floors_on_photo(self, agent: str = "outside") -> str:
         """Illustrative only: a floor count read off a photo never decides the stories verdict (the vision model
@@ -471,6 +618,8 @@ class Run:
             else:
                 ev = self._safe("record", self.tb.record_evidence, self.match)
             out = self.line(self.add(ev, "record"))
+            if self.unit_row:
+                out += "\n" + self.unit_record(agent)
             extra = record_amenities(self)
             return f"{out}\n{extra}" if extra else out
         return self._check("record", agent, "Reading the building record.", body)
@@ -497,6 +646,7 @@ class Run:
         if not self.match_ready:
             self.match_listing()
             self._match_evt.wait(timeout=max(0.0, min(MATCH_WAIT_S, self.time_left() - VISION_MIN_LEFT_S)))
+        self.settle_unit()  # the page's own unit, before the claims event (a unit label is not a plan)
         with self._order:
             self.needed = helpers_needed(self.claims, self.match)
             self.claims_ready = True
@@ -508,7 +658,9 @@ class Run:
         rows = [f"{c['id']} {c.get('kind')}={json.dumps(c.get('value'))}" + (f" [{c['label']}]" if c.get("label") else "")
                 for c in checkable]
         need = "; ".join(f"{h} ({why})" for h, why in self.needed.items()) or "none (nothing measurable)"
-        return (f"{len(self.claims)} claims, {len(checkable)} checkable:\n" + "\n".join(rows)
+        unit = (f"\nThis page is about unit {self.unit}; the building record has its own row (beds, baths, size)."
+                if self.unit_row else "")
+        return (f"{len(self.claims)} claims, {len(checkable)} checkable:\n" + "\n".join(rows) + unit
                 + f"\nHelpers needed: {need}")
 
     def do_match(self) -> None:
@@ -538,9 +690,10 @@ class Run:
         except Exception as e:
             self.error(f"address match failed: {type(e).__name__}: {e}")
         with self._order:
-            if self.claims_ready:
-                self.needed = helpers_needed(self.claims, self.match)
             self.match_ready = True
+            if self.claims_ready:  # the claims were read first (their wait for this match ran out)
+                self.settle_unit()
+                self.needed = helpers_needed(self.claims, self.match)
             self._flush()  # sent right after the claims event, never before it
         self._match_evt.set()
         return self.match_text()
@@ -710,6 +863,7 @@ class Run:
                     self.match = {**self.match, "how": "The check stopped before the address was matched."}
                 self.match_ready = True
                 self._match_evt.set()
+            self.settle_unit()
             self._flush()
 
     def judge_all(self, by: str) -> list[dict]:
@@ -806,7 +960,10 @@ class Run:
     def single_unit_page(self) -> bool:
         """True when the page is about one home: the match is a single home, or the page names no floor plan and
         states at most one value per unit kind (beds, baths, size) with at least a bed or bath count, and any
-        matched building has at most one floor plan. When unsure: False."""
+        matched building has at most one floor plan. When unsure: False. A page whose own unit has a row in the
+        building record (settle_unit()) is one home."""
+        if getattr(self, "unit_row", None):
+            return True
         m = self.match or {}
         unit = [c for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS]
         values: dict[str, set] = {}
@@ -845,7 +1002,7 @@ class Run:
                 "harness": {"path": self.path, "judged_by": self.judged_by,
                             "fill_in_by": getattr(self, "fill_in_by", None), "stopped": stopped,
                             "helpers": sorted(self.helpers_used), "needed": sorted(self.needed),
-                            "direct": list(self.direct), "single_unit": self.single_unit},
+                            "direct": list(self.direct), "single_unit": self.single_unit, "unit": self.unit},
                 "timing": self.timing()}
         LAST_AGENT_STATS.clear()
         LAST_AGENT_STATS.update(self.agent_stats)
@@ -944,6 +1101,13 @@ class Run:
         if self.lat is None or self.lon is None:
             return [make_evidence("aerial", "no_evidence", "We have no map location, so no Vexcel aerial photos.",
                                   {"feature_check": True, "claim_ids": ids, "presence": "unclear"})]
+        th = self._property_soon()  # the judge reads it next to the vision model's answer
+        try:
+            return self._aerial_look(items, ids)
+        finally:
+            th.join(timeout=PROPERTY_WAIT_S)
+
+    def _aerial_look(self, items: list, ids: list[str]) -> list[dict]:
         ev = self.aerial_ev()
         images = [im for im in ev.get("images") or [] if im.get("path")][:3]
         if ev.get("status") != "ok" or not images:
@@ -963,6 +1127,7 @@ class Run:
                                          {"feature_check": True, "claim_ids": [c["id"]], "presence": "unclear"}))
         order = [self.resolve(c["label"])["scan_id"] for c, _ in items if c.get("label")]
         if any(not c.get("label") for c, _ in items):
+            order.insert(0, self.unit_scan_id)  # the page's own unit's scan first (None when it has none)
             labels = sorted({c.get("label") for c in self.claims if c.get("label")})
             order += [self.resolve(lab)["scan_id"] for lab in labels]
             order += [mid for mid, sm in self.property_scans().items()
@@ -1122,6 +1287,84 @@ def record_amenities(run) -> str:
                        detail="Building record photo captions mapped to amenity names (the record's amenity ids "
                               "have no names).")
     return run.line(run.add(ev, "record"))
+
+
+def _property_fn(tb: Toolbox) -> Callable | None:
+    """The toolbox's property_attributes(lat, lon); for the real toolbox (its aerial tools come from tools.aerial)
+    the real one, loaded lazily. None for a toolbox without it (the fake one, unless a test adds it)."""
+    fn = getattr(tb, "property_attributes", None)
+    if callable(fn):
+        return fn
+    if getattr(getattr(tb, "aerial_images", None), "__module__", "") == "tools.aerial.aerial":
+        try:
+            from tools.aerial import property_attributes
+            return property_attributes
+        except Exception:
+            return None
+    return None
+
+
+def _unit_fns(tb: Toolbox) -> dict | None:
+    """{"find_unit", "unit_scan"}: the toolbox's unit lookups; for the real toolbox (its match comes from tools.kit)
+    the real ones from tools.kit.units, loaded lazily and only once the unit store is built. None for a toolbox
+    without them (the fake one, unless a test adds them). Local file reads only: no network."""
+    find = getattr(tb, "find_unit", None)
+    if callable(find):
+        scan = getattr(tb, "unit_scan", None)
+        return {"find_unit": find, "unit_scan": scan if callable(scan) else (lambda *a, **k: None)}
+    if getattr(getattr(tb, "match_address", None), "__module__", "") == "tools.kit.match":
+        try:
+            from tools.kit import units
+            if units.store_ready():
+                return {"find_unit": units.find_unit, "unit_scan": units.unit_scan}
+        except Exception:
+            return None
+    return None
+
+
+def _plan_keys(name: Any) -> set[str]:
+    """Unit-style keys a record plan name could be confused with: 'Plan A1' / 'A1 - 1 Bed' / 'B2  Plan' -> 'a1' /
+    'b2'; the whole name too ('theaspen'). Names that are no code ('2 Bedrooms') give only the whole name."""
+    s = str(name or "").strip().lower()
+    if not s:
+        return set()
+    s = re.sub(r"^(?:floor\s?plan|plan|model|unit|residence)\s+", "", s)
+    s = re.sub(r"\s+plan$", "", s)
+    out = {re.sub(r"[^a-z0-9]", "", s)}
+    code = re.split(r"\s+[-–(]|\s*\(", s)[0].strip()
+    if code and " " not in code:
+        out.add(re.sub(r"(?<!\d)0+(?=\d)", "", re.sub(r"[^a-z0-9]", "", code)))
+    return {k for k in out if k}
+
+
+_PROPERTY_SAY = (("pool", "a pool"), ("hot_tub", "a hot tub"), ("sport_court", "a sport court"),
+                 ("playground", "a playground"), ("solar", "solar panels"))
+
+
+def _property_summary(prop: dict) -> str:
+    """'Vexcel property data (survey of 2025-12-19) shows a pool (about 1,900 sq ft); it shows no hot tub, ...'."""
+    yes, no = [], []
+    for key, say in _PROPERTY_SAY:
+        f = prop.get(key)
+        if not isinstance(f, dict) or not isinstance(f.get("present"), bool):
+            continue
+        if f["present"]:
+            area = f.get("area_sqft") if key == "pool" else None
+            yes.append(say + (f" (about {int(area):,} sq ft)" if isinstance(area, (int, float)) and area > 0 else ""))
+        else:
+            no.append(say.split(" ", 1)[1] if say.startswith("a ") else say)
+    when = f" (survey of {prop['captured']})" if prop.get("captured") else ""
+    parts = []
+    if yes:
+        parts.append("shows " + _and(yes))
+    if no:
+        parts.append(("it shows no " if yes else "shows no ") + _and(no, "or"))
+    return (f"Vexcel property data{when} " + "; ".join(parts) + "." if parts
+            else f"Vexcel property data{when} has no outdoor features marked for this parcel.")
+
+
+def _and(xs: list[str], word: str = "and") -> str:
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + f" {word} " + xs[-1]
 
 
 def _ctx_map(fn: Callable, items: list, workers: int) -> list:

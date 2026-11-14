@@ -15,6 +15,9 @@ Honesty rules:
 - Record values say they are as of when the building was last researched; rents give the listing date.
 - Company names only (cleaned in tools/kit/facts.py); never people, phones, emails or free text.
 - Complaint data (Houston 311) only as counts, from county Evidence that carries them; never their text.
+- Vexcel property data ("Seen from above"): only features marked present, never an absence; a feature the year
+  before does not confirm is said softly ("may also have ... (seen in one survey)"); no building count, type,
+  footprint or stories from it.
 """
 from __future__ import annotations
 
@@ -509,6 +512,116 @@ def _around(f: _Facts, page: _Page, kit: dict, evs: list[dict]) -> None:
                       f"{_n(o['height_m']):.1f} m, about {_n(o['stories']):g} floors", "aerial",
                       "Measured from Vexcel aerial elevation data.")
                 break
+    _from_above(f, page, evs)
+
+
+# ---------- Seen from above (Vexcel property data) ----------
+# Outdoor features the aerial survey marks on the parcel: key in observed.property -> (one, many, page words).
+# Only a "yes" is ever shown: a "no" from the survey proves little, so absence is never stated.
+# Building count, type, footprint and stories from this data are left out on purpose (they flip between years).
+AERIAL_FEATURES = {
+    "pool": ("pool", "pools", r"\bpools?\b(?!\s*table)"),
+    "hot_tub": ("hot tub", "hot tubs", r"hot ?tubs?|jacuzzi|whirlpool|\bspa\b"),
+    "sport_court": ("sport court", "sport courts",
+                    r"\bcourts?\b|\btennis\b|\bpickleball\b|\bbasketball\b|\bvolleyball\b"),
+    "playground": ("playground", "playgrounds", r"playground|play area|tot lot"),
+    "solar": ("solar panels", "solar panels", r"\bsolar\b"),
+    "trampoline": ("trampoline", "trampolines", r"trampoline"),
+    "deck": ("deck", "decks", r"deck"),
+}
+MIN_VEHICLES = 5  # fewer parked vehicles than this says nothing
+
+
+def _property(evs: list[dict]) -> dict:
+    """observed.property of the run's Vexcel property data Evidence, else {}."""
+    for e in _ok(evs, "aerial"):
+        p = (e.get("observed") or {}).get("property")
+        if isinstance(p, dict) and p:
+            return p
+    return {}
+
+
+def _count(p: dict, key: str) -> int | None:
+    """A per-feature count when the data carries one (feature['count'] or a separate counts dict), else None."""
+    for v in ((p.get(key) or {}).get("count") if isinstance(p.get(key), dict) else None,
+              (p.get("counts") or {}).get(key) if isinstance(p.get("counts"), dict) else None):
+        if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+            return v
+    return None
+
+
+def _claimed_features(page: _Page) -> set:
+    """Property keys the listing already speaks to: a claim trust.property_key maps to it, or its words on the page."""
+    keys = set()
+    try:
+        from harness.graph.trust import property_key
+    except ImportError:  # read-only helper; the page-word check below still applies
+        property_key = None
+    if property_key:
+        for c in page.claims:
+            try:
+                k = property_key(c)
+            except Exception:
+                k = None
+            if k:
+                keys.add(k)
+    keys |= {k for k, (_, _, rx) in AERIAL_FEATURES.items() if re.search(rx, page.text, re.I)}
+    return keys
+
+
+def _feature_words(p: dict, key: str, article: bool = False) -> str:
+    """'pool (about 1,900 sq ft)', '2 hot tubs', 'solar panels'; article=True gives 'a pool' for one."""
+    one, many, _ = AERIAL_FEATURES[key]
+    n = _count(p, key)
+    words = f"{n} {many}" if n and n > 1 else (f"a {one}" if article and one != many else one)
+    if key == "pool":
+        area = _n((p.get("pool") or {}).get("area_sqft"))
+        if area and area > 0:
+            words += f" (about {_int(area)} sq ft{' in all' if n and n > 1 else ''})"
+    return words
+
+
+def _survey_month(p: dict) -> str:
+    try:
+        return datetime.date.fromisoformat(str(p.get("captured") or "")[:10]).strftime("%B %Y")
+    except ValueError:
+        return ""
+
+
+def _from_above(f: _Facts, page: _Page, evs: list[dict]) -> None:
+    """Pool, courts, solar ... marked on the parcel by Vexcel property data that the listing does not mention,
+    plus tree cover and parked vehicles. One row for the features; nothing when there is no such Evidence."""
+    p = _property(evs)
+    if not p:
+        return
+    month = _survey_month(p)
+    note = f"From Vexcel's aerial survey of {month}." if month else "From Vexcel's aerial survey."
+    claimed = _claimed_features(page)
+    sure, maybe = [], []
+    for key in AERIAL_FEATURES:
+        feat = p.get(key)
+        if not isinstance(feat, dict) or feat.get("present") is not True or key in claimed:
+            continue
+        if feat.get("stable") is True:
+            sure.append(_feature_words(p, key))
+        else:  # the year before disagrees or there is no year before: say so softly
+            maybe.append(_feature_words(p, key, article=True))
+    bits = []
+    if sure:
+        bits.append(", ".join(sure))
+    if maybe:
+        bits.append(("may also have " if sure else "May have ") + ", ".join(maybe) + " (seen in one survey)")
+    if bits:
+        value = "; ".join(bits)
+        f.add("aerial-features", "Around it", "Seen from above", value[0].upper() + value[1:], "aerial", note)
+    tree = _n(p.get("tree_cover_pct"))
+    if tree is not None and round(tree) >= 1:
+        f.add("aerial-trees", "Around it", "Tree cover", f"About {min(round(tree), 100)}% tree cover on the lot",
+              "aerial", note)
+    cars = p.get("vehicles")
+    if isinstance(cars, (int, float)) and not isinstance(cars, bool) and cars >= MIN_VEHICLES:
+        f.add("aerial-vehicles", "Around it", "Parked vehicles",
+              f"About {_int(cars)} vehicles parked on site at survey time", "aerial", note)
 
 
 # ---------- Records ----------

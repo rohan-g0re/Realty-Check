@@ -202,7 +202,7 @@
   const openReport = (hash) => {
     if (!run || !run.done) return;
     hash = typeof hash === "string" ? hash : "";
-    if (run.mode === "sample") send({ type: "openSampleReport", address: run.address.full });
+    if (run.mode === "sample") send({ type: "openSampleReport", address: run.address.full, hash });
     else send({ type: "openReport", report_url: (run.done.report_url || "/") + hash });
   };
   $("btnFull").addEventListener("click", () => openReport());

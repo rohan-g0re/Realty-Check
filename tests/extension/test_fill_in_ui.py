@@ -27,13 +27,15 @@ FACTS = [  # invented
 # ---------- static ----------
 
 def test_sample_events_has_fill_in_before_done():
-    src = (EXT / "sample_events.js").read_text(encoding="utf-8")
-    i_fill, i_done = src.find('type: "fill_in"'), src.find('type: "done"')
-    i_last_verdict = src.rfind('type: "verdict"')
+    from server.sample_report import load_events  # reads the JSON block in extension/sample_events.js
+
+    kinds = [e["type"] for e in load_events()]
+    i_fill, i_done = kinds.index("fill_in"), kinds.index("done")
+    i_last_verdict = len(kinds) - 1 - kinds[::-1].index("verdict")
     assert 0 < i_last_verdict < i_fill < i_done
-    block = src[i_fill:i_done]
-    assert 3 <= block.count("label:") <= 5
-    assert "Example Property Management" in block
+    facts = load_events()[i_fill]["facts"]
+    assert 3 <= len(facts) <= 5
+    assert any(f["value"] == "Example Property Management" for f in facts)
 
 
 def test_ui_handles_fill_in_neutrally():
@@ -103,8 +105,8 @@ def test_sample_flow_shows_fill_in(env):
         page.locator("#rc-host #fiAll").click()
     rep = newp.value
     rep.wait_for_selector("#extra")
-    assert rep.locator("#extra").inner_text() == "Not on the listing"
-    assert "Example Property Management" in rep.locator("dl.extra").inner_text()
+    assert rep.url.endswith("#extra")  # the sample report (design A) opens at its "Not on the listing" section
+    assert "Example Property Management" in rep.locator("#extra").inner_text()
     rep.close()
     page.locator("#rc-host #fiToggle").click()
     assert page.locator("#rc-host .fact").count() == 0

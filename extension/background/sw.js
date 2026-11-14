@@ -60,7 +60,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       chrome.tabs.create({ url: /^https?:\/\//.test(r) ? r : s + r, index: sender.tab ? sender.tab.index + 1 : undefined });
     });
   } else if (msg.type === "openSampleReport") {
-    const url = chrome.runtime.getURL("report/report.html") + "?sample=1&address=" + encodeURIComponent(msg.address || "");
+    const url = chrome.runtime.getURL("report/report.html") + "?sample=1&address=" + encodeURIComponent(msg.address || "")
+      + (/^#[A-Za-z0-9_%-]{1,80}$/.test(String(msg.hash || "")) ? msg.hash : ""); // #claim-<id>, #mismatch, #extra
     chrome.tabs.create({ url, index: sender.tab ? sender.tab.index + 1 : undefined });
   } else if (msg.type === "img") {
     // Proof images: fetched here and handed back as data URLs, so the host page never loads from localhost.

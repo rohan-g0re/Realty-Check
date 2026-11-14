@@ -12,7 +12,7 @@ import rc_harness as H  # noqa: E402
 
 playwright_sync = pytest.importorskip("playwright.sync_api")
 DRAWER_W = 420
-HEADLINE = "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den."  # the sample report's own headline
+SAMPLE_HEADLINE = "3 things don't match."  # the sample report page (design A) headline
 COLORS = {"contradicted": "#1a4be0", "close": "#1a4be0", "confirmed": "#111111", "cant_check": "#b5b5b5"}
 
 
@@ -123,11 +123,62 @@ def test_sample_flow_marks_and_report(env):
     with env["ctx"].expect_page() as newp:
         page.locator("#rc-host #btnFull").click()
     rep = newp.value
-    rep.wait_for_selector("#headline")
-    assert rep.locator("#headline").inner_text() == HEADLINE
+    rep_errors = watch_errors(rep)
+    rep.wait_for_load_state("load")  # report.js (the address swap) runs at the end of the body
+    # the design A page (server/sample_report.py), with this listing's address in place of the sample one
+    assert "/report/report.html?sample=1" in rep.url
+    assert " ".join(rep.locator("h1").inner_text().split()) == SAMPLE_HEADLINE
+    assert rep.locator(".hero .where").inner_text().startswith("418 Linden Grove Ave")
+    assert "Sample address" not in rep.locator("body").inner_text()
+    assert rep.locator("#cf-field .cf-cell").count() == 5 * 4  # five claims, four sources
+    assert rep.locator("[id^='claim-']").count() == 3
     rep.close()
+    assert not rep_errors, rep_errors
     assert not errors, errors
     page.close()
+
+
+def watch_errors(page):
+    """Console errors and page errors, minus the web font (it needs the network; the page falls back to Georgia)."""
+    errors = []
+    font = lambda m: "fonts.g" in ((m.location or {}).get("url") or "")  # noqa: E731
+    page.on("console", lambda m: errors.append(m.text) if m.type == "error" and not font(m) else None)
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    return errors
+
+
+def at_top(page, el_id):
+    """The page scrolled (smoothly) to put this element near the top."""
+    js = f"Math.abs(document.getElementById('{el_id}').getBoundingClientRect().top) < 40"
+    for _ in range(50):  # wait_for_function would eval a string, which the extension page's CSP forbids
+        if page.evaluate(js):
+            return
+        page.wait_for_timeout(100)
+    raise AssertionError(f"#{el_id} never reached the top")
+
+
+def test_sample_report_page_anchors_and_panel(env):
+    ext_id = env["sw"].url.split("/")[2]
+    base = f"chrome-extension://{ext_id}/report/report.html?sample=1&address=" + "77%20Example%20Lane%2C%20Testville%2C%20ZZ%2000000"
+    rep = env["ctx"].new_page()
+    errors = watch_errors(rep)
+    rep.goto(base + "#extra")
+    assert rep.title() == "Reality Check: 77 Example Lane, Testville, ZZ 00000"
+    assert rep.locator(".hero .where").inner_text().splitlines() ==["77 Example Lane", "Testville, ZZ 00000"]
+    at_top(rep, "extra")
+    # hover a cell: preview; click it: the evidence panel slides in
+    cell = rep.locator("#cf-field .cf-cell.cf-contra").first
+    cell.hover()
+    rep.locator("#cf-tip:not([hidden])").wait_for(timeout=3000)
+    cell.click()
+    rep.locator("#cf-panel:not([hidden])").wait_for(timeout=3000)
+    assert "claim 1 of 5" in rep.locator("#cf-panel .cf-where").inner_text()  # 2 Beds: Matterport contradicts it
+    rep.locator("#cf-panel .cf-x").click()
+    # a claim with no finding block: #claim-<id> falls back to the claim field
+    rep.goto(base + "#claim-c4")
+    at_top(rep, "cf-field")
+    rep.close()
+    assert not errors, errors
 
 
 def test_host_css_does_not_leak(env):

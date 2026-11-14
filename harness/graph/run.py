@@ -28,7 +28,7 @@ from rc_common import evidence as make_evidence
 from tools import cachectl
 
 from . import amenities, plans, trust
-from .judge import SOURCE_NAME, VERB, judge
+from .judge import SOURCE_NAME, VERB, _plan_code, judge
 from .toolbox import Toolbox
 
 AGENT_ENABLED = True  # False: no agent at all (claims and match only, every claim "couldn't check")
@@ -406,6 +406,15 @@ class Run:
             tags["unit_plan"] = self.unit_row["plan"]
         return tags
 
+    def _names_unit_plan(self, title: str) -> bool:
+        """The scan title names the unit's record floor plan ('... Plan SA - Studio / 1 Bath' for a unit of plan
+        'Plan SA') and not the unit itself: a scan of the plan, filed under the unit."""
+        plan = str((self.unit_row or {}).get("plan") or "").strip()
+        code = _plan_code(title)
+        if not plan or not code or (self.unit and re.search(rf"\b{re.escape(str(self.unit))}\b", title)):
+            return False
+        return code in {(_plan_code(plan) or ""), plan.upper()}
+
     def unit_record(self, agent: str = "paper") -> str:
         """The building record's row for the page's unit, as record Evidence (once per run): observed.unit,
         unit_row: true, bedrooms / bathrooms / area_sqft (the unit's minimum size), unit_plan, unit_says."""
@@ -471,7 +480,10 @@ class Run:
             if r["note"] and isinstance(ev, dict) and ev.get("status") == "ok":
                 ev = {**ev, "observed": {**(ev.get("observed") or {}), "plan_match": r["note"]}}
             if r.get("scan_how") in ("unit", "unit_plan") and isinstance(ev, dict) and ev.get("status") == "ok":
-                ev = {**ev, "observed": {**(ev.get("observed") or {}), **self._unit_scan_tags(r["scan_how"])}}
+                how = r["scan_how"]
+                if how == "unit" and self._names_unit_plan(str((ev.get("observed") or {}).get("model_name") or "")):
+                    how = "unit_plan"  # filed under the unit, but its title names the unit's floor plan
+                ev = {**ev, "observed": {**(ev.get("observed") or {}), **self._unit_scan_tags(how)}}
             if example and isinstance(ev, dict):
                 # an example of the kind of home only: not tied to the listing's plan, so it never decides its claims
                 ev = {**ev, "observed": {**(ev.get("observed") or {}), "example_for": plan}}
@@ -479,7 +491,8 @@ class Run:
             else:
                 out.append(self.line(self.add(ev, "scan", plan)))
             return "\n".join(out)
-        return self._check(f"scan_rooms:{plan.lower()}", agent, f"Checking the floor plan {name}: its scan or record.",
+        what = f"floor plan {plan}" if plan else (f"unit {self.unit}" if self.unit_row else "this unit")
+        return self._check(f"scan_rooms:{plan.lower()}", agent, f"Checking {what} against its record and 3D scan.",
                            body)
 
     def scan_photos(self, plan: str = "", claim: str = "", agent: str = "inside") -> str:
@@ -501,6 +514,11 @@ class Run:
                 return self.line(sid)
             if (not claim or agent == "orchestrator") and any(self.has_ok(k, "scan", plan or None) for k in ("bedrooms", "bathrooms")):
                 return self.line(sid) + "\nThe scan already gave room counts, so the photos are kept as proof only."
+            if not claim and all(self.has_ok(k, "record", plan or None) for k in ("bedrooms", "bathrooms")):
+                # a room count read off the photos is a label count: it never outweighs the record's own count for
+                # this plan (judge._vet_labels, trust "room_labels"), so the slow vision call is not made
+                return (self.line(sid) + "\nThe building record already gives this plan's room counts, so the photos "
+                        "are kept as proof only.")
             if claim:
                 res = self._vision(self.tb.check_room, paths, claim)
                 a = res.get("answer") or {}
@@ -514,7 +532,10 @@ class Run:
                 summ = f"Reading the scan photos: {a.get('bedrooms', '?')} bedroom(s), {a.get('bathrooms', '?')} bathroom(s)" \
                        + (" and a den." if a.get("has_den") else ".")
             ok = res.get("status") == "ok"
-            ev = make_evidence("scan", "ok" if ok else "error", summ if ok else "The photos could not be read.",
+            late = not ok and bool(res.get("skipped"))  # not a failure: the run's time ran short
+            ev = make_evidence("scan", "ok" if ok else "no_evidence" if late else "error",
+                               summ if ok else "We ran out of time before the photos were read." if late
+                               else "The photos could not be read.",
                                obs if ok else {}, self.evidence[sid]["images"][:2],
                                f"vision model on scan stills, confidence {res.get('confidence')}; {str(res.get('notes'))[:150]}")
             return self.line(sid) + "\n" + self.line(self.add(ev, "scan", plan))
@@ -523,7 +544,7 @@ class Run:
 
     def _vision(self, fn, *args) -> dict:
         if self.time_left() < VISION_MIN_LEFT_S:
-            return {"status": "error", "answer": {}, "confidence": 0.0,
+            return {"status": "error", "answer": {}, "confidence": 0.0, "skipped": True,
                     "notes": "skipped: the run's time budget is nearly used up"}
         try:
             res = fn(*args)
@@ -540,6 +561,7 @@ class Run:
         with self._aerial_lock:
             if self._aerial is None:
                 self._aerial = self._safe("aerial", self.tb.aerial_images, self.lat, self.lon)
+                self._say_no_coverage(self._aerial)
             return self._aerial
 
     def aerial_photos(self, agent: str = "outside") -> str:
@@ -555,14 +577,18 @@ class Run:
                 return self._no_location()
             th = self._outlined_soon()  # the outlined photo, alongside (no-op unless a pool / court / solar claim)
             h, p = _ctx_map(lambda f: f(), [
-                lambda: self.line(self.add(self._safe("aerial", self.tb.building_height, self.lat, self.lon),
-                                           "aerial")),
+                lambda: self.line(self.add(self._height(), "aerial")),
                 lambda: self.property_data(agent)], 2)  # roof height and property data side by side
             out = h + "\n" + p + "\n" + self.aerial_photos(agent)
             if th is not None:
                 th.join(timeout=OUTLINE_WAIT_S)  # it ran alongside the above, so this is usually no wait at all
             return out
         return self._check("measure_building", agent, "Measuring the roof height from Vexcel aerial imagery.", body)
+
+    def _height(self) -> dict:
+        ev = self._safe("aerial", self.tb.building_height, self.lat, self.lon)
+        self._say_no_coverage(ev)
+        return ev
 
     def property_data(self, agent: str = "outside") -> str:
         """Vexcel property data for the parcel (pool, hot tub, sport court, playground, solar, ...), fetched once per
@@ -575,8 +601,10 @@ class Run:
                     return "No Vexcel property data for this location."
                 try:
                     prop = fn(self.lat, self.lon)
-                except Exception:
-                    prop = None
+                except Exception as e:
+                    prop = {"no_coverage": True} if _no_coverage_error(e) else None
+                if isinstance(prop, dict) and prop.get("no_coverage"):  # Vexcel answered 403 / 404 here
+                    return self._no_coverage("property data")
                 if not isinstance(prop, dict) or not prop:
                     return "No Vexcel property data for this location."
                 self._prop = prop
@@ -587,6 +615,29 @@ class Run:
             finally:
                 self._prop_ready.set()
         return self._check("property_data", agent, "Reading Vexcel property data for the parcel.", body)
+
+    def _no_coverage(self, what: str) -> str:
+        """Vexcel has no coverage at this point (it answered 403 / 404): a step, once per run, and an aerial
+        Evidence with status no_evidence saying so (observed.no_coverage), so the gap is not silent."""
+        with self._lock:
+            first = not getattr(self, "_no_coverage_said", False)
+            self._no_coverage_said = True
+        if first:
+            self.step("outside", NO_COVERAGE_TEXT)
+        ev = make_evidence("aerial", "no_evidence", NO_COVERAGE_TEXT, {"no_coverage": True, "what": what},
+                           detail=f"Vexcel {what}: the service has no data for this location (HTTP 403 / 404).")
+        return self.line(self.add(ev, "aerial"))
+
+    def _say_no_coverage(self, ev: Any) -> None:
+        """A step (once per run) when a Vexcel photo or roof-height answer says there is no coverage here; the
+        Evidence itself already says so."""
+        if isinstance(ev, dict) and ev.get("source") == "aerial" and ev.get("status") == "no_evidence" \
+                and re.search(r"no aerial coverage", str(ev.get("summary") or ""), re.I):
+            with self._lock:
+                first = not getattr(self, "_no_coverage_said", False)
+                self._no_coverage_said = True
+            if first:
+                self.step("outside", NO_COVERAGE_TEXT)
 
     def _property_soon(self) -> threading.Thread:
         """property_data() in a background thread (same context), for the amenity photo check to run alongside."""
@@ -1419,6 +1470,14 @@ def _property_fn(tb: Toolbox) -> Callable | None:
         except Exception:
             return None
     return None
+
+
+NO_COVERAGE_TEXT = "Vexcel has no aerial coverage here."
+
+
+def _no_coverage_error(e: BaseException) -> bool:
+    """An exception that means Vexcel has no data at this point (tools.aerial's _NoCoverage: HTTP 403 / 404)."""
+    return type(e).__name__ == "_NoCoverage" or bool(re.search(r"answered (?:403|404)", str(e)))
 
 
 OUTLINE_NAMES = {"pool": "pool", "sport_court": "sport court", "solar": "solar panels"}

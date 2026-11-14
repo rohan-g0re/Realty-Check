@@ -19,7 +19,7 @@ import re
 from typing import Any
 
 from . import amenities
-from .plans import title_count
+from .plans import title_count, title_sqft
 
 SOURCES = ("record", "scan", "aerial", "county")
 NAME = {"record": "CoStar", "scan": "Matterport", "aerial": "Vexcel", "county": "County"}
@@ -115,15 +115,31 @@ QUALITY: dict[str, tuple[float, str]] = {
     "units_estimated": (0.80, "a unit count added up over several parcels, an estimate"),
     "parcel_by_address": (0.90, "the county parcel was found by its address, not the map point"),
     "aerial_count":    (0.60, "a count from the aerial survey, which misses rooftop and indoor ones"),
+    "implausible":     (0.30, "the scan's own readings do not fit the building record for this home"),
 }
+IMPLAUSIBLE_BEDS = 2       # room labels counting this many bedrooms more than the record: an implausible scan
+IMPLAUSIBLE_AREA = 0.40    # a scan size more than this far off the record's (either way): an implausible scan
 COUNT_SCORE_MAX = 60  # a lower aerial pool / hot tub count alone never reaches "high" confidence
 
 # Outdoor features Vexcel property data marks yes / no per parcel: claim pattern -> its key in observed.property.
 # Rooftop decks, parking, courtyards and dog runs are not in it (the vision model alone looks for those).
+# A "spa" is a hot tub only where it is used as one: next to a pool ("pool and spa", "spa/hot tub"), with a tub
+# word before it ("heated spa", "outdoor spa"), or as the whole claim ("Spa", "Two spas"). A wellness or day spa,
+# "spa-like" / "spa-inspired" finishes, spa services and named spas ("Serenity Wellness Spa") are not.
+_SPA = r"spas?\b(?![- ]?(?:inspired|like|style|quality|bath|tub|services?|treatments?|rooms?|suites?|menu))"
+_TUB_WORDS = (r"heated|outdoor|outside|in-?ground|above-?ground|private|rooftop|poolside|pool-?side|bubbling|"
+              r"built-?in|sparkling|hydrotherapy|jetted|relaxing|soaking|resort-?style")
+_COUNT_WORDS = r"\d+|one|two|three|four|five|six|seven|eight|nine|ten"
+HOT_TUB = (r"hot ?tubs?|jacuzzis?|whirlpools?"
+           rf"|\bpools?\s*(?:,|and|&|/|\+|with|plus|or)\s*(?:an?\s+|(?:{_COUNT_WORDS})\s+)?"
+           rf"(?:(?:{_TUB_WORDS})\s+)?{_SPA}"
+           rf"|\b{_SPA}\s*(?:,|and|&|/|\+|or)\s*(?:an?\s+)?(?:(?:{_TUB_WORDS})\s+)?"
+           r"(?:pools?\b(?!\s*tables?)|hot ?tubs?|jacuzzis?)"
+           rf"|\b(?:{_TUB_WORDS})\s+{_SPA}"
+           rf"|^\s*(?:(?:{_COUNT_WORDS})\s+)?{_SPA}\s*$")
 PROPERTY_FEATURES = [
     (r"\bpools?\b(?!\s*tables?)", "pool"),  # plural too: "2 pools" (judge.claimed_count reads the number)
-    (r"hot ?tubs?|jacuzzi|whirlpool|"
-     r"(?<!pet )(?<!day )(?<!med )\bspas?\b(?![- ]?(?:inspired|like|style|quality|bath|tub))", "hot_tub"),
+    (HOT_TUB, "hot_tub"),
     (r"(?:tennis|pickleball|basketball|sport|sports|volleyball) courts?|\btennis\b|\bpickleball\b", "sport_court"),
     (r"playground|play area|tot lot", "playground"),
     (r"\bsolar\b", "solar"),
@@ -142,8 +158,8 @@ def property_key(claim: dict) -> str | None:
     if feat:
         return _VISION_TO_PROPERTY.get(feat[0])
     words = amenities.text_of(claim)
-    hits = [(m.start(), k) for rx, k in _PROPERTY_FEATURES for m in [rx.search(words)] if m]
-    return min(hits)[1] if hits else None
+    hits = [(m.start(), i, k) for i, (rx, k) in enumerate(_PROPERTY_FEATURES) for m in [rx.search(words)] if m]
+    return min(hits)[2] if hits else None  # the first named; at the same place the earlier row (pool) wins
 
 UNIT_KINDS = ("bedrooms", "bathrooms", "area_sqft")
 
@@ -202,6 +218,8 @@ def quality(e: dict, claim: dict, today: _dt.date | None = None) -> list[str]:
         lab = _num(obs.get(kind))
         if tc is None or lab is None or round(tc) != round(lab):
             out.append("room_labels")  # labels the scan's own title does not back
+    if src == "scan" and kind in UNIT_KINDS and obs.get("implausible") and not _title_reading(obs, kind):
+        out.append("implausible")  # 5 bedroom labels in a 2-bed plan, or a size far off the record's
     if src == "county" and kind == "unit_count" and obs.get("units_estimated"):
         out.append("units_estimated")
     if src == "county" and obs.get("parcel_match") == "address":
@@ -239,6 +257,31 @@ def quality(e: dict, claim: dict, today: _dt.date | None = None) -> list[str]:
     elif age is not None and age > 5:
         out.append("older_5y")
     return out
+
+
+def _title_reading(obs: dict, kind: str) -> bool:
+    """The scan's bed / bath count for this kind came from its title (not its room labels)."""
+    return kind in ("bedrooms", "bathrooms") and (obs.get("counts_from") == "model_name"
+                                                  or bool(obs.get("count_from_title")))
+
+
+def scan_implausible(scan_obs: dict, ref: dict) -> str | None:
+    """A plain note when a scan's own readings do not fit the building record for the same home or plan (`ref`:
+    the record's bedrooms / area_sqft): its room labels count IMPLAUSIBLE_BEDS or more bedrooms than the record,
+    or its size (the title's when it states one, else the measured floor) is more than IMPLAUSIBLE_AREA off the
+    record's. Such a scan gets the "implausible" quality factor, so it cannot decide alone against the record.
+    None when it fits, or when there is nothing to compare."""
+    notes = []
+    lab, rb = _num(scan_obs.get("bedrooms")), _num(ref.get("bedrooms"))
+    if lab is not None and rb is not None and scan_obs.get("counts_from") != "model_name" \
+            and lab - rb >= IMPLAUSIBLE_BEDS:
+        notes.append(f"its room labels count {lab:g} bedrooms where the building record has {rb:g}")
+    title = str(scan_obs.get("model_name") or "").strip()
+    area = (title_sqft(title) if title else None) or _num(scan_obs.get("area_sqft"))
+    ra = _num(ref.get("area_sqft"))
+    if area and ra and abs(area - ra) / ra > IMPLAUSIBLE_AREA:
+        notes.append(f"it gives {area:,.0f} sq ft where the building record has {ra:,.0f}")
+    return "; ".join(notes) or None
 
 
 def property_evidence(e: dict | None, key: str, entry: dict) -> dict:

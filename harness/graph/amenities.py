@@ -13,7 +13,7 @@ NOT_SEEN_MIN = 0.8   # clearly not there with at least this confidence -> close 
 
 # (pattern, key, plain description for the vision model, where to look: "aerial" | "scan")
 FEATURES = [
-    (r"\bpool\b(?!\s*table)", "pool", "an outdoor swimming pool", "aerial"),
+    (r"\bpools?\b(?!\s*tables?)", "pool", "an outdoor swimming pool", "aerial"),  # "2 pools" too (trust.py)
     (r"roof\s*-?top|\broof (?:deck|terrace|lounge|garden|patio)|sky ?(?:deck|terrace)", "rooftop_deck",
      "a rooftop deck, terrace or lounge: seating, furniture, shade structures or planters on a roof", "aerial"),
     (r"dog (?:run|park)|bark park|pet (?:park|run)", "dog_run",
@@ -42,7 +42,7 @@ FEATURES = [
 _FEATURES = [(re.compile(p, re.I), k, d, w) for p, k, d, w in FEATURES]
 # Things no picture shows, checked before the patterns above ("pet spa" is not a pool, a laundry room is not in-unit).
 NOT_PICTURED = re.compile(r"24[- ]hour|concierge|co-?working|business center|package|utilities|pet (?:wash|spa)|"
-                          r"\bspa\b(?!.*\bpool\b)|wifi|wi-fi|internet|smart home|on-site|onsite|management|"
+                          r"\bspas?\b(?!.*\bpools?\b)|wifi|wi-fi|internet|smart home|on-site|onsite|management|"
                           r"maintenance|valet|storage|bike|ev charg|electric vehicle|cats|dogs welcome|pets? "
                           r"(?:friendly|welcome)|laundry (?:room|facilit|center)", re.I)
 NICE = {k: k.replace("_", " ") for _, k, _, _ in FEATURES}
@@ -55,7 +55,7 @@ TITLE_ROOMS = [
     (r"fitness|gym|workout", r"fitness|\bgym\b"),
     (r"club ?room|clubhouse|club house", r"club"),
     (r"lounge", r"lounge"),
-    (r"\bpool\b(?!\s*table)", r"\bpool\b"),
+    (r"\bpools?\b(?!\s*tables?)", r"\bpools?\b"),
     (r"co-?working|business center|library", r"co-?work|business|library"),
     (r"theater|theatre|cinema|screening", r"theat|cinema|screening"),
     (r"game room", r"game"),

@@ -139,12 +139,13 @@ def test_tall_tower_one_floor_off_is_low():
 # ---- 3. square feet: this home's scan vs the plan table -------------------------------------------------
 
 def test_sqft_exact_unit_scan_beats_plan_record():
-    # a page about one home: its own scan (no plan) outranks the record's only floor plan
+    # a page about one home: its own scan (no plan) outranks the record's only floor plan. (950 sq ft: within 40% of
+    # the record; a scan further off than that is implausible and no longer decides alone, see test_judge_fixes.py)
     c = claim("area_sqft", 723)
-    scan = ev("scan", {"model_id": "SAMPLEscan01", "area_sqft": 1184, "area_m2": 110.0})
+    scan = ev("scan", {"model_id": "SAMPLEscan01", "area_sqft": 950, "area_m2": 88.3})
     rec = record(floorplans=[{"name": "Plan A", "beds": 1, "baths": 1, "sqft": 723}])
     v = judge(c, [rec, scan], single_unit=True)
-    assert v["verdict"] == "contradicted" and v["source"] == "scan" and v["found"] == "1,184 sq ft"
+    assert v["verdict"] == "contradicted" and v["source"] == "scan" and v["found"] == "950 sq ft"
     conf = v["confidence"]
     keys_ok(conf)
     assert conf["decided_by"] == "scan"
@@ -155,12 +156,13 @@ def test_sqft_exact_unit_scan_beats_plan_record():
 
 
 def test_sqft_same_plan_scan_and_plan_record_tie_keeps_the_old_order():
+    # both differ from the listing (when the record matches the listing, the record decides: test_judge_fixes.py)
     c = claim("area_sqft", 723, label="Plan B")
-    scan = ev("scan", {"model_id": "SAMPLEscan01", "plan": "Plan B", "area_sqft": 1184})
-    rec = record(plan="Plan B", kit_plan="Plan B", area_sqft=723)
+    scan = ev("scan", {"model_id": "SAMPLEscan01", "plan": "Plan B", "area_sqft": 1000})
+    rec = record(plan="Plan B", kit_plan="Plan B", area_sqft=900)
     v = judge(c, [rec, scan])
-    assert v["verdict"] == "contradicted" and v["source"] == "scan"
-    assert v["confidence"]["band"] in ("medium", "low")  # the record sides with the listing
+    assert v["verdict"] == "contradicted" and v["source"] == "scan" and v["found"] == "1,000 sq ft"
+    keys_ok(v["confidence"])
 
 
 def test_room_labels_do_not_outvote_the_plan_record():

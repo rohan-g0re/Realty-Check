@@ -570,6 +570,77 @@ def _feature_confidence(claim: dict, evidences: list[dict], best: dict, mine: li
     return out
 
 
+def _plan_numbers(fp: Any) -> dict:
+    """A record floor plan list entry ({"beds", "baths", "sqft"}) as Evidence-style observed keys."""
+    fp = fp if isinstance(fp, dict) else {}
+    return {"bedrooms": fp.get("beds"), "bathrooms": fp.get("baths"), "area_sqft": fp.get("sqft")}
+
+
+def _flag_implausible(e: dict, ref: dict) -> dict:
+    """A scan whose own readings do not fit the record (trust.scan_implausible) comes back as a copy marked
+    observed.implausible (trust's "implausible" factor); anything else unchanged."""
+    if e.get("source") != "scan":
+        return e
+    note = trust.scan_implausible(e.get("observed") or {}, ref)
+    return {**e, "observed": {**(e.get("observed") or {}), "implausible": note}} if note else e
+
+
+def _flag_scans(usable: list[dict], evidences: list[dict]) -> list[dict]:
+    """Each scan in `usable` checked against the building record for the same floor plan (or, for the page's own
+    unit, its record row): see _flag_implausible."""
+    recs = [x for x in evidences or [] if isinstance(x, dict) and x.get("source") == "record"
+            and x.get("status") == "ok" and not (x.get("observed") or {}).get("plan_type")]
+    out = []
+    for e in usable:
+        obs = e.get("observed") or {}
+        ref = None
+        if e.get("source") == "scan":
+            plan = str(obs.get("plan") or "")
+            for r in recs:
+                ro = r.get("observed") or {}
+                if (plan and ro.get("plan") and _same_plan(str(ro["plan"]), plan)) \
+                        or (not plan and obs.get("scan_of") and ro.get("unit_row")):
+                    ref = ro
+                    break
+        out.append(_flag_implausible(e, ref) if ref else e)
+    return out
+
+
+def _own_record(e: dict) -> bool:
+    """The building record's numbers for this very floor plan or unit, not paired with it by its size (a pairing
+    by size agrees with the listing's size by construction)."""
+    obs = e.get("observed") or {}
+    return (e.get("source") == "record" and bool(obs.get("plan") or obs.get("kit_plan") or obs.get("unit_row"))
+            and not re.search(r"\bby size\b", str(obs.get("plan_match") or "")))
+
+
+def _record_over_scan(kind: str, readings: list[tuple[dict, float, str]]) -> tuple[dict, dict, float] | None:
+    """Size only: the listing and the building record for this plan agree (written tolerance) and only the 3D scan
+    differs. A scan's floor area is measured differently from a listed living area, so the record decides and the
+    claim is confirmed. Returns (record evidence, the differing scan, its value), else None. Every other source
+    must back the listing too."""
+    if kind != "area_sqft":
+        return None
+    scans = [(e, v) for e, v, alone in readings if e.get("source") == "scan" and alone != "confirmed"]
+    rest = [(e, alone) for e, _, alone in readings if e.get("source") != "scan"]
+    if not scans or not rest or any(alone != "confirmed" for _, alone in rest):
+        return None
+    rec = next((e for e, _ in rest if _own_record(e)), None)
+    return (rec, scans[0][0], scans[0][1]) if rec else None
+
+
+def _scan_differs_note(e: dict, v: float, claimed: float) -> str:
+    title = str((e.get("observed") or {}).get("model_name") or "").strip()
+    if title and title_sqft(title):
+        return (f"The 3D scan's title gives {phrase('area_sqft', v)}, which differs; the building record for this "
+                "plan matches the listing, so it decides here.")
+    if v > claimed:
+        return (f"The 3D scan measured {phrase('area_sqft', v)} of floor; a scan's floor area often includes more "
+                "than the listed living area (such as a balcony or hallway), so the building record decides here.")
+    return (f"The 3D scan measured {phrase('area_sqft', v)} of floor; scans usually measure less than the "
+            "advertised size, so the building record decides here.")
+
+
 def _unit_scan_value(kind: str, e: dict) -> tuple[float, str] | None:
     """(value, how) from a scan of this very home that is tied to no floor plan: bed/bath counts from its title
     only (never its room labels), size from its title or its measured floor. None when it gives nothing."""
@@ -626,13 +697,22 @@ def _judge_single_unit(claim: dict, evidences: list[dict], base: dict) -> dict |
                 cands.append((v, f"the building record's only floor plan, {name}, has {phrase(kind, v)}", e, False))
     if not cands or claimed is None:
         return None
-    # the fixed order: this home's scan, the record's row for this unit, the unit's plan scan, the only record plan
+    # A scan whose own readings do not fit the record for this home (its row, else the only plan) weighs little.
+    row = next((c[2]["observed"] for c in cands if c[2].get("source") == "record"
+                and (c[2].get("observed") or {}).get("unit_row")), None)
+    only = next((c[2] for c in cands if c[2].get("source") == "record"
+                 and isinstance((c[2].get("observed") or {}).get("floorplans"), list)), None)
+    ref = row or (_plan_numbers(only["observed"]["floorplans"][0]) if only else None)
+    if ref:
+        cands = [(v, how, _flag_implausible(e, ref), floor) for v, how, e, floor in cands]
+    # the fixed order: the record's row for this unit (the unit's own written numbers), this home's scan, the
+    # unit's plan scan (the same layout, supporting only), the only record plan
     def order(c):
         e = c[2]
         obs = e.get("observed") or {}
         if e.get("source") == "scan":
-            return 2 if obs.get("scan_of") == "plan" else 0
-        return 1 if obs.get("unit_row") else 3
+            return 2 if obs.get("scan_of") == "plan" else 1
+        return 0 if obs.get("unit_row") else 3
     cands = sorted(cands, key=order)
     items = [(c[2], c[0], _reading(kind, claimed, c[2], (c[0], c[3]))[1]) for c in cands]
     pick = _pick(claim, kind, claimed, items, cands[0][2])
@@ -783,9 +863,19 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
         return {**base, "verdict": "cant_check", "found": "no data", "source": None,
                 "reason": f"Listing says {claimed_txt}. None of our sources measured this."}
 
-    first = sorted(usable, key=lambda e: RANK[e["source"]])[0]  # the fixed order: stable, first found wins a tie
+    if kind in UNIT_KINDS:
+        usable = _flag_scans(usable, evidences)  # a scan far off the record for its plan weighs little (trust.py)
+    deciders = usable
+    if kind == "stories" and any(e["source"] in ("county", "record") for e in usable):
+        # a low roof height is a rough floor guide (pitched roofs): it never decides against county or record
+        deciders = [e for e in usable if not _low_roof(e)]
+    first = sorted(deciders, key=lambda e: RANK[e["source"]])[0]  # the fixed order: stable, first found wins a tie
     readings = [(e, *_reading(kind, claimed, e)) for e in usable]
-    winner = _pick(claim, kind, claimed, readings, first)
+    winner = _pick(claim, kind, claimed, [r for r in readings if any(r[0] is d for d in deciders)], first)
+    over = _record_over_scan(kind, readings)
+    scan_note = None
+    if over:  # the listing and the record for this plan agree; only the scan measured differently
+        winner, scan_note = over[0], _scan_differs_note(over[1], over[2], claimed)
     obs = winner["observed"]
     found = _num(obs[kind])
     src = winner["source"]
@@ -839,7 +929,12 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
             how += " " + str(obs["label_note"])
         for note in label_notes:
             how += " " + note
-        if kind == "stories" and src == "aerial" and _num(obs.get("height_m")) is not None:
+        if kind == "stories" and src == "aerial" and _low_roof(winner):
+            if verdict == "contradicted":
+                verdict = "close"  # a rough guide alone never makes a firm mismatch
+            how = (f"Vexcel roof height ({_n(_num(obs['height_m']))} m) suggests about {found_txt}; on a low "
+                   "building with a pitched roof this is only a rough guide.")
+        elif kind == "stories" and src == "aerial" and _num(obs.get("height_m")) is not None:
             how = (f"The measured roof height from Vexcel aerial imagery ({_n(_num(obs['height_m']))} m) means "
                    f"about {found_txt}.")
         if _estimate_alone(kind, winner, found, usable) and verdict == "contradicted":
@@ -852,14 +947,19 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
         how += " " + note
 
     # Mention other sources briefly so the reader sees agreement or the disagreement we overruled.
+    if scan_note:
+        how += " " + scan_note
     others = []
     for e in usable:
-        if e is winner or e["source"] == src:
+        if e is winner or e["source"] == src or (scan_note and e["source"] == "scan"):
             continue
         v = _num(e["observed"][kind])
         num = str(int(v)) if kind == "year_built" else _n(v)
         also = "also " if v == found else ""
-        bit = f"{SOURCE_NAME[e['source']]} {also}{VERB[e['source']]} {num}"
+        if kind == "stories" and e["source"] == "aerial" and _num(e["observed"].get("height_m")) is not None:
+            bit = f"Vexcel roof height {also}suggests about {phrase(kind, v)}"  # an estimate, not the photo
+        else:
+            bit = f"{SOURCE_NAME[e['source']]} {also}{VERB[e['source']]} {num}"
         if bit not in others:
             others.append(bit)
     extra = (" " + _cap("; ".join(others)) + ".") if others else ""
@@ -877,6 +977,15 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
 
 
 ESTIMATE_MAX_SCORE = 40  # an estimated county unit count alone: low confidence at most
+ROUGH_FLOORS = 3  # a roof-height floor estimate this low is rough (a pitched roof reads as extra floors)
+
+
+def _low_roof(e: dict) -> bool:
+    """A floor count estimated from Vexcel roof height that comes out at ROUGH_FLOORS or fewer."""
+    obs = e.get("observed") or {}
+    n = _num(obs.get("stories"))
+    return (e.get("source") == "aerial" and _num(obs.get("height_m")) is not None and n is not None
+            and n <= ROUGH_FLOORS)
 
 
 def _estimate_alone(kind: str, winner: dict, found: float, usable: list[dict]) -> bool:

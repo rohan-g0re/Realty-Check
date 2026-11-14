@@ -15,7 +15,7 @@ NUMERIC_KINDS = ("bedrooms", "bathrooms", "area_sqft", "stories", "year_built", 
 KINDS = NUMERIC_KINDS + ("amenity", "parking", "laundry", "view", "other")
 UNIT_KINDS = ("bedrooms", "bathrooms", "area_sqft")
 JSONLD_PREFIX = "[JSON-LD] "
-MAX_CLAIMS = 25
+MAX_CLAIMS = 40
 PROMPT_BUDGET = 6000
 
 # ---------------------------------------------------------------- addresses and page regions
@@ -357,7 +357,7 @@ Return a JSON array. Each item:
  "label": floor plan or unit name the claim belongs to, else null,
  "quote": exact words copied from the excerpt (max 120 chars), "checkable": false for pure marketing words}}
 Rules: only this property. One bedrooms, bathrooms and area_sqft claim per floor plan, labelled. Studio = 0 bedrooms.
-Skip prices, fees, schools, reviews, neighborhood text and ranges like "1-3 Beds". Max 25 items. JSON only."""
+Skip prices, fees, schools, reviews, neighborhood text and ranges like "1-3 Beds". Max 40 items. JSON only."""
 
 
 def _norm(s: str) -> str:
@@ -393,9 +393,31 @@ def _post_check(items: Any, page_norm: str) -> list[dict]:
     return out
 
 
-def _model_claims(address: str, excerpt: str, page_norm: str) -> list[dict]:
+def _ask_cached(prompt: str) -> Any:
+    """ask_json, with the parsed reply cached under rc_cache/claims by prompt hash (repeat runs are instant)."""
     from harness.model.ask import ask_json  # imported lazily: keeps the deterministic path dependency-free
-    return _post_check(ask_json(PROMPT.format(address=address or "(unknown)", excerpt=excerpt)), page_norm)
+    import hashlib
+    import os
+    path = None
+    if os.environ.get("RC_PRIVATE_DIR"):
+        try:
+            import rc_common
+            path = rc_common.cache_dir("claims") / (hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:32] + ".json")
+            if path.exists():
+                return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            path = None
+    reply = ask_json(prompt)
+    if path is not None:
+        try:
+            path.write_text(json.dumps(reply), encoding="utf-8")
+        except OSError:
+            pass
+    return reply
+
+
+def _model_claims(address: str, excerpt: str, page_norm: str) -> list[dict]:
+    return _post_check(_ask_cached(PROMPT.format(address=address or "(unknown)", excerpt=excerpt)), page_norm)
 
 
 # ---------------------------------------------------------------- merge and finish

@@ -14,7 +14,7 @@ import pytest
 from PIL import Image, ImageDraw, ImageFont
 
 import harness.model.ask as ask
-from tools.vision import check_room, count_floors, look, read_floorplan
+from tools.vision import check_room, count_floors, find_features, look, read_floorplan
 from tools.vision.look import build_prompt
 
 LIVE = os.environ.get("RC_LIVE") == "1"
@@ -94,6 +94,17 @@ def test_parses_fenced_and_prosey(monkeypatch, no_cache, img, reply):
     fake_reply(monkeypatch, reply)
     r = look([img], "q", FIELDS)
     assert r == {"status": "ok", "answer": {"stories": 6, "has_window": True}, "confidence": 0.9, "notes": "Six rows."}
+
+
+def test_find_features_one_call_for_all_features(monkeypatch, no_cache, img):
+    calls = []
+    fake_reply(monkeypatch, '{"answer": {"pool": {"presence": "seen", "confidence": 0.9, "image": 1}, '
+                            '"dog_run": {"presence": "unclear", "confidence": 0.3, "image": null}}, '
+                            '"confidence": 0.8, "notes": "Pool in the courtyard."}', calls)
+    r = find_features([img], {"pool": "an outdoor swimming pool", "dog_run": "a fenced dog run"}, "aerial")
+    assert len(calls) == 1 and "pool" in calls[0] and "dog_run" in calls[0] and "not_seen" in calls[0]
+    assert r["status"] == "ok" and r["answer"]["pool"]["presence"] == "seen"
+    assert r["answer"]["dog_run"]["presence"] == "unclear"
 
 
 def test_missing_fields_are_null(monkeypatch, no_cache, img):

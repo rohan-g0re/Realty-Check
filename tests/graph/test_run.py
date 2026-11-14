@@ -73,7 +73,7 @@ def _scripted_cli(seen):
     def fake(self, prompt):
         block = re.search(r"# Tools\n(.*?)\n\n# Transcript", prompt, re.S).group(1)
         tools = re.findall(r'"name": "([^"]+)"', block)
-        who = ("inside" if "inside of one apartment" in prompt else "outside" if "from the air" in prompt
+        who = ("inside" if "inside of apartment" in prompt else "outside" if "from the air" in prompt
                else "paper" if "read paper records" in prompt else "orchestrator")
         seen.append((who, tools))
         n = prompt.count("<tool_result")

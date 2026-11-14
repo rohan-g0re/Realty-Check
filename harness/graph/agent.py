@@ -75,13 +75,14 @@ class BudgetedCLIModel(ccm.ClaudeCLIChatModel):
 ORCHESTRATOR_PROMPT = """You are the lead fact-checker of Reality Check. A rental listing makes claims about an apartment and its building. You decide which checks are worth running for THESE claims, delegate them, and stop. You never judge claims yourself: a separate judge compares the stored evidence afterwards.
 
 Helpers (call them with the task tool):
-- inside: reads the 3D scan of one floor plan (room labels, bedroom/bathroom counts, floor area). Only useful for unit claims (bedrooms, bathrooms, area) whose floor plan has a scan.
+- inside: checks floor plans (bedrooms, bathrooms, area): matches each listing plan to the building's plans by name or size, then reads its 3D scan or the building record. Give it ALL floor plan names in ONE task.
 - outside: measures the building from aerial imagery (roof height -> floors). Only useful for building stories.
 - paper: county records and the building record (stories, year built, unit count).
+Amenity, parking, laundry and finish claims (pool, rooftop, garage, washer/dryer, counters...) are checked on photos automatically in the background; do not delegate them.
 
 Rules:
-1. Skip claims with checkable=false and kinds no helper measures (amenities, views, parking...). If nothing is checkable, answer at once without tools.
-2. Send ALL independent tasks in ONE message as parallel task calls. Each task description: one sentence naming exactly what to check (for inside: the floor plan name) and asking for evidence ids and numbers.
+1. Skip claims with checkable=false. If no stories, year, unit-count or floor plan claim is checkable, answer at once without tools.
+2. Send ALL independent tasks in ONE message as parallel task calls, at most one task per helper. Each task description: one sentence naming exactly what to check (for inside: every floor plan name) and asking for evidence ids and numbers.
 3. When the reports are back, usually stop. Only if the scan gave no room counts for a room claim, make ONE follow-up look_at_scan_photos call. Floors are decided by the measured roof height and the county record, never by a photo; call look_floors_on_photo only if there is no roof height at all, and only as an illustration. A building record that disagrees with measured sources is expected and needs no follow-up.
 4. Every message that calls tools starts with one short plain sentence (at most 20 words) saying what you check and why.
 5. Final answer: one plain sentence on what was gathered. Hard budget: at most 3 of your own turns."""
@@ -89,11 +90,12 @@ Rules:
 SUB_RULES = ("Never guess numbers. Make your tool calls in one message where you can. "
              "Then reply in at most 3 short lines: the evidence ids and the numbers they found.")
 
-INSIDE_PROMPT = ("You check the inside of one apartment floor plan. Call scan_rooms with the floor plan name from "
-                 "your task. Only if it returns no bedroom/bathroom counts and the task asks about rooms, call "
-                 "scan_photos once. " + SUB_RULES)
-OUTSIDE_PROMPT = ("You measure the building from the air. Call measure_building. Only if it gives no roof height, "
-                  "call count_floors_on_photo once (illustration only). " + SUB_RULES)
+INSIDE_PROMPT = ("You check the inside of apartment floor plans. In ONE message, call scan_rooms once for every floor "
+                 "plan name in your task, plus unit_feature_photos once. Only if a plan has a scan but no "
+                 "bedroom/bathroom counts and the task asks about rooms, call scan_photos once. " + SUB_RULES)
+OUTSIDE_PROMPT = ("You measure the building from the air. In ONE message, call measure_building and "
+                  "outdoor_feature_photos. Only if there is no roof height, call count_floors_on_photo once "
+                  "(illustration only). " + SUB_RULES)
 PAPER_PROMPT = "You read paper records. Call county_lookup and building_record together in one message. " + SUB_RULES
 
 
@@ -101,8 +103,17 @@ def build_agent(run, model: BudgetedCLIModel):
     """Tools are closures over the run; each returns short text and stores full Evidence in run.evidence."""
 
     def scan_rooms(plan: str) -> str:
-        """Read the 3D scan of a floor plan: room labels, bedroom and bathroom counts, floor area in sq ft."""
+        """Check one listing floor plan: match it to the building's plans (by name, else by beds, baths and size),
+        then read its 3D scan (room labels, bedroom/bathroom counts, floor area) and the building record's numbers."""
         return run.scan_rooms(plan, agent="inside")
+
+    def unit_feature_photos() -> str:
+        """Results so far of the background photo check for in-unit features (washer/dryer, counters, floors...)."""
+        return run.feature_status("unit")
+
+    def outdoor_feature_photos() -> str:
+        """Results so far of the background aerial-photo check for outdoor amenities (pool, rooftop, parking...)."""
+        return run.feature_status("aerial")
 
     def scan_photos(plan: str, claim: str = "") -> str:
         """Have the vision model look at still photos from a floor plan's 3D scan. Without claim: count bedrooms,
@@ -135,11 +146,12 @@ def build_agent(run, model: BudgetedCLIModel):
         return run.scan_photos(plan, claim, agent="orchestrator")
 
     subagents = [
-        {"name": "inside", "description": "Checks bedroom, bathroom and floor-area claims of ONE floor plan against "
-         "its 3D scan. Give it the floor plan name.", "system_prompt": INSIDE_PROMPT,
-         "tools": [scan_rooms, scan_photos], "model": model},
+        {"name": "inside", "description": "Checks bedroom, bathroom and floor-area claims of the listing's floor "
+         "plans against the building's plans, 3D scans and record. Give it every floor plan name in one task.", "system_prompt": INSIDE_PROMPT,
+         "tools": [scan_rooms, scan_photos, unit_feature_photos], "model": model},
         {"name": "outside", "description": "Measures the building's height and number of floors from aerial imagery.",
-         "system_prompt": OUTSIDE_PROMPT, "tools": [measure_building, count_floors_on_photo], "model": model},
+         "system_prompt": OUTSIDE_PROMPT, "tools": [measure_building, outdoor_feature_photos, count_floors_on_photo],
+         "model": model},
         {"name": "paper", "description": "Reads county records and the building record: stories, year built, "
          "unit count.", "system_prompt": PAPER_PROMPT, "tools": [county_lookup, building_record], "model": model},
     ]
@@ -161,7 +173,8 @@ def task_message(run) -> str:
              "has_location": run.lat is not None,
              "record": m.get("record"),
              "floorplans": [{"name": fp.get("name"), "has_scan": bool(fp.get("matterport_model_id"))}
-                            for fp in m.get("floorplans") or []]}
+                            for fp in (m.get("floorplans") or [])[:30]],
+             "listing_plans": sorted({c.get("label") for c in run.claims if c.get("label")})}
     return ("Listing claims:\n" + json.dumps(claims) + "\n\nAddress match:\n" + json.dumps(match)
             + "\n\nPlan and run the checks worth doing for these claims.")
 

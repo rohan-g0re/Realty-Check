@@ -125,9 +125,19 @@ def check_room(image_paths, claim_text):
             "confidence": 0.7, "notes": "synthetic"}
 
 
+def find_features(image_paths, features, setting="aerial"):
+    _log(f"find_features:{setting}")
+    canned = {"pool": ("seen", 0.9, 1), "rooftop_deck": ("not_seen", 0.85, 1), "parking": ("unclear", 0.4, None),
+              "washer_dryer": ("seen", 0.8, 2), "stone_counters": ("unclear", 0.5, None)}
+    return {"status": "ok", "confidence": 0.8, "notes": "synthetic",
+            "answer": {k: dict(zip(("presence", "confidence", "image"), canned.get(k, ("unclear", 0.3, None))))
+                       for k in features}}
+
+
 FAKE_FUNCTIONS = {
     "extract_claims": extract_claims, "match_address": match_address, "geocode": geocode,
     "record_evidence": record_evidence, "scan_summary": scan_summary, "scan_stills": scan_stills,
     "aerial_images": aerial_images, "building_height": building_height, "county_record": county_record,
     "count_floors": count_floors, "read_floorplan": read_floorplan, "check_room": check_room,
+    "find_features": find_features,
 }

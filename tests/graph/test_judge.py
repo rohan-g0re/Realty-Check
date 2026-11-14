@@ -27,7 +27,7 @@ def test_stories_aerial_beats_county_and_record():
                ev("aerial", {"stories": 6, "height_m": 23.1}),
                ev("aerial", {}, images=[{"path": "C:/x/oblique.jpg", "caption": "Angled"}])])
     assert v["verdict"] == "contradicted" and v["source"] == "aerial"
-    assert v["reason"].startswith("Listing says 5 floors. The aerial photo shows 6 floors (measured roof height 23.1 m")
+    assert v["reason"].startswith("Listing says 5 floors. The measured roof height (23.1 m) means about 6 floors.")
     assert v["image"] == "C:/x/oblique.jpg"
 
 

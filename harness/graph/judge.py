@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from . import amenities
+
 COUNT_KINDS = ("bedrooms", "bathrooms", "stories", "unit_count", "year_built")
 RANK = {"scan": 0, "aerial": 0, "county": 1, "record": 2}  # lower wins
 UNIT_KINDS = ("bedrooms", "bathrooms", "area_sqft")
@@ -73,6 +75,8 @@ def _usable(claim: dict, evidences: list[dict]) -> list[dict]:
         if (scope == "unit" or kind in UNIT_KINDS) and src == "aerial":
             continue
         plan = obs.get("plan")
+        if obs.get("kit_plan") and not label:
+            continue  # one kit floor plan's numbers say nothing about an unnamed unit
         if label and plan and not _same_plan(str(plan), str(label)):
             continue  # evidence about another floor plan
         out.append(e)
@@ -91,7 +95,7 @@ def _image(winner: dict, usable: list[dict], evidences: list[dict]) -> str | Non
     # scans, any scan's stills would otherwise prove every plan's claim.
     plan = (winner.get("observed") or {}).get("plan")
     same = [x for x in evidences or [] if isinstance(x, dict) and x.get("source") == winner.get("source")
-            and x.get("status") == "ok"
+            and x.get("status") == "ok" and not (x.get("observed") or {}).get("feature_check")
             and not (plan and (x.get("observed") or {}).get("plan")
                      and not _same_plan(str(plan), str(x["observed"]["plan"])))]
     for e in [winner, *usable, *same]:
@@ -101,6 +105,67 @@ def _image(winner: dict, usable: list[dict], evidences: list[dict]) -> str | Non
     return None
 
 
+def _plan_missing(claim: dict, evidences: list[dict]) -> bool:
+    label = claim.get("label")
+    return bool(label) and any(isinstance(e, dict) and (e.get("observed") or {}).get("plan_missing")
+                               and _same_plan(str(e["observed"].get("plan") or ""), str(label))
+                               for e in evidences or [])
+
+
+def _first_image(e: dict) -> str | None:
+    for im in e.get("images") or []:
+        if isinstance(im, dict) and im.get("path"):
+            return im["path"]
+    return None
+
+
+FEATURE_RANK = {"confirmed": 0, "close": 1, "unclear": 2, "skipped": 3}
+
+
+def judge_feature(claim: dict, evidences: list[dict], base: dict) -> dict:
+    """Amenity / parking / laundry / view claims: presence answers from pictures or scan titles (soft checks)."""
+    quote = amenities.text_of(claim).strip()
+    said = f"Listing says \u201c{quote}\u201d."
+    mine = [e for e in evidences or [] if isinstance(e, dict)
+            and claim.get("id") in ((e.get("observed") or {}).get("claim_ids") or [])]
+    if not mine:
+        why = ("We had no photos that could show this." if amenities.feature_for(claim)
+               else "Nothing in our data measures this.")
+        return {**base, "verdict": "cant_check", "found": "no data", "source": None, "reason": f"{said} {why}"}
+    best = min(mine, key=lambda e: FEATURE_RANK[amenities.outcome(e.get("observed") or {})])
+    obs, src = best.get("observed") or {}, best.get("source")
+    out = amenities.outcome(obs)
+    nice = amenities.NICE.get(str(obs.get("feature")), str(obs.get("feature") or "it"))
+    conf = _num(obs.get("presence_confidence")) or 0.0
+    title = str(obs.get("scan_title") or "")
+    where = "the aerial photos" if src == "aerial" else (f"photos from the 3D scan '{title}'" if title
+                                                         else "photos from the 3D scan")
+    if out == "confirmed" and obs.get("how") == "scan_title":
+        aerial = [amenities.outcome(e.get("observed") or {}) for e in mine if e.get("source") == "aerial"]
+        also = (" The aerial photos did not show it from above, so it may be indoors."
+                if aerial and "confirmed" not in aerial else "")
+        return {**base, "verdict": "confirmed", "found": f"3D scan titled '{title}'", "source": "scan",
+                "reason": f"{said} The building's 3D scans include one titled '{title}', which matches this by "
+                          f"name.{also}", "image": _first_image(best)}
+    if out == "confirmed":
+        found = "Visible in the aerial photo" if src == "aerial" else "Visible in the 3D scan photos"
+        return {**base, "verdict": "confirmed", "found": found, "source": src, "image": _first_image(best),
+                "reason": f"{said} A vision model looked for {nice} in {where} and saw it (confidence {conf:.2f}). "
+                          "This is a picture check, not a measurement."}
+    if out == "close":
+        found = "Not visible in the aerial photo" if src == "aerial" else "Not visible in the 3D scan photos"
+        why = ("it may be indoors or on a part of the site the photo does not show" if src == "aerial"
+               else "the scan photos show only some rooms")
+        return {**base, "verdict": "close", "found": found, "source": src, "image": _first_image(best),
+                "reason": f"{said} A vision model looked for {nice} in {where} and did not see it "
+                          f"(confidence {conf:.2f}). A photo cannot prove something is absent: {why}."}
+    if out == "skipped":
+        return {**base, "verdict": "cant_check", "found": "not checked", "source": None,
+                "reason": f"{said} {best.get('summary') or 'The photos were not checked.'}"}
+    return {**base, "verdict": "cant_check", "found": "unclear", "source": None,
+            "reason": f"{said} The photos don't show this clearly (we looked for {nice} in {where})."}
+
+
 def judge(claim: dict, evidences: list[dict]) -> dict:
     kind = claim.get("kind")
     claimed_txt = phrase(kind, claim.get("value"))
@@ -108,9 +173,14 @@ def judge(claim: dict, evidences: list[dict]) -> dict:
     if not claim.get("checkable", True):
         return {**base, "verdict": "cant_check", "found": "nothing to measure", "source": None,
                 "reason": "This is a marketing phrase with nothing we can measure."}
+    if amenities.is_feature_claim(claim):
+        return judge_feature(claim, evidences, base)
     claimed = _num(claim.get("value"))
     usable = _usable(claim, evidences) if kind in (*COUNT_KINDS, "area_sqft") else []
     if claimed is None or not usable:
+        if kind in UNIT_KINDS and _plan_missing(claim, evidences):
+            return {**base, "verdict": "cant_check", "found": "not in the building's records", "source": None,
+                    "reason": f"Listing says {claimed_txt}. This floor plan is not in the building's records."}
         return {**base, "verdict": "cant_check", "found": "no data", "source": None,
                 "reason": f"Listing says {claimed_txt}. None of our sources measured this."}
 
@@ -124,19 +194,26 @@ def judge(claim: dict, evidences: list[dict]) -> dict:
                                or re.search(r"\bden\b", str(obs.get("model_name") or ""), re.I)):
         found_txt += " + den"
 
+    kit_plan = obs.get("kit_plan") if src == "record" else None
     if kind == "area_sqft":
         pct = abs(found - claimed) / claimed * 100 if claimed else 100.0
         verdict = "confirmed" if pct <= 5 else "close" if pct <= 10 else "contradicted"
         diff = f", {pct:.0f}% {'smaller' if found < claimed else 'larger'}" if pct >= 0.5 else ""
         how = f"{_cap(SOURCE_NAME[src])} measures {found_txt}{diff}."
+        if kit_plan:
+            how = f"According to the building record, its plan {kit_plan} has {found_txt}{diff}."
     else:
         verdict = "confirmed" if round(found) == round(claimed) else "contradicted"
         if verdict == "confirmed":
             how = f"{_cap(SOURCE_NAME[src])} agree{'s' if VERB[src] != 'say' else ''}: {found_txt}."
         else:
             how = f"{_cap(SOURCE_NAME[src])} {VERB[src]} {found_txt}."
+        if kit_plan:
+            how = f"According to the building record, its plan {kit_plan} has {found_txt}."
         if kind == "stories" and src == "aerial" and _num(obs.get("height_m")) is not None:
-            how = how[:-1] + f" (measured roof height {_n(_num(obs['height_m']))} m above the ground)."
+            how = f"The measured roof height ({_n(_num(obs['height_m']))} m) means about {found_txt}."
+    if obs.get("plan_match"):
+        how += " " + str(obs["plan_match"]).strip()
 
     # Mention other sources briefly so the reader sees agreement or the disagreement we overruled.
     others = []

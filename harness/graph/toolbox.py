@@ -32,6 +32,11 @@ class Toolbox:
     count_floors: Callable[[list], dict]
     read_floorplan: Callable[[list], dict]
     check_room: Callable[[list, str], dict]
+    find_features: Callable[..., dict] = None  # presence of amenities in photos; None = not available
+
+    def __post_init__(self):
+        if self.find_features is None:
+            self.find_features = lambda *a, **k: _vision_error("find_features not provided")
 
     @classmethod
     def real(cls) -> "Toolbox":
@@ -59,6 +64,7 @@ class Toolbox:
             count_floors=load("tools.vision", "count_floors", lambda msg: lambda *a, **k: _vision_error(msg)),
             read_floorplan=load("tools.vision", "read_floorplan", lambda msg: lambda *a, **k: _vision_error(msg)),
             check_room=load("tools.vision", "check_room", lambda msg: lambda *a, **k: _vision_error(msg)),
+            find_features=load("tools.vision", "find_features", lambda msg: lambda *a, **k: _vision_error(msg)),
         )
 
     @classmethod

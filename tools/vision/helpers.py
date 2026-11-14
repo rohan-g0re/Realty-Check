@@ -49,3 +49,36 @@ def check_room(image_paths: list[str], claim_text: str) -> dict:
         "supports_claim": 'string: "yes", "no" or "unclear"',
     }
     return look(image_paths, question, fields)
+
+
+PRESENCE_FIELD = ('object {"presence": "seen" | "not_seen" | "unclear", "confidence": number 0-1 for this '
+                  'feature, "image": number of the image that shows it best (1-based), or null}')
+
+SETTINGS = {
+    "aerial": (
+        "Image 1 is a top-down aerial photo, about 120 m across, centred on one apartment property; the other "
+        "images are angled aerial views of the same spot. For each feature below, decide whether it is present "
+        "on THIS property: the large building at the centre of image 1, its roofs, courtyards and its own lot. "
+        "Ignore neighbouring buildings, streets and lots."
+    ),
+    "scan": (
+        "These images come from a 3D scan of one apartment: a schematic floor plan and 2x2 grids of the four "
+        "views around the camera at a few spots. For each feature below, decide whether it is present in this "
+        "apartment."
+    ),
+}
+
+
+def find_features(image_paths: list[str], features: dict[str, str], setting: str = "aerial") -> dict:
+    """Presence check for several features in one call. features: {key: plain description}.
+    answer[key] = {"presence": "seen"|"not_seen"|"unclear", "confidence": 0-1, "image": n or None}.
+    Presence only: never use this to count anything."""
+    intro = SETTINGS.get(setting, SETTINGS["aerial"])
+    listing = "\n".join(f"- {k}: {d}" for k, d in features.items())
+    question = (
+        f"{intro}\n\nFeatures:\n{listing}\n\n"
+        "For each feature: seen = clearly visible in at least one image; not_seen = the place where it would "
+        "be is clearly visible and it is not there; unclear = anything else (hidden, indoors, too small, out of "
+        "frame, or you are not sure). Do not guess from what such buildings usually have."
+    )
+    return look(image_paths, question, {k: PRESENCE_FIELD for k in features})

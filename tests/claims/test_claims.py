@@ -61,7 +61,7 @@ def check_b(claims):
 
 
 def check_shape(claims, page):
-    assert len(claims) <= 25
+    assert len(claims) <= 40
     assert [c["id"] for c in claims] == [f"c{i}" for i in range(1, len(claims) + 1)]
     for c in claims:
         assert validate_claim(c) == [], (c, validate_claim(c))

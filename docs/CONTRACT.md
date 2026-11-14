@@ -84,11 +84,18 @@ The server rewrites every image path in outgoing events to `/img/<token>` URLs i
 | `tools.vision` | `count_floors(image_paths: list[str]) -> dict` | look() result, `answer`: `stories`, `how_counted`. Illustrative only: never decides a stories verdict |
 | `tools.vision` | `read_floorplan(image_paths: list[str]) -> dict` | look() result, `answer`: `bedrooms`, `bathrooms`, `has_den`, `room_labels` |
 | `tools.vision` | `check_room(image_paths: list[str], claim_text: str) -> dict` | look() result, `answer`: `room_type`, `has_window`, `supports_claim` |
+| `tools.vision` | `find_features(image_paths: list[str], features: dict[str, str], setting: str = "aerial") -> dict` | look() result for several features in ONE call; `answer[key]` = `{"presence": "seen" or "not_seen" or "unclear", "confidence": 0-1, "image": 1-based index or null}`. `setting`: `aerial` or `scan`. Presence only, never a count |
 | `harness.claims` | `extract_claims(snapshot: dict, use_model: bool = True) -> list[dict]` | list of Claim; `use_model=False` = rules and JSON-LD only |
 | `harness.graph` | `judge(claim: dict, evidences: list[dict]) -> dict` | Verdict |
 | `harness.graph` | `run_check(snapshot: dict, emit, toolbox=None) -> dict` | emits Events through `emit(event: dict)`; returns the `done` event. `toolbox=None` means `Toolbox.real()`; `Toolbox.fake()` is the synthetic one |
 
-- Floor plans: a claim label resolves to the kit floor plan whose name equals it, else starts with it at a word boundary (case-insensitive), else contains it: `"Plan E"` → `"Plan E 1 Bedroom + Den"`. Scan evidence is tagged with the claim's label in `observed.plan`.
+- Floor plans (`harness/graph/plans.py`), per listing plan label, first that applies:
+  a. kit plan whose name equals the label, else starts with it at a word boundary, else contains it (case-insensitive): `"Plan E"` → `"Plan E 1 Bedroom + Den"`;
+  b. no name match: kit plan with the listing's beds and baths and the nearest sq ft within 8% ("Matched to the building's plan A2s by size.");
+  c. that kit plan has no scan id (or its scan's title gives a size more than 8% off the plan's): a property-level scan (`matterport_model_ids`) whose title has the plan's beds/baths and a sq ft within 3% (or names the plan). At most 8 uncached `scan_summary` fetches per run; two equal fits = no pick;
+  d. otherwise the kit plan's own numbers as `source="record"` evidence; no kit plan at all = `cant_check`, "This floor plan is not in the building's records."
+- Plan label field: every floor plan Evidence (scan summary, scan stills, and the record's floor plan numbers) carries the LISTING's plan label in `observed.plan`; group pictures by it. Record floor plan Evidence also has `observed.kit_plan` (the kit name) and, when matched by size or via another scan, `observed.plan_match` (one plain sentence the judge repeats). A listing plan with no kit plan gets `status="no_evidence"` record Evidence with `observed.plan_missing: true`.
+- Picture checks (amenity / parking / laundry / view / other claims): Evidence with `observed.feature_check: true`, `claim_ids` (claims it answers), `feature` (key such as `pool`, `washer_dryer`), `presence` (`seen | not_seen | unclear | skipped`), `presence_confidence`, `looked_at`, and for scans `model_id`, `scan_title`. A property-level scan whose title names the amenity ("Fitness Center") gives `presence: "seen"`, `how: "scan_title"`. These are never proof images for floor plan claims.
 - Stories: decided only by measured roof height (aerial evidence with `observed.height_m`) and paper records. A vision floor count is stored as `observed.photo_floor_count` with `observed.illustrative: true` and is ignored by the judge.
 
 Each module re-exports its functions from its package `__init__.py` (e.g. `from tools.kit import match_address`).
@@ -98,6 +105,9 @@ Each module re-exports its functions from its package `__init__.py` (e.g. `from 
 - `area_sqft`: within 5% → `confirmed`; 5–10% → `close`; beyond 10% → `contradicted`.
 - No evidence with `status="ok"` that observes the claim's kind → `cant_check`.
 - When sources disagree, priority is scan and aerial (measured), then county, then record. Name the winning source in `source`.
+- Stories from aerial: reason reads "The measured roof height (23.1 m) means about 6 floors."
+- Floor plan numbers from the record: "According to the building record, its plan A2s has 750 sq ft." plus `observed.plan_match` when present.
+- Amenity, parking, laundry, view and other claims (soft, presence only): seen with confidence ≥ 0.7 → `confirmed` ("Visible in the aerial photo" / "Visible in the 3D scan photos", that image as proof), or a scan title match → `confirmed` ("3D scan titled 'Fitness Center'"); not seen with confidence ≥ 0.8 → `close` ("Not visible in the aerial photo"; a photo cannot prove absence), never `contradicted`; otherwise `cant_check` ("The photos don't show this clearly"); things no picture shows (24-hour access, pet wash, concierge, co-working, utilities) → `cant_check`, "Nothing in our data measures this", with no model call; `checkable=false` → marketing phrase.
 
 ## 5. Server
 - `POST /check` body PageSnapshot → `text/event-stream` of Events. `GET /health` → `{"ok": true}`.

@@ -96,12 +96,31 @@ def test_sample_flow_marks_and_report(env):
     assert headline(page) == "3 things don't match."
     assert page.locator("#rc-host #topLine").inner_text().startswith("Biggest difference: the listing says “2 Beds”")
     meta = page.locator("#rc-host #counts").inner_text()
-    assert "Sample result" in meta and "1 true" in meta and "1 couldn't check" in meta and "close" not in meta, meta
+    assert "Sample result" in meta and "2 true" in meta and "1 couldn't check" in meta and "close" not in meta, meta
     finds = page.locator("#rc-host .find")
     assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c3", "c2"]  # size before floors
     assert page.locator("#rc-host #moreF").count() == 0
     assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
     assert finds.first.locator(".by").inner_text() == "Matterport"
+    # which home was checked, above the headline
+    assert " ".join(page.locator("#rc-host #who").inner_text().split()) == \
+        "Checked: Unit 1204 (this home) 3D scan is of the same floor plan"
+    # how sure: one chip per finding (all three carry a confidence block), the why and the sources on demand
+    chips = page.locator("#rc-host .cf .cfb")
+    assert chips.count() == 3
+    assert chips.evaluate_all("els => els.map(e => e.querySelector('.cft').textContent)") == [
+        "Medium confidence", "Medium confidence", "High confidence"]
+    assert page.locator("#rc-host .cfx:visible").count() == 0
+    chips.first.click()
+    x = page.locator("#rc-host #cfx0")
+    assert x.is_visible() and chips.first.get_attribute("aria-expanded") == "true"
+    assert "CoStar matches the listing" in x.locator(".cfw").inner_text()
+    rows = x.locator(".cfl li").evaluate_all("els => els.map(e => [...e.children].map(c => c.textContent).join(' | '))")
+    assert rows[0] == "Matterport | 1 bedroom + den | decides", rows
+    assert rows[1] == "CoStar | 2 bedrooms | matches the listing", rows
+    chips.first.click()
+    assert not x.is_visible()
+    assert page.locator("#rc-host #body").evaluate("e => e.scrollWidth <= e.clientWidth + 1")
     assert page.locator("#rc-host .claim").count() == 0  # no per-claim list in the drawer any more
 
     marks = page.locator("#rc-host .claim-mark")
@@ -131,7 +150,7 @@ def test_sample_flow_marks_and_report(env):
     assert " ".join(rep.locator("h1").inner_text().split()) == SAMPLE_HEADLINE
     assert rep.locator(".hero .where").inner_text().startswith("418 Linden Grove Ave")
     assert "Sample address" not in rep.locator("body").inner_text()
-    assert rep.locator("#cf-field .cf-cell").count() == 5 * 4  # five claims, four sources
+    assert rep.locator("#cf-field .cf-cell").count() == 6 * 4  # six claims, four sources
     assert rep.locator("[id^='claim-']").count() == 3
     rep.close()
     assert not rep_errors, rep_errors
@@ -173,7 +192,7 @@ def test_sample_report_page_anchors_and_panel(env):
     rep.locator("#cf-tip:not([hidden])").wait_for(timeout=3000)
     cell.click()
     rep.locator("#cf-panel:not([hidden])").wait_for(timeout=3000)
-    assert "claim 1 of 5" in rep.locator("#cf-panel .cf-where").inner_text()  # 2 Beds: Matterport contradicts it
+    assert "claim 1 of 6" in rep.locator("#cf-panel .cf-where").inner_text()  # 2 Beds: Matterport contradicts it
     rep.locator("#cf-panel .cf-x").click()
     # a claim with no finding block: #claim-<id> falls back to the claim field
     rep.goto(base + "#claim-c4")

@@ -34,7 +34,8 @@ def test_sample_events_has_fill_in_before_done():
     i_last_verdict = len(kinds) - 1 - kinds[::-1].index("verdict")
     assert 0 < i_last_verdict < i_fill < i_done
     facts = load_events()[i_fill]["facts"]
-    assert 3 <= len(facts) <= 5
+    assert 3 <= len(facts) <= 6
+    assert any(f["id"] == "aerial-features" and f["topic"] == "Around it" for f in facts)
     assert any(f["value"] == "Example Property Management" for f in facts)
 
 
@@ -90,12 +91,14 @@ def test_sample_flow_shows_fill_in(env):
     page.locator("#rc-host #headline").wait_for(timeout=15000)
     tog = page.locator("#rc-host #fiToggle")
     tog.wait_for(timeout=3000)
-    assert tog.inner_text().strip() == "Not on the listing (5)"
+    assert tog.inner_text().strip() == "Not on the listing (6)"
     assert tog.get_attribute("aria-expanded") == "false"
     assert page.locator("#rc-host .fact").count() == 0  # collapsed by default
     tog.click()
     facts = page.locator("#rc-host .fact")
     assert facts.count() == 4  # top 4 only
+    # renter order: home sizes, then year built / renovated, then what the aerial survey saw; the rest in the report
+    assert facts.locator(".fl").all_inner_texts() == ["Plan A", "Typical size, 1 bed", "Last renovated", "Seen from above"]
     assert tog.get_attribute("aria-expanded") == "true"
     assert facts.first.locator(".fl").inner_text() == "Plan A"
     assert facts.first.locator(".fs").inner_text() == "CoStar"

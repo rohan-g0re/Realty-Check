@@ -498,6 +498,41 @@
     return (v.verdict === "close" ? "Close · " : "") + (by.join(", ") || SRC[v.source] || "");
   }
   function sizeClass(t) { const n = String(t).length; return n > 34 ? " s" : n > 18 ? " m" : ""; }
+  // ---------- how sure we are: only on "not true" and "close" verdicts that carry a confidence block ----------
+  const BANDS = { high: ["High confidence", 3], medium: ["Medium confidence", 2], low: ["Low confidence", 1] };
+  function confOf(v) {
+    const c = v && BAD.has(v.verdict) && v.confidence;
+    if (!c || typeof c !== "object" || !BANDS[c.band]) return null;
+    const score = Number.isFinite(Number(c.score)) && c.score !== null && c.score !== "" ? Math.round(Number(c.score)) : null;
+    const srcs = (Array.isArray(c.sources) ? c.sources : []).filter((s) => s && SRC[s.source] && s.says != null && String(s.says).trim());
+    return { band: c.band, score, why: typeof c.why === "string" ? c.why.trim() : "", by: SRC[c.decided_by] ? c.decided_by : null, srcs };
+  }
+  function confHTML(v, i) {
+    const c = confOf(v);
+    if (!c) return "";
+    const [word, lit] = BANDS[c.band];
+    // the decider first, then the others in the order the judge gave them
+    const srcs = c.srcs.slice().sort((a, b) => (b.source === c.by) - (a.source === c.by));
+    const rows = srcs.map((s) => `<li><span class="cn">${esc(SRC[s.source])}</span><span class="cv">${esc(s.says)}</span>` +
+      (s.source === c.by ? `<span class="ct dec">decides</span>` : s.agrees_with_listing === true ? `<span class="ct">matches the listing</span>` : "") + `</li>`).join("");
+    const by = c.by && !srcs.some((s) => s.source === c.by) ? `<p class="cfd">Decided by ${esc(SRC[c.by])}</p>` : "";
+    const more = c.why || rows || by;
+    const bars = `<span class="bars" aria-hidden="true">${[1, 2, 3].map((n) => `<i${n <= lit ? ` class="on"` : ""}></i>`).join("")}</span>`;
+    const label = `${word}${c.score != null ? `, ${c.score} of 100` : ""}`;
+    const inner = `${bars}<span class="cft">${word}</span>${c.score != null ? `<span class="cfs">${c.score}</span>` : ""}`;
+    if (!more) return `<div class="cf" data-band="${c.band}"><span class="cfb" role="img" aria-label="${esc(label)}">${inner}</span></div>`;
+    return `<div class="cf" data-band="${c.band}"><button class="cfb" aria-expanded="false" aria-controls="cfx${i}" aria-label="${esc(label + ". Why")}"${c.score != null ? ` title="Score ${c.score} of 100"` : ""}>${inner}<span class="go">${CHEV}</span></button>
+      <div class="cfx" id="cfx${i}" hidden>${c.why ? `<p class="cfw">${esc(c.why)}</p>` : ""}${by}${rows ? `<ul class="cfl">${rows}</ul>` : ""}</div></div>`;
+  }
+  // ---------- which home the run checked: this unit, this home, or only the building ----------
+  function whoHTML(r) {
+    if (!r.done || (r.match && r.match.status === "no_match")) return "";
+    const hz = (r.done.harness && typeof r.done.harness === "object") ? r.done.harness : {};
+    const u = hz.unit != null ? String(hz.unit).trim() : "";
+    const what = u ? `${/^\d/.test(u) ? "Unit " : ""}${u} (this home)` : hz.single_unit === true ? "this home" : "the building";
+    const plan = r.evidence.some((e) => e.source === "scan" && e.status === "ok" && (e.observed || {}).scan_of === "plan");
+    return `<p class="who" id="who"><span class="whw">Checked:</span> ${esc(what)}${plan ? `<span class="whp">3D scan is of the same floor plan</span>` : ""}</p>`;
+  }
   function renderResult() {
     const r = run, k = counts(r);
     const t = topOf(r), rank = new Map(((t && Array.isArray(t.order)) ? t.order : []).map((id, i) => [id, i]));
@@ -513,7 +548,7 @@
       k.cant_check ? `<span data-k="cant_check">${k.cant_check} couldn't check</span>` : "",
       `<span data-k="time">${took((r.t1 || Date.now()) - r.t0)}</span>`,
     ].filter(Boolean).join(`<span class="sep" aria-hidden="true"> · </span>`);
-    let h = `<div class="res">${headlineHTML(r, k)}${t && t.line ? `<p class="topl" id="topLine">${esc(t.line)}</p>` : ""}<p class="meta" id="counts">${meta}</p><div class="chk" id="chk"></div>`;
+    let h = `<div class="res">${whoHTML(r)}${headlineHTML(r, k)}${t && t.line ? `<p class="topl" id="topLine">${esc(t.line)}</p>` : ""}<p class="meta" id="counts">${meta}</p><div class="chk" id="chk"></div>`;
     if (r.claims.length) h += fieldHTML(r, true);
     if (bad.length) {
       h += `<ul class="finds" id="finds" aria-label="What doesn't match">` + bad.slice(0, FIND_TOP).map(([c, v], i) => {
@@ -521,7 +556,7 @@
         return `<li><button class="find${pic ? " has-pic" : ""}" data-id="${esc(c.id)}" data-verdict="${v.verdict}" style="--i:${i}" aria-label="${esc(`Listing says ${v.claimed}. ${SRC[v.source] || "We"} found ${is}. Show it`)}">
           <span class="ftx"><span class="was"><span class="wt">${esc(was)}</span><i class="strike" aria-hidden="true"></i></span>
           <span class="is${sizeClass(is)}">${esc(is)}</span>
-          <span class="by">${esc(settledBy(r, c, v))}</span></span>${pic ? `<span class="pic" data-img="${esc(pic)}" aria-hidden="true"></span>` : ""}</button></li>`;
+          <span class="by">${esc(settledBy(r, c, v))}</span></span>${pic ? `<span class="pic" data-img="${esc(pic)}" aria-hidden="true"></span>` : ""}</button>${confHTML(v, i)}</li>`;
       }).join("") + `</ul>`;
       if (bad.length > FIND_TOP) h += `<button class="morebtn" id="moreF">+${bad.length - FIND_TOP} more</button>`;
     }
@@ -620,11 +655,23 @@
     const n = facts.length;
     let h = `<button class="filine${fiOpen ? " open" : ""}" id="fiToggle" aria-expanded="${fiOpen}"><span class="fit">Not on the listing (${n})</span><span class="go">${CHEV}</span></button>`;
     if (!fiOpen) return h;
-    h += `<ul class="facts" id="fiList">` + facts.slice(0, FI_TOP).map((f, i) => `<li class="fact" data-id="${esc(f.id)}" style="--i:${i}">
+    h += `<ul class="facts" id="fiList">` + fiOrder(facts).slice(0, FI_TOP).map((f, i) => `<li class="fact" data-id="${esc(f.id)}" style="--i:${i}">
       <div class="fq"><span class="fl">${esc(f.label)}</span><span class="fs">${esc(SRC[f.source] || f.source || "")}</span></div>
       <div class="fv">${esc(f.value)}</div>${f.note ? `<div class="fn">${esc(f.note)}</div>` : ""}</li>`).join("") + `</ul>`;
     h += `<button class="lnk fiall" id="fiAll">See all in the full report</button>`;
     return h;
+  }
+  // Only FI_TOP rows show in the drawer, so the most useful to a renter lead: sizes of homes first (at most two),
+  // then year built or last renovated (one), then what the aerial survey saw on the lot; then the rest, as sent.
+  const FI_TIERS = [[/^(unit-|scan-size-|size-\d+bed$|plan-(?!count$|more$))/, 2], [/^(year-built|renovated)$/, 1], [/^aerial-features$/, 1]];
+  function fiOrder(facts) {
+    const head = FI_TIERS.map(() => []), rest = [];
+    for (const f of facts) {
+      const id = String((f && f.id) || "");
+      const t = FI_TIERS.findIndex(([re]) => re.test(id));
+      if (t >= 0 && head[t].length < FI_TIERS[t][1]) head[t].push(f); else rest.push(f);
+    }
+    return head.flat().concat(rest);
   }
   function said(c) {
     const n = num(c.value), s = (w) => (n === 1 ? w : w + "s");
@@ -664,6 +711,13 @@
     el.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
   }
   body.addEventListener("click", (e) => {
+    const cb = e.target.closest("button.cfb");
+    if (cb) {
+      const x = root.getElementById(cb.getAttribute("aria-controls")), on = cb.getAttribute("aria-expanded") !== "true";
+      cb.setAttribute("aria-expanded", String(on));
+      if (x) { x.hidden = !on; if (on) x.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" }); }
+      return;
+    }
     const f = e.target.closest(".find");
     if (f) { showFinding(f.dataset.id); return; }
     if (e.target.closest("#moreF")) { openReport("#mismatch"); return; }
@@ -845,6 +899,34 @@
   /* close, not exact: quiet, never struck through (as in the report) */
   .find[data-verdict="close"] .strike{display:none}
   .find[data-verdict="close"] .is{font-size:19px;line-height:1.25;color:var(--ink)}
+  /* which home was checked */
+  .who{margin-top:16px;font-size:14px;line-height:1.4;color:var(--mute);overflow-wrap:anywhere;animation:rc-fade .5s ease backwards}
+  .whw{color:var(--ink)}
+  .whp{display:block}
+  .res .who + .hl{margin-top:8px}
+  /* how sure: a quiet chip under a finding, opens to the why and one line per source */
+  .cf{padding:0 12px 4px;margin-top:-4px}
+  .cfb{display:inline-flex;align-items:center;gap:7px;min-height:32px;font-size:13px;color:var(--mute);animation:rc-fade .5s ease .9s backwards}
+  .cft{color:var(--ink)}
+  .cfs{font-variant-numeric:tabular-nums}
+  .bars{display:inline-flex;align-items:flex-end;gap:2px;height:11px}
+  .bars i{display:block;width:3px;height:5px;background:#dcdcdc;transition:background-color .3s ease}
+  .bars i:nth-child(2){height:8px}
+  .bars i:nth-child(3){height:11px}
+  .bars i.on{background:var(--ink)}
+  .cf .go{display:grid;color:#9a9a9a;transition:transform .25s var(--ease)}
+  .cf .go svg{width:14px;height:14px}
+  button.cfb:hover .go{color:var(--ink)}
+  .cfb[aria-expanded="true"] .go{transform:rotate(90deg)}
+  .cfx{margin:2px 0 6px 5px;padding:2px 0 2px 12px;border-left:1px solid var(--line);animation:rc-rise .35s var(--ease)}
+  .cfw{font-size:14px;line-height:1.4;color:var(--ink)}
+  .cfd{margin-top:4px;font-size:13px;color:var(--mute)}
+  .cfl{list-style:none;margin-top:6px;display:flex;flex-direction:column;gap:3px}
+  .cfl li{display:flex;align-items:baseline;gap:8px;font-size:13px;line-height:1.35;min-width:0}
+  .cn{flex:none;width:78px;color:var(--mute)}
+  .cv{flex:0 1 auto;min-width:0;color:var(--ink);overflow-wrap:anywhere}
+  .ct{flex:none;font-size:12px;color:var(--mute)}
+  .ct.dec{color:var(--ink);border:1px solid var(--ink);padding:0 4px;line-height:1.35}
   .morebtn{min-height:44px;font-size:15px;text-decoration:underline;text-underline-offset:4px;align-self:flex-start;margin-top:2px}
   .morebtn:hover,.lnk:hover{color:var(--blue)}
   .fi{margin-top:14px}

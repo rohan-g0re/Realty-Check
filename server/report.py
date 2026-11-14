@@ -47,6 +47,8 @@ h1{font-size:22px;font-weight:600;margin:0 0 4px}
 .item>h3{font-size:20px;font-weight:600;margin:0 0 2px}
 .quiet{font-size:13px;color:var(--muted);margin:0}
 .item>.quiet{margin-bottom:20px}
+.walk{margin:-8px 0 18px}.walk a{display:inline-block;background:#17181A;color:#fff;font-size:14px;font-weight:600;
+padding:8px 14px;border-radius:10px}.walk a:hover{text-decoration:none;opacity:.9}
 .pics{display:grid;grid-template-columns:3fr 2fr;gap:8px;margin:0 0 28px}
 .pics.one{grid-template-columns:1fr}
 .pics figure{margin:0}.pics a{display:block}
@@ -542,12 +544,23 @@ def _mismatch(run: Run, verdicts: list) -> str:
             sub = ""
         h.append(f"<article class=item><h3>{escape(title)}</h3>")
         h.append(f"<p class=quiet>{escape(sub)}</p>" if sub else "<p class=quiet></p>")
+        h.append(_walk_link(run, vs))
         h.append(_pics(run.images_for(vs, label)))
         h.extend(_finding(run, v) for v in vs)
         if label:
             h.append(_rooms(run, label))
         h.append("</article>")
     return "".join(h)
+
+
+def _walk_link(run: Run, vs: list) -> str:
+    """'Walk into this room' for the first verdict of this item that rests on a 3D scan."""
+    from server.tour import tour_href, tour_target
+    for v in vs:
+        cid = str(v.get("claim_id") or "")
+        if v.get("source") == "scan" and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", cid)                 and re.fullmatch(r"[a-z0-9-]{1,64}", str(run.raw.get("run_id") or ""))                 and tour_target(run.raw, cid):
+            return f"<p class=walk><a href='{escape(tour_href(run.raw, cid), True)}'>Walk into this room</a></p>"
+    return ""
 
 
 def _match(run: Run, verdicts: list) -> str:

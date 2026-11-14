@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from rc_common import cache_dir
 from server.report import render_report
+from server import tour
 
 EVENT_TYPES = {"run_started", "step", "claims", "match", "evidence", "verdict", "done", "error"}
 PING_S = 10.0
@@ -288,3 +289,20 @@ def report(run_id: str):
     if run is None:
         return HTMLResponse("<!doctype html><title>Not found</title><p>No such check.</p>", status_code=404)
     return HTMLResponse(render_report(run))
+
+
+@app.get("/tour/{run_id}", response_class=HTMLResponse)
+def tour_page(run_id: str, claim: str | None = None):
+    """The real 3D walkthrough for one claim, with one client-side label (server/tour.py)."""
+    headers = {"Cache-Control": "no-store"}
+    run = load_run(run_id)
+    if run is None:
+        return HTMLResponse(tour.message_page(None, "No such check."), status_code=404, headers=headers)
+    if claim is not None and not tour.CLAIM_RE.match(claim):
+        claim = ""
+    target = tour.tour_target(run, claim)
+    if target is None:
+        return HTMLResponse(tour.message_page(run_id, "No 3D scan for this claim.",
+                                              "Only claims checked against a 3D scan can be walked through."),
+                            status_code=404, headers=headers)
+    return HTMLResponse(tour.render_tour(run, target, tour.sdk_key(), cache_dir()), headers=headers)

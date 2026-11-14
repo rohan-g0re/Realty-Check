@@ -41,26 +41,49 @@
       return !(own && (hit === own || own.contains(hit) || hit.contains(own)));
     };
 
+    // Stray marks: text that became hidden after the scan (closed menu, faded slide), or that sits outside a
+    // clipping box (carousel slide parked off to the side, collapsed accordion with overflow:hidden).
+    const ownEl = (range) => { const c = range.commonAncestorContainer; return c.nodeType === 1 ? c : c.parentElement; };
+    const hidden = (range) => {
+      const el = ownEl(range);
+      if (!el || !el.isConnected) return true;
+      return !!el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+    };
+    const clipped = (range, rc) => {
+      for (let el = ownEl(range); el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (cs.position === "fixed") break;
+        if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+        const b = el.getBoundingClientRect();
+        if (rc.right <= b.left + 1 || rc.left >= b.right - 1 || rc.bottom <= b.top + 1 || rc.top >= b.bottom - 1) return true;
+      }
+      return false;
+    };
+
     function layout() {
-      layer.textContent = "";
-      if (!enabled) return;
+      if (!enabled) { layer.textContent = ""; return; }
       const sx = scrollX, sy = scrollY, boxes = [];
       const add = (range, cls, data, style) => {
+        if (hidden(range)) return;
         for (const rc of range.getClientRects()) {
-          if (rc.width < 1 || rc.height < 1 || occluded(range, rc)) continue;
+          if (rc.width < 1 || rc.height < 1 || clipped(range, rc) || occluded(range, rc)) continue;
           boxes.push([cls, data, `left:${rc.left + sx}px;top:${rc.top + sy}px;width:${rc.width}px;height:${rc.height}px;${style || ""}`]);
         }
       };
       addresses.forEach((a, i) => a.ranges.forEach((r) => add(r, "addr-mark" + (a.text === selected ? " sel" : "") + (seen.has(a.text) ? "" : " in"), { idx: i })));
       marks.forEach((m, i) => add(m.range, "claim-mark", { mi: i, verdict: m.verdict }, `--vc:${m.color}`));
       addresses.forEach((a) => seen.add(a.text));
-      for (const [cls, data, css] of boxes) {
-        const d = document.createElement("div");
-        d.className = cls;
-        d.style.cssText = css;
-        Object.assign(d.dataset, data);
-        layer.appendChild(d);
-      }
+      // Reuse the existing boxes: busy pages relayout often, and a box replaced between mousedown and mouseup
+      // would swallow the user's click.
+      boxes.forEach(([cls, data, css], i) => {
+        let d = layer.children[i];
+        if (!d) { d = document.createElement("div"); layer.appendChild(d); }
+        if (d.className !== cls) d.className = cls;
+        if (d.style.cssText !== css) d.style.cssText = css;
+        for (const k of Object.keys(d.dataset)) if (!(k in data)) delete d.dataset[k];
+        for (const k in data) if (d.dataset[k] !== String(data[k])) d.dataset[k] = data[k];
+      });
+      while (layer.children.length > boxes.length) layer.lastElementChild.remove();
       if (pill) placePill();
     }
     let raf = 0;

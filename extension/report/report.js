@@ -2,7 +2,7 @@
 (() => {
   const VC = { contradicted: "#dc2626", close: "#d97706", confirmed: "#16a34a", cant_check: "#a3a3a3" };
   const VL = { contradicted: "Contradicted", close: "Close", confirmed: "Confirmed", cant_check: "Can't check" };
-  const SRC = { scan: "3D scan", aerial: "Aerial photo", county: "County record", record: "Building record" };
+  const SRC = { scan: "3D scan", aerial: "Aerial measurement", county: "County record", record: "Building record" };
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const q = new URLSearchParams(location.search);
   const address = q.get("address") || "Sample address";

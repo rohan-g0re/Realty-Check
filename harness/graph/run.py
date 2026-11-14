@@ -293,15 +293,29 @@ class Run:
             self.building_record()
 
 
+def _overstated(v: dict, claim: dict) -> bool:
+    """True when the listing claims more than was found (2 bedrooms listed, 1 found): lead with those.
+    A studio listed as 0 bedrooms that turns out to have 1 is a contradiction, but not the headline."""
+    try:
+        claimed = float(str(claim.get("value")).replace(",", ""))
+    except (TypeError, ValueError):
+        return False
+    m = re.search(r"\d[\d,]*(?:\.\d+)?", str(v.get("found") or ""))
+    return bool(m) and claimed > float(m.group().replace(",", ""))
+
+
 def _headline(verdicts: list[dict], claims: dict[str, dict]) -> str:
     bad = [v for v in verdicts if v["verdict"] == "contradicted"]
     if bad:
-        bad.sort(key=lambda v: SEVERITY.index(claims[v["claim_id"]]["kind"])
-                 if claims[v["claim_id"]]["kind"] in SEVERITY else 99)
+        bad.sort(key=lambda v: (SEVERITY.index(claims[v["claim_id"]]["kind"])
+                                if claims[v["claim_id"]]["kind"] in SEVERITY else 99,
+                                0 if _overstated(v, claims[v["claim_id"]]) else 1))
         v = bad[0]
         src = v.get("source")
         verb = "measures" if claims[v["claim_id"]]["kind"] == "area_sqft" else VERB.get(src, "shows")
-        text = f"Listing says {v['claimed']}, but {SOURCE_NAME.get(src, 'our check')} {verb} {v['found']}"
+        # Stories come from the measured roof height, not from reading the photo: say so.
+        who = "the measured roof height" if src == "aerial" else SOURCE_NAME.get(src, "our check")
+        text = f"Listing says {v['claimed']}, but {who} {verb} {v['found']}"
         more = len(bad) - 1
         return text + (f"; {more} more claim{'s' if more != 1 else ''} did not match." if more else ".")
     checked = [v for v in verdicts if v["verdict"] != "cant_check"]

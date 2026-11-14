@@ -87,8 +87,14 @@ def _same_plan(a: str, b: str) -> bool:
 
 
 def _image(winner: dict, usable: list[dict], evidences: list[dict]) -> str | None:
-    for e in [winner, *usable, *[x for x in evidences or [] if isinstance(x, dict)
-                                 and x.get("source") == winner.get("source") and x.get("status") == "ok"]]:
+    # Fallback images must come from the same floor plan as the winning evidence: with several plan
+    # scans, any scan's stills would otherwise prove every plan's claim.
+    plan = (winner.get("observed") or {}).get("plan")
+    same = [x for x in evidences or [] if isinstance(x, dict) and x.get("source") == winner.get("source")
+            and x.get("status") == "ok"
+            and not (plan and (x.get("observed") or {}).get("plan")
+                     and not _same_plan(str(plan), str(x["observed"]["plan"])))]
+    for e in [winner, *usable, *same]:
         for im in e.get("images") or []:
             if isinstance(im, dict) and im.get("path"):
                 return im["path"]

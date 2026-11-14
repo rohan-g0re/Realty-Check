@@ -86,10 +86,15 @@ def test_sample_flow_marks_and_report(env):
     pill.click()
     page.locator("#rc-host .notice", has_text="Local checker is not running").wait_for(timeout=10000)
     page.locator("#rc-host #useSample").click()
-    page.locator("#rc-host .claim").nth(4).wait_for(timeout=10000)
-    assert page.locator("#rc-host .claim").count() == 5
+    page.locator("#rc-host .claim").nth(3).wait_for(timeout=10000)
     page.locator('#rc-host .claim[data-verdict="contradicted"]').first.wait_for(timeout=10000)
     page.locator("#rc-host #headline").wait_for(timeout=15000)
+    # contradicted first, then confirmed; the one "can't check" row folds under a single line
+    order = page.locator("#rc-host .claim").evaluate_all("els => els.map(e => e.dataset.verdict)")
+    assert order == ["contradicted", "contradicted", "contradicted", "confirmed"], order
+    assert page.locator("#rc-host #ccToggle").inner_text().strip() == "1 couldn't be checked"
+    page.locator("#rc-host #ccToggle").click()
+    assert page.locator("#rc-host .claim").count() == 5
     assert page.locator("#rc-host #headline").inner_text() == HEADLINE
     counts = page.locator("#rc-host .cnt b").all_inner_texts()
     assert counts == ["3", "0", "1", "1"]

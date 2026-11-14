@@ -6,7 +6,7 @@
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const VC = { contradicted: "#dc2626", close: "#d97706", confirmed: "#16a34a", cant_check: "#a3a3a3" };
   const VL = { contradicted: "Contradicted", close: "Close", confirmed: "Confirmed", cant_check: "Can't check" };
-  const SRC = { scan: "3D scan", aerial: "Aerial photo", county: "County record", record: "Building record" };
+  const SRC = { scan: "3D scan", aerial: "Aerial measurement", county: "County record", record: "Building record" };
   const AG = { orchestrator: "Lead", claims: "Claims", matcher: "Match", inside: "Inside", outside: "Outside", paper: "Records", judge: "Judge" };
   const LOGO = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="#2563eb" stroke-width="2"/><path d="M7.8 12.4l2.9 2.9 5.6-5.9" fill="none" stroke="#2563eb" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const GEAR = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`;
@@ -55,11 +55,13 @@
   let run = null; // {address, mode, claims:[], verdicts:{}, step, done, unreachable, error, token}
   let open = false;
   const expanded = new Set();
+  const ORDER = { contradicted: 0, close: 1, confirmed: 2, cant_check: 9 };
+  let ccOpen = false;
   const imgCache = new Map();
 
   const overlay = RC.createOverlay(root, host, {
     onInspect: (a) => { openDrawer(); startRun(a); },
-    onMark: (cid) => { openDrawer(); expanded.add(cid); render(); const el = body.querySelector(`[data-id="${cid}"]`); if (el) el.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" }); },
+    onMark: (cid) => { openDrawer(); expanded.add(cid); if (run && run.verdicts[cid] && run.verdicts[cid].verdict === "cant_check") ccOpen = true; render(); const el = body.querySelector(`[data-id="${cid}"]`); if (el) el.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" }); },
   });
 
   // ---------- detection ----------
@@ -73,14 +75,26 @@
     if (open && !run) render();
   }
   function rebuildMarks() {
-    const marks = [];
+    // Several claims can share one quote ("2 Beds · 1 Bath · 855 sq ft"): draw ONE mark per quote,
+    // coloured by its worst verdict, with every claim in the tooltip.
+    const groups = new Map();
     if (run && flat) for (const c of run.claims) {
       const v = run.verdicts[c.id];
       if (!v || !c.quote) continue;
       const tip = v.verdict === "cant_check"
         ? `Listing says ${v.claimed}. We couldn't check this.`
         : `Listing says ${v.claimed}. ${SRC[v.source] || "We"} ${SRC[v.source] ? "shows" : "found"} ${v.found}.`;
-      for (const range of RC.findText(flat, c.quote, 3)) marks.push({ range, claimId: c.id, verdict: v.verdict, color: VC[v.verdict] || VC.cant_check, tip });
+      const g = groups.get(c.quote);
+      if (!g) groups.set(c.quote, { claimId: c.id, verdict: v.verdict, tips: [tip] });
+      else {
+        g.tips.push(tip);
+        if ((ORDER[v.verdict] ?? 9) < (ORDER[g.verdict] ?? 9)) { g.verdict = v.verdict; g.claimId = c.id; }
+      }
+    }
+    const marks = [];
+    for (const [quote, g] of groups) {
+      const tip = g.tips.join(" ");
+      for (const range of RC.findText(flat, quote, 3)) marks.push({ range, claimId: g.claimId, verdict: g.verdict, color: VC[g.verdict] || VC.cant_check, tip });
     }
     overlay.setMarks(marks);
   }
@@ -190,6 +204,7 @@
   function startRun(a) {
     stopRun();
     expanded.clear();
+    ccOpen = false;
     run = { address: a, mode: "server", claims: [], verdicts: {}, step: "Connecting to the local checker…", steps: [], t0: Date.now(), done: null, unreachable: false, error: null, token: {} };
     overlay.setSelected(a.text);
     rebuildMarks();
@@ -287,20 +302,39 @@
         `</div>`;
     }
     if (n) {
-      h += `<div class="sec">What the listing says</div><ul class="claims">` + r.claims.map((c) => claimHTML(c, r.verdicts[c.id])).join("") + `</ul>`;
+      // Contradicted first, then close, confirmed, still waiting; "can't check" rows fold under one line.
+      const rank = (c) => { const v = r.verdicts[c.id]; return v ? ORDER[v.verdict] ?? 2 : 3; };
+      const shown = r.claims.filter((c) => rank(c) < 9).map((c, i) => [rank(c), i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
+      const cc = r.claims.filter((c) => rank(c) === 9);
+      h += `<div class="sec">What the listing says</div><ul class="claims">` + shown.map((c) => claimHTML(c, r.verdicts[c.id])).join("") + `</ul>`;
+      if (cc.length) {
+        h += `<button class="ccline${ccOpen ? " open" : ""}" id="ccToggle" aria-expanded="${ccOpen}"><span class="d"></span><span class="cct">${cc.length} couldn't be checked</span><span class="go">${CHEV}</span></button>`;
+        if (ccOpen) h += `<ul class="claims cc">` + cc.map((c) => claimHTML(c, r.verdicts[c.id])).join("") + `</ul>`;
+      }
     }
     body.innerHTML = h;
     const us = $("useSample"); if (us) us.addEventListener("click", startSample);
     const rt = $("retry"); if (rt) rt.addEventListener("click", () => startRun(r.address));
   }
+  function said(c) {
+    const n = Number(String(c.value).replace(/,/g, "")), s = (w) => (n === 1 ? w : w + "s");
+    if (!Number.isFinite(n)) return String(c.value || c.quote);
+    if (c.kind === "bedrooms") return n === 0 ? "Studio" : `${n} ${s("bedroom")}`;
+    if (c.kind === "bathrooms") return `${n} ${s("bathroom")}`;
+    if (c.kind === "area_sqft") return `${n.toLocaleString("en-US")} sq ft`;
+    return c.quote;
+  }
   function claimHTML(c, v) {
+    // A quote shared by several claims would repeat on every row: title those rows by what is claimed.
+    const shared = run && run.claims.filter((x) => x.quote === c.quote).length > 1;
+    const title = shared ? said(c) : c.quote;
     const color = v ? VC[v.verdict] || VC.cant_check : "#d4d4d4";
     const sub = !v ? `<div class="sub wait">Waiting…</div>`
       : v.verdict === "cant_check" ? `<div class="sub">We couldn't check this</div>` : `<div class="sub">We found ${esc(v.found)}</div>`;
     const more = v ? `<div class="more"><dl class="kv"><dt>Listing says</dt><dd>${esc(v.claimed)}</dd><dt>We found</dt><dd>${esc(v.found)}</dd><dt>Source</dt><dd>${esc(SRC[v.source] || v.source)}</dd></dl>
       ${v.reason ? `<p class="reason">${esc(v.reason)}</p>` : ""}${v.image && imgCache.get(v.image) ? `<img class="proof" alt="Proof image" src="${imgCache.get(v.image)}">` : ""}</div>` : "";
     return `<li class="claim${expanded.has(c.id) && v ? " open" : ""}" data-id="${esc(c.id)}" data-verdict="${v ? v.verdict : "waiting"}">
-      <div class="row1"><span class="d" style="background:${color}"></span><div class="main"><div class="q">${esc(c.quote)}${c.label ? `<span class="lbl">${esc(c.label)}</span>` : ""}</div>${sub}</div>
+      <div class="row1"><span class="d" style="background:${color}"></span><div class="main"><div class="q">${esc(title)}${c.label ? `<span class="lbl">${esc(c.label)}</span>` : ""}</div>${sub}</div>
       ${v ? `<span class="vl" style="color:${color}">${VL[v.verdict] || ""}</span>` : ""}</div>${more}</li>`;
   }
   body.addEventListener("click", (e) => {
@@ -312,6 +346,7 @@
       li.classList.toggle("open");
       return;
     }
+    if (e.target.closest("#ccToggle")) { ccOpen = !ccOpen; render(); return; }
     const pick = e.target.closest(".pick");
     if (pick) startRun(addresses[+pick.dataset.i]);
   });
@@ -383,7 +418,7 @@
   .pmeta .el{color:#a3a3a3;font-variant-numeric:tabular-nums}
   .steps{list-style:none;margin:8px 0 0;padding:0}
   .steps li{display:flex;gap:10px;align-items:baseline;padding:3px 0;font-size:13px;color:#6b6b6b}
-  .steps .d{width:6px;height:6px;margin:0;align-self:center;background:#d4d4d4}
+  .steps .d{width:6px;height:6px;margin:7px 0 0;align-self:flex-start;background:#d4d4d4}
   .steps .ag{flex:none;width:56px;color:#a3a3a3;font-size:12px}
   .steps .tx{flex:1;min-width:0}
   .steps li.now{color:#111}
@@ -414,13 +449,20 @@
   .sub{font-size:13px;color:#444;margin-top:1px}
   .sub.wait{color:#a3a3a3}
   .vl{flex:none;font-size:12px;margin-top:2px}
+  .ccline{width:100%;display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid #e6e6e6;font-size:13px;color:#6b6b6b;text-align:left}
+  .ccline .d{margin:0;background:#a3a3a3}
+  .ccline .cct{flex:1}
+  .ccline .go{display:grid;color:#b5b5b5;transition:transform .15s ease}
+  .ccline.open .go{transform:rotate(90deg)}
+  .ccline:hover{color:#111}
+  .claims.cc{border-top:1px solid #e6e6e6}
   .more{display:none;padding:0 0 14px 20px}
   .claim.open .more{display:block}
   .kv{display:grid;grid-template-columns:92px 1fr;gap:4px 12px;margin:0;font-size:13px}
   .kv dt{color:#6b6b6b}
   .kv dd{margin:0;color:#111}
   .reason{font-size:13px;color:#444;margin:10px 0 0}
-  .proof{display:block;width:100%;margin-top:10px;border-radius:8px;border:1px solid #e6e6e6}
+  .proof{display:block;width:100%;max-height:300px;object-fit:contain;background:#fff;margin-top:10px;border-radius:8px;border:1px solid #e6e6e6}
 
   .picks li{border-bottom:1px solid #e6e6e6}
   .picks li:last-child{border-bottom:0}

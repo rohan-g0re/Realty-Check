@@ -195,7 +195,8 @@ def run_agent(run) -> dict:
                 for c in calls:
                     if c["name"] == "task":
                         who = c["args"].get("subagent_type", "")
-                        what = str(c["args"].get("description", "")).strip().split("\n")[0][:160]
+                        what = str(c["args"].get("description", "")).strip().split("\n")[0]
+                        what = re.split(r"[:;.]\s", what, maxsplit=1)[0][:110]  # the task, not its instructions
                         run.step("orchestrator", f"Asking {_TEAM.get(who, who)}: {what}")
     log = ccm.CALL_LOG[log_start:]
     return {

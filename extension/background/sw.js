@@ -54,7 +54,11 @@ const toDataUrl = async (res) => {
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.type === "openReport") {
-    server().then((s) => chrome.tabs.create({ url: s + (msg.report_url || "/"), index: sender.tab ? sender.tab.index + 1 : undefined }));
+    // report_url may be a path ("/report/r1") or already absolute ("http://127.0.0.1:8787/report/r1").
+    server().then((s) => {
+      const r = String(msg.report_url || "/");
+      chrome.tabs.create({ url: /^https?:\/\//.test(r) ? r : s + r, index: sender.tab ? sender.tab.index + 1 : undefined });
+    });
   } else if (msg.type === "openSampleReport") {
     const url = chrome.runtime.getURL("report/report.html") + "?sample=1&address=" + encodeURIComponent(msg.address || "");
     chrome.tabs.create({ url, index: sender.tab ? sender.tab.index + 1 : undefined });

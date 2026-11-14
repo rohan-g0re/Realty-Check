@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from html import escape
 
-SOURCE_WORDS = {"scan": "3D scan", "aerial": "Aerial photo", "county": "County record", "record": "Building record"}
+SOURCE_WORDS = {"scan": "3D scan", "aerial": "Aerial measurement", "county": "County record", "record": "Building record"}
 VERDICT_WORDS = {"contradicted": "Contradicted", "close": "Close", "confirmed": "Confirmed", "cant_check": "Can't check"}
 ORDER = ["contradicted", "close", "confirmed", "cant_check"]
 
@@ -35,7 +35,7 @@ blockquote{margin:0 0 20px;font-size:19px;font-weight:500}
 .cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0 0 16px}
 .cmp dt{font-size:13px;color:var(--muted)}.cmp dd{margin:2px 0 0}
 .reason{margin:0;color:var(--ink)}.src{font-size:13px;color:var(--muted);margin:8px 0 0}
-figure{margin:20px 0 0}figure img{display:block;max-width:100%;border:1px solid var(--line);border-radius:4px}
+figure{margin:20px 0 0}figure img{display:block;max-width:100%;max-height:440px;object-fit:contain;border:1px solid var(--line);border-radius:4px}
 figcaption{font-size:13px;color:var(--muted);margin-top:6px}
 details{margin-top:48px;border-top:1px solid var(--line);padding-top:16px}
 summary{cursor:pointer;font-size:15px;font-weight:500}

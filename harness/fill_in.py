@@ -308,6 +308,35 @@ def _homes(f: _Facts, page: _Page, match: dict, kit: dict) -> None:
                   RECORD_NOTE)
 
 
+def _units_on_file(f: _Facts, match: dict) -> None:
+    """A building known only from its units (match.units_only): which of its homes we have on record, and whether
+    they have a 3D scan ("We have unit 1204 of this building on record, with a 3D scan.")."""
+    if not match.get("units_only"):
+        return
+    homes = [p for p in match.get("unit_plans") or [] if isinstance(p, dict) and str(p.get("unit") or "").strip()]
+    units = [str(p["unit"]).strip() for p in homes]
+    if not units:
+        return
+    scanned = set(str(u).strip() for u in (match.get("unit_scans") or {}).values())
+    scanned |= {str(p["unit"]).strip() for p in homes if p.get("matterport_model_id")}
+    with_scan = [u for u in units if u in scanned]
+    value = f"We have {_unit_words(units)} of this building on record"
+    if with_scan and len(with_scan) == len(units):
+        value += ", with a 3D scan" if len(units) == 1 else ", with 3D scans"
+    elif with_scan:
+        value += f", with a 3D scan of {_unit_words(with_scan)}" if len(with_scan) == 1 else \
+            f", with 3D scans of {_unit_words(with_scan)}"
+    f.add("units-on-record", "Homes & floor plans", "Homes on record", value + ".", "record",
+          "Homes in this building, not necessarily the one listed.")
+
+
+def _unit_words(units: list[str]) -> str:
+    """["1204"] -> "unit 1204"; ["1204", "1310", "1311"] -> "units 1204, 1310 and 1311"."""
+    if len(units) == 1:
+        return f"unit {units[0]}"
+    return "units " + ", ".join(units[:-1]) + f" and {units[-1]}"
+
+
 def _type_sizes(f: _Facts, kit_plans: list[dict]) -> None:
     """Typical size per kind of home across the building's plans ('1 bed: 650–900 sq ft across 4 plans'), when the
     building has at least two plans with a size on record."""
@@ -722,6 +751,7 @@ def build_fill_in(match: dict | None, evidences: list[dict] | None, claims: list
         _building(f, page, match.get("record") or {}, kit)
         _amenities(f, page, match, kit, evs)
         _homes(f, page, match, kit)
+        _units_on_file(f, match)
         _type_sizes(f, _kit_plans(match, kit))
     _scans(f, page, evs, _lookup(_kit_plans(match, kit)) if matched else [])
     if matched:

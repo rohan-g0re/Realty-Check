@@ -436,8 +436,8 @@ def claim_field(run: dict) -> dict:
             counts[cells[k]["state"]] += 1
         verdict = v.get("verdict") or "cant_check"
         out_claims.append({"id": cid, "kind": c.get("kind"), "label": c.get("label"),
-                           "quote": str(c.get("quote") or v.get("claimed") or "")[:120],
-                           "claimed": _clean_summary(v.get("claimed"))[:80],
+                           "quote": _cut_words(c.get("quote") or v.get("claimed"), 120),
+                           "claimed": _clean_summary(v.get("claimed")),
                            "verdict": verdict, "verdict_words": VERDICT_WORDS.get(verdict, "Couldn't check"),
                            "found": _clean_summary(v.get("found")), "reason": _clean_summary(v.get("reason")),
                            "highlight": verdict in ("contradicted", "close"), "cells": cells,
@@ -906,7 +906,7 @@ padding-top:12px;padding-bottom:10px;white-space:nowrap;box-shadow:inset 0 -1px 
 .lt tbody th{position:sticky;left:0;z-index:1;background:var(--lt-bg);font-weight:400;width:120px;min-width:110px}
 .lt thead th:first-child{left:0;z-index:3}
 .lt tbody th small{display:block;font-size:13px;color:var(--lt-mute);margin-top:2px}
-.lt .lt-said{min-width:150px;max-width:220px}
+.lt .lt-said{min-width:150px;max-width:220px;overflow-wrap:anywhere;white-space:normal}
 .lt .lt-said b{font-weight:500}
 .lt .lt-said small,.lt .lt-conf small{display:block;font-size:13px;color:var(--lt-mute);margin-top:3px}
 .lt .lt-v{display:flex;gap:8px;align-items:baseline;overflow-wrap:anywhere}
@@ -928,6 +928,16 @@ color:#fff;letter-spacing:.02em}
 .lt .lt-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (max-width:560px){.lt table{font-size:15px}.lt th,.lt td{padding:10px}.lt tbody th{width:96px;min-width:96px}}
 """
+
+
+def _cut_words(s, n: int = 120) -> str:
+    """Whitespace squeezed; text longer than `n` is cut at the last word boundary before it (no "…", no half word)."""
+    s = re.sub(r"\s+", " ", str(s or "")).strip()
+    if len(s) <= n:
+        return s
+    head = s[:n + 1]
+    cut = head.rfind(" ")
+    return (head[:cut] if cut > n // 2 else s[:n]).rstrip(" ,;:.-")
 
 
 def _short(s, n: int = 44) -> tuple[str, bool]:
@@ -1049,11 +1059,10 @@ def compare_table(run: dict, field: dict | None = None) -> str:
         plan = f"<small>{escape(str(c['label']))}</small>" if c.get("label") else ""
         quote = str(c.get("quote") or "").strip()
         said = str(c.get("claimed") or "").strip() or quote
-        said_s, said_cut = _short(_cap(said), 40)
+        said_s = _cap(re.sub(r"\s+", " ", said))  # whole: the cell wraps, never "…"
         q = ""
         if quote and _words(quote) != _words(said) and len(quote) <= 60:
             q = f"<small>“{escape(quote)}”</small>"
-        said_title = f" title='{escape(said, True)}'" if said_cut else ""
         mismatch = c["verdict"] in ("contradicted", "close")
         conf = _confidence(c.get("confidence")) if mismatch else None
         dec = conf["decided_by"] if conf else None
@@ -1065,7 +1074,7 @@ def compare_table(run: dict, field: dict | None = None) -> str:
             conf_td = f"<td class=lt-conf><b>{escape(conf['label'])}</b>{why}</td>"
         rows.append(f"<tr class='lt-r-{escape(str(c['verdict']))}' data-claim='{escape(str(c['id']), True)}'>"
                     f"<th scope=row>{escape(what)}{plan}</th>"
-                    f"<td class=lt-said{said_title}><b>{escape(said_s)}</b>{q}</td>{cells}"
+                    f"<td class=lt-said><b>{escape(said_s)}</b>{q}</td>{cells}"
                     f"<td class=lt-res>{escape(c['verdict_words'])}</td>{conf_td}</tr>")
     return (f"<style>{LT_CSS}</style><section class='wrap lt' id=compare aria-labelledby=lt-h>"
             "<h2 id=lt-h>Listing vs record</h2>"

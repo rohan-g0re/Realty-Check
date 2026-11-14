@@ -24,7 +24,7 @@ IMG_RE = re.compile(r"^/img/[a-f0-9]{16}$")
 GENERIC_CANT = ("none of our sources", "no data", "not checked")
 EXTRA = ("extra", "Not on the listing")
 TOPICS = ["Building", "Homes & floor plans", "Rent", "Rules", "Around it", "Records"]
-FACT_FROM = {"record": "From the building record", "scan": "From the 3D scan", "aerial": "From Vexcel aerial photos",
+FACT_FROM = {"record": "From the building record", "scan": "From the 3D scan", "aerial": "From Vexcel aerial imagery",
              "county": "From county records"}  # same wording as _source_line
 
 CSS = """
@@ -412,7 +412,7 @@ def _source_line(v: dict, kind: str, run: Run) -> str:
     if src == "scan":
         return "From the 3D scan"
     if src == "aerial":
-        return "From a roof height measurement" if kind == "stories" else "From Vexcel aerial photos"
+        return "From a roof height measurement" if kind == "stories" else "From Vexcel aerial imagery"
     if src == "county":
         return "From county records"
     if src == "record":

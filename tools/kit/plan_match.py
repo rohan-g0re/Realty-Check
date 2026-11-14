@@ -166,6 +166,61 @@ def listing_facts(label: str, claims: list[dict]) -> dict:
     return out
 
 
+def label_values(label: str, claims: list[dict]) -> dict:
+    """Every distinct value the page's claims give for one plan label, per kind: {bedrooms: [..], bathrooms: [..],
+    area_sqft: [..]}, in page order. A size given as a minimum or range ('from 650 sq ft') is left out."""
+    lab = (label or "").strip().lower()
+    out: dict[str, list[float]] = {k: [] for k in UNIT_KINDS}
+    for c in claims or []:
+        if (c.get("label") or "").strip().lower() != lab or c.get("kind") not in UNIT_KINDS:
+            continue
+        if c["kind"] == "area_sqft" and _LOOSE.search(str(c.get("quote") or "")):
+            continue
+        v = _num(c.get("value"))
+        if v is not None and v not in out[c["kind"]]:
+            out[c["kind"]].append(v)
+    return out
+
+
+def _one_plan(cands: list[dict], sqft: float | None) -> dict | None:
+    """The single record plan nearest to sqft within SIZE_TOL (None when none fits, or on a tie)."""
+    near = _nearest(cands, sqft, SIZE_TOL) if sqft else []
+    return near[0] if len(near) == 1 else None
+
+
+def _shared(label: str, claims: list[dict], pool: list[dict], p: dict) -> tuple[bool, list[dict]]:
+    """Is this label a line several of the page's plans share ('1/1 with Wood Floors' over eleven plans of
+    568-882 sq ft) rather than one plan? It is when its claims give more than one bed or bath count, or sizes no
+    one record plan fits (spread beyond SIZE_TOL, or nearest to different plans). Returns (shared, the record plans
+    of `pool` it may stand for: those whose beds and baths are among the ones the label gives)."""
+    vals = label_values(label, claims)
+    beds = [p["beds"]] if p["beds"] is not None else vals["bedrooms"]
+    baths = [p["baths"]] if p["baths"] is not None else vals["bathrooms"]
+    cands = [fp for fp in pool
+             if all(not want or (_kit_shape(fp)[k] is not None and _kit_shape(fp)[k] in want)
+                    for k, want in (("beds", beds), ("baths", baths)))]
+    if p["den"]:
+        cands = _den_filter(cands, True)
+    sizes = vals["area_sqft"]
+    if len(vals["bedrooms"]) > 1 or len(vals["bathrooms"]) > 1:
+        return True, cands
+    if len(sizes) < 2:
+        return False, cands
+    if (max(sizes) - min(sizes)) / min(sizes) > SIZE_TOL:
+        return True, cands
+    picks = {id(fp) if fp else None for fp in (_one_plan(cands, s) for s in sizes)}
+    return len(picks) > 1, cands
+
+
+def plan_for_claim(claim: dict, link: dict) -> dict | None:
+    """Per-claim resolution on a shared label (link['shared']): the one record plan among the label's plans whose
+    size is nearest the claim's, within SIZE_TOL. None when no plan fits, on a tie, or for a size given as a minimum
+    or range. A caller may use it to tie one size claim to one record plan."""
+    if claim.get("kind") != "area_sqft" or _LOOSE.search(str(claim.get("quote") or "")):
+        return None
+    return _one_plan(link.get("kit_plans") or [], _num(claim.get("value")))
+
+
 def _by_name(label: str, fps: list[dict], building: str, want: dict | None = None) -> list[dict]:
     """Record plans the name points at: exact; word-boundary prefix; containment; then, looser, the normalized name
     or the plan code ('Plan 3K + Den' / '3K'). A looser hit must not disagree with the page's beds and baths
@@ -281,8 +336,11 @@ def link_plan(label: str, match: dict, claims: list[dict] | None = None, scans: 
 
     `scans`: {model_id: scan title, or scan_summary Evidence}; property-level scans whose titles are known.
     Returns {label, how, kit, kit_plans, ambiguous, beds, baths, den, sqft_min, sqft_max, scan_id, scan_how,
-    scan_title, note}. `how`: "name" | "size" | "type" | None; `kit` is the one record plan (None when ambiguous
-    or missing); `kit_plans` every plan that fits. `scan_how`: "kit" (the plan's own scan), "title" (a property
+    scan_title, note, generic, shared[, claim_plans]}. `how`: "name" | "size" | "type" | None; `kit` is the one
+    record plan (None when ambiguous or missing); `kit_plans` every plan that fits. `shared`: the label is a line
+    several of the page's plans share (its claims give sizes or counts no one plan has): a type-level link, never
+    one plan; `claim_plans` maps each of its size claims to the record plan of that size (plan_for_claim), and
+    check_type_claim compares each size with that plan. `scan_how`: "kit" (the plan's own scan), "title" (a property
     scan whose title fits the plan), "type_only" (the one scan of that type), "type_example" (the one scan of
     that type labelled as an example), else None."""
     label = (label or "").strip()
@@ -292,7 +350,7 @@ def link_plan(label: str, match: dict, claims: list[dict] | None = None, scans: 
     titles = {mid: _title(s) for mid, s in (scans or {}).items() if _title(s)}
     r = {"label": label, "how": None, "kit": None, "kit_plans": [], "ambiguous": False, "beds": None,
          "baths": None, "den": False, "sqft_min": None, "sqft_max": None, "scan_id": None, "scan_how": None,
-         "scan_title": None, "note": "", "generic": False}
+         "scan_title": None, "note": "", "generic": False, "shared": False}
     if not label:
         return r
     core = core_label(label, building)
@@ -311,13 +369,18 @@ def link_plan(label: str, match: dict, claims: list[dict] | None = None, scans: 
     hits = _by_name(label, fps, building, want) or (_by_name(core, fps, building, want) if core != label else [])
     how = "name"
     generic = is_generic(core)
-    if len(hits) > 1:  # several plans share the name: narrow by the page's numbers
+    # a line several of the page's plans share (sizes or counts no one plan has): never one plan for the whole
+    # label; each of its size claims is compared with its own plan (plan_for_claim, check_type_claim)
+    shared, shared_plans = (False, []) if len(hits) == 1 else _shared(label, claims or [], hits or fps, p)
+    if shared:
+        hits, how = shared_plans, "type"
+    elif len(hits) > 1:  # several plans share the name: narrow by the page's numbers
         narrowed = _den_filter([fp for fp in hits if _fits(_kit_shape(fp), want)] or hits, p["den"])
         if sqft and len(narrowed) > 1:
             narrowed = _nearest(narrowed, sqft) or narrowed
         hits = narrowed
     # 2. size / structure
-    if not hits and want["beds"] is not None:
+    if not hits and not shared and want["beds"] is not None:
         fit = [fp for fp in fps if _fits(_kit_shape(fp), want)]
         if p["den"]:
             fit = _den_filter(fit, True)
@@ -332,6 +395,9 @@ def link_plan(label: str, match: dict, claims: list[dict] | None = None, scans: 
             fit = _den_filter(fit, p["den"])
             hits, how = fit, ("size" if len(fit) == 1 else "type")
     if not hits:
+        if shared:
+            r.update(shared=True, note=f"{label} is a line several of the page's plans share, and none of the "
+                                       "building's plans fits it, so no plan was matched.")
         if titles and p["code"]:  # no record plan, but a scan titled with this plan's code
             named = [(mid, t) for mid, t in titles.items() if parse_plan(t, building)["code"] == p["code"]]
             if len(named) == 1:
@@ -343,7 +409,7 @@ def link_plan(label: str, match: dict, claims: list[dict] | None = None, scans: 
     baths = {_kit_shape(fp)["baths"] for fp in hits}
     r.update(kit_plans=hits, beds=beds.pop() if len(beds) == 1 else None, baths=baths.pop() if len(baths) == 1 else None,
              sqft_min=min(sizes) if sizes else None, sqft_max=max(sizes) if sizes else None)
-    if len(hits) == 1:
+    if len(hits) == 1 and not shared:
         fp = hits[0]
         name = str(fp.get("name") or "").strip()
         r.update(kit=fp, how=how)
@@ -371,8 +437,18 @@ def link_plan(label: str, match: dict, claims: list[dict] | None = None, scans: 
     # 3. type-level: several plans fit; none is picked
     tw = type_words(r["beds"], r["baths"], p["den"])
     rng = _range_words(r["sqft_min"], r["sqft_max"])
-    r.update(how=how, ambiguous=True, generic=generic)
-    if generic:
+    r.update(how=how, ambiguous=True, generic=generic, shared=shared)
+    if shared:
+        said = label_values(label, claims or [])["area_sqft"]
+        said_w = _range_words(min(said), max(said)) if said else ""
+        r["claim_plans"] = {c.get("id"): str(got.get("name") or "").strip() for c in claims or []
+                            if (c.get("label") or "").strip().lower() == label.lower()
+                            and (got := plan_for_claim(c, r))}
+        r["note"] = (f"{label} is a line several of the page's plans share{' (' + said_w + ')' if said_w else ''}, "
+                     f"not one floor plan, so no single plan was picked; each size is compared with the building's "
+                     f"{tw} plan nearest to it ({len(hits)} plan{'s' if len(hits) != 1 else ''}"
+                     f"{', ' + rng if rng else ''}).")
+    elif generic:
         r["note"] = (f"{label} names a kind of home, not one floor plan: the building record has {len(hits)} {tw} "
                      f"plans{', ' + rng if rng else ''}, so no single plan was picked.")
     else:
@@ -488,6 +564,22 @@ def check_type_claim(claim: dict, link: dict) -> dict | None:
     else:
         whose = f"{len(fps)} of the building's plans fit {label}; they"
     base = {"claim_id": claim.get("id"), "source": "record", "image": None}
+    if kind == "area_sqft" and link.get("shared") and not _LOOSE.search(str(claim.get("quote") or "")):
+        # a line several plans share: this size against the one plan of that size, never against another plan
+        claimed = f"{v:,.0f} sq ft" if v else str(claim.get("value"))
+        fp = plan_for_claim(claim, link)
+        ks = _kit_shape(fp)["sqft"] if fp else None
+        if not v or not ks:
+            return {**base, "verdict": "cant_check", "claimed": claimed, "found": None,
+                    "reason": f"Listing says {claimed} for {label}, a line several of the page's plans share. None "
+                              "of the building's plans that fit it has this size, so it could not be tied to one plan."}
+        k = _kit_shape(fp)
+        found, ok = f"{ks:,.0f} sq ft", abs(ks - v) / v <= RANGE_TOL
+        return {**base, "verdict": "confirmed" if ok else "cant_check", "claimed": claimed, "found": found,
+                "reason": f"Listing says {claimed} for {label}, a line several of the page's plans share. The "
+                          f"building's {type_words(k['beds'], k['baths'], k['den'])} plan nearest that size is "
+                          f"{str(fp.get('name') or '').strip()}, with {found}"
+                          + (", so this size fits." if ok else ", so this size could not be tied to one plan.")}
     if kind == "area_sqft":
         lo, hi = link.get("sqft_min"), link.get("sqft_max")
         claimed = f"{v:,.0f} sq ft" if v else str(claim.get("value"))

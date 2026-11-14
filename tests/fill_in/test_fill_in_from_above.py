@@ -1,5 +1,7 @@
 """"Fill me in" rows from Vexcel property data ("Seen from above", harness/fill_in.py::_from_above).
 Invented data only (418 Linden Grove Ave, ids 900001 / 900002); no network."""
+import re
+
 from harness.fill_in import TOPICS, build_fill_in
 
 ADDRESS = "418 Linden Grove Ave, Houston, TX 77002"
@@ -30,9 +32,12 @@ def prop_ev(p):
             "observed": {"property": p}, "images": []}
 
 
-def facts(p=None, claims=(), text="", evs=None):
+HOUSE = dict(MATCH, record={"stories": 1, "year_built": 1990, "unit_count": 1})  # one home, low building
+
+
+def facts(p=None, claims=(), text="", evs=None, match=MATCH):
     evs = [prop_ev(p if p is not None else prop())] if evs is None else evs
-    out = build_fill_in(MATCH, evs, list(claims), None, text)
+    out = build_fill_in(match, evs, list(claims), None, text)
     for f in out:
         assert set(f) == {"id", "topic", "label", "value", "source", "note", "image"}
         assert f["topic"] in TOPICS and isinstance(f["value"], str) and f["value"]
@@ -109,8 +114,10 @@ def test_no_survey_date_still_says_vexcel():
 def test_counts_used_when_present():
     p = prop(pool={"present": True, "area_sqft": 2400, "stable": True, "count": 2},
              hot_tub={"present": True, "stable": True, "count": 3})
-    assert facts(p)["aerial-features"]["value"] == (
+    assert facts(p, match=HOUSE)["aerial-features"]["value"] == (
         "2 pools (about 2,400 sq ft in all), 3 hot tubs, sport court, solar panels")
+    # on the 80-home building the pool count is not trusted (hot tubs keep theirs)
+    assert facts(p)["aerial-features"]["value"] == "Pool (about 2,400 sq ft), 3 hot tubs, sport court, solar panels"
     p = prop(counts={"sport_court": 2, "pool": 1})
     assert facts(p)["aerial-features"]["value"] == "Pool (about 1,900 sq ft), 2 sport courts, solar panels"
     p = prop(pool={"present": True, "area_sqft": 1900, "stable": True, "count": True})  # not a count
@@ -120,3 +127,31 @@ def test_counts_used_when_present():
 def test_works_without_a_building_match():
     out = build_fill_in({"status": "no_match"}, [prop_ev(prop())], [], None, "")
     assert [f["id"] for f in out] == ["aerial-features", "aerial-trees", "aerial-vehicles"]
+
+
+def test_pool_count_above_two_never_said_and_one_parenthesis():
+    """The live case: 7 pools over ~3,009 sq ft on a high-rise, seen in one survey."""
+    p = {"captured": "2025-12-19", "pool": {"present": True, "area_sqft": 3009, "stable": False, "count": 7}}
+    for match in (MATCH, HOUSE, {"status": "no_match"}):
+        v = facts(p, match=match)["aerial-features"]["value"]
+        assert v == "May have a pool (about 3,000 sq ft, seen in one survey)", (match.get("record"), v)
+        assert ") (" not in v and "7" not in v and "in all" not in v
+    p = {"captured": "2025-12-19", "pool": {"present": True, "area_sqft": 3009, "stable": True, "count": 7}}
+    assert facts(p, match=HOUSE)["aerial-features"]["value"] == "Pool (about 3,000 sq ft)"
+    p = {"captured": "2025-12-19", "pool": {"present": True, "area_sqft": 1940, "stable": False, "count": 2}}
+    assert facts(p, match=HOUSE)["aerial-features"]["value"] == (
+        "May have 2 pools (about 1,900 sq ft in all, seen in one survey)")
+    # a tall building known only from county Evidence still drops the count
+    county = {"source": "county", "status": "ok", "summary": "County.", "observed": {"stories": 12}, "images": []}
+    v = facts(evs=[prop_ev(p), county], match={"status": "no_match"})["aerial-features"]["value"]
+    assert v == "May have a pool (about 1,900 sq ft, seen in one survey)"
+
+
+def test_no_aerial_row_has_two_parentheticals_in_a_row():
+    p = prop(pool={"present": True, "area_sqft": 512, "stable": False, "count": 1},
+             hot_tub={"present": True, "stable": False}, sport_court={"present": True, "stable": False})
+    by = facts(p, match=HOUSE)
+    assert by["aerial-features"]["value"] == (
+        "Solar panels; may also have a pool (about 510 sq ft), a hot tub, a sport court (seen in one survey)")
+    for f in by.values():
+        assert not re.search(r"\)\s*\(", f["value"]), f["value"]

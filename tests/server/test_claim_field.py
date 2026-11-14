@@ -433,3 +433,21 @@ def test_compare_table_soft_words_only():
     html = compare_table(_with_conf(BASE, "c1", CONF)).lower()
     for bad in ("fake", " lie", "scam", "fraud"):
         assert bad not in html
+
+
+def test_compare_table_listing_says_is_never_cut():
+    """'Listing says' shows the whole claimed text (the cell wraps), never a '…' cut; a very long page quote with
+    no claimed form is cut at a word boundary, never mid-word."""
+    long_claim = "Largest rooftop deck in North America spanning the whole top floor of 418 Linden Grove Ave"
+    long_quote = ("Washer and dryer options on select floors plus a resident lounge, a quiet library and a bike room "
+                  "with repair stand and storage lockers")
+    run = run_of([claim("c1", "amenity", "deck", long_claim), claim("c2", "amenity", "laundry", long_quote)], [],
+                 [verdict("c1", "cant_check", claimed=long_claim), verdict("c2", "cant_check")])
+    html = compare_table(run)
+    rows = {cid: b for _, cid, b in _rows(html)}
+    assert f"<td class=lt-said><b>{long_claim}</b>" in rows["c1"]
+    assert "…" not in html[html.index("<tbody>"):]
+    said = re.search(r"<td class=lt-said><b>([^<]*)</b>", rows["c2"]).group(1)
+    assert len(long_quote) > 120 and len(said) <= 120 and long_quote.startswith(said)
+    assert long_quote[len(said)] == " "  # cut between words
+    assert "overflow-wrap:anywhere" in html and ".lt-scroll{overflow:auto" in html

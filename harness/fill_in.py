@@ -17,7 +17,8 @@ Honesty rules:
 - Complaint data (Houston 311) only as counts, from county Evidence that carries them; never their text.
 - Vexcel property data ("Seen from above"): only features marked present, never an absence; a feature the year
   before does not confirm is said softly ("may also have ... (seen in one survey)"); no building count, type,
-  footprint or stories from it.
+  footprint or stories from it. No pool count above 2, and none on a multi-unit or tall building; never two
+  parentheticals back to back ("May have a pool (about 3,000 sq ft, seen in one survey)").
 """
 from __future__ import annotations
 
@@ -486,7 +487,7 @@ def _rules(f: _Facts, page: _Page, kit: dict) -> None:
 
 # ---------- Around it ----------
 
-def _around(f: _Facts, page: _Page, kit: dict, evs: list[dict]) -> None:
+def _around(f: _Facts, page: _Page, kit: dict, evs: list[dict], multi: bool = False) -> None:
     if not page.says("schools"):
         for s in (kit.get("schools") or [])[:MAX_SCHOOLS]:
             bits = [" ".join(x for x in (s.get("type"), (s.get("grade") or "").lower(), "school") if x).capitalize()]
@@ -512,7 +513,7 @@ def _around(f: _Facts, page: _Page, kit: dict, evs: list[dict]) -> None:
                       f"{_n(o['height_m']):.1f} m, about {_n(o['stories']):g} floors", "aerial",
                       "Measured from Vexcel aerial elevation data.")
                 break
-    _from_above(f, page, evs)
+    _from_above(f, page, evs, multi)
 
 
 # ---------- Seen from above (Vexcel property data) ----------
@@ -530,6 +531,7 @@ AERIAL_FEATURES = {
     "deck": ("deck", "decks", r"deck"),
 }
 MIN_VEHICLES = 5  # fewer parked vehicles than this says nothing
+MAX_POOL_COUNT = 2  # the survey's pool count is noisy on big buildings: above this, no number is said
 
 
 def _property(evs: list[dict]) -> dict:
@@ -569,16 +571,44 @@ def _claimed_features(page: _Page) -> set:
     return keys
 
 
-def _feature_words(p: dict, key: str, article: bool = False) -> str:
-    """'pool (about 1,900 sq ft)', '2 hot tubs', 'solar panels'; article=True gives 'a pool' for one."""
+def _multi_unit(rec: dict, evs: list[dict]) -> bool:
+    """True when the building record, the county or the roof height says this is a multi-unit or tall building."""
+    seen = [rec or {}] + [e.get("observed") or {} for e in evs or [] if isinstance(e, dict)
+                          and e.get("source") in ("county", "aerial", "record") and e.get("status") == "ok"]
+    for o in seen:
+        if not isinstance(o, dict):
+            continue
+        units, stories = _n(o.get("unit_count")), _n(o.get("stories"))
+        if (units and units > 1) or (stories and stories >= 4):
+            return True
+    return False
+
+
+def _about_area(v: float) -> str:
+    """Rounded to 2 significant figures: 3,009 -> '3,000', 1,940 -> '1,900', 450 -> '450'."""
+    if v >= 100:
+        v = round(v, 2 - len(str(int(v))))
+    return _int(v)
+
+
+def _feature_words(p: dict, key: str, article: bool = False, multi: bool = False) -> str:
+    """'pool (about 1,900 sq ft)', '2 hot tubs', 'solar panels'; article=True gives 'a pool' for one. A pool count
+    above MAX_POOL_COUNT, or any pool count on a multi-unit / tall building (`multi`), is not said."""
     one, many, _ = AERIAL_FEATURES[key]
     n = _count(p, key)
+    if key == "pool" and n and n > 1 and (n > MAX_POOL_COUNT or multi):
+        n = None
     words = f"{n} {many}" if n and n > 1 else (f"a {one}" if article and one != many else one)
     if key == "pool":
         area = _n((p.get("pool") or {}).get("area_sqft"))
         if area and area > 0:
-            words += f" (about {_int(area)} sq ft{' in all' if n and n > 1 else ''})"
+            words += f" (about {_about_area(area)} sq ft{' in all' if n and n > 1 else ''})"
     return words
+
+
+def _one_paren(s: str) -> str:
+    """Never two parentheticals back to back: 'x (a) (b)' -> 'x (a, b)'."""
+    return re.sub(r"\)\s*\(", ", ", s)
 
 
 def _survey_month(p: dict) -> str:
@@ -588,7 +618,7 @@ def _survey_month(p: dict) -> str:
         return ""
 
 
-def _from_above(f: _Facts, page: _Page, evs: list[dict]) -> None:
+def _from_above(f: _Facts, page: _Page, evs: list[dict], multi: bool = False) -> None:
     """Pool, courts, solar ... marked on the parcel by Vexcel property data that the listing does not mention,
     plus tree cover and parked vehicles. One row for the features; nothing when there is no such Evidence."""
     p = _property(evs)
@@ -603,25 +633,25 @@ def _from_above(f: _Facts, page: _Page, evs: list[dict]) -> None:
         if not isinstance(feat, dict) or feat.get("present") is not True or key in claimed:
             continue
         if feat.get("stable") is True:
-            sure.append(_feature_words(p, key))
+            sure.append(_feature_words(p, key, multi=multi))
         else:  # the year before disagrees or there is no year before: say so softly
-            maybe.append(_feature_words(p, key, article=True))
+            maybe.append(_feature_words(p, key, article=True, multi=multi))
     bits = []
     if sure:
         bits.append(", ".join(sure))
     if maybe:
         bits.append(("may also have " if sure else "May have ") + ", ".join(maybe) + " (seen in one survey)")
     if bits:
-        value = "; ".join(bits)
+        value = _one_paren("; ".join(bits))
         f.add("aerial-features", "Around it", "Seen from above", value[0].upper() + value[1:], "aerial", note)
     tree = _n(p.get("tree_cover_pct"))
     if tree is not None and round(tree) >= 1:
-        f.add("aerial-trees", "Around it", "Tree cover", f"About {min(round(tree), 100)}% tree cover on the lot",
-              "aerial", note)
+        f.add("aerial-trees", "Around it", "Tree cover",
+              _one_paren(f"About {min(round(tree), 100)}% tree cover on the lot"), "aerial", note)
     cars = p.get("vehicles")
     if isinstance(cars, (int, float)) and not isinstance(cars, bool) and cars >= MIN_VEHICLES:
         f.add("aerial-vehicles", "Around it", "Parked vehicles",
-              f"About {_int(cars)} vehicles parked on site at survey time", "aerial", note)
+              _one_paren(f"About {_int(cars)} vehicles parked on site at survey time"), "aerial", note)
 
 
 # ---------- Records ----------
@@ -697,7 +727,7 @@ def build_fill_in(match: dict | None, evidences: list[dict] | None, claims: list
     if matched:
         _rent(f, page, kit)
         _rules(f, page, kit)
-    _around(f, page, kit, evs)
+    _around(f, page, kit, evs, _multi_unit(match.get("record") if matched else {}, evs))
     _records(f, page, evs)
     order = {t: i for i, t in enumerate(TOPICS)}
     return sorted(f.items, key=lambda x: order.get(x["topic"], len(TOPICS)))  # stable: keeps order within a topic

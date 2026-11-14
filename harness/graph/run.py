@@ -226,6 +226,15 @@ class Run:
                              detail=f"CoStar hackathon kit floor plan list of property {self.match.get('property_id')}; "
                                     f"listing plan {plan} matched to it by {how}.")
 
+    def _all_plans(self) -> dict:
+        """Every kit floor plan's numbers, for unit claims that name no plan: the judge may only confirm such a
+        claim from them (some plan has these numbers), never contradict it with one particular plan."""
+        fps = [{"name": plans.plan_label(fp), "beds": fp.get("beds"), "baths": fp.get("baths"), "sqft": fp.get("sqft")}
+               for fp in self.match.get("floorplans") or [] if isinstance(fp, dict)]
+        return make_evidence("record", "ok", f"The building record lists {len(fps)} floor plan"
+                             f"{'s' if len(fps) != 1 else ''}.", {"floorplans": fps},
+                             detail=f"CoStar hackathon kit floor plan list of property {self.match.get('property_id')}.")
+
     def scan_rooms(self, plan: str = "", agent: str = "inside") -> str:
         plan = self.canon_plan(plan)
         name = plan or "this unit"
@@ -241,6 +250,8 @@ class Run:
                     {"plan": plan, "plan_missing": True},
                     detail="No kit floor plan has this name, or the same beds and baths within 8% of its size."),
                     "record")))
+            elif not plan and self.match.get("status") == "matched" and self.match.get("floorplans"):
+                out.append(self.line(self.add(self._all_plans(), "record")))
             if not r["scan_id"]:
                 out.append(self.line(self.add(make_evidence("scan", "no_evidence", f"No 3D scan was found for {name}."),
                                               "scan", plan)))

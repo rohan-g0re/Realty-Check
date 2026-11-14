@@ -74,6 +74,20 @@ def title_sqft(title: str) -> float | None:
     return _num(m.group(1)) if m else None
 
 
+def title_count(kind: str, title: str) -> float | None:
+    """Bedrooms or bathrooms a scan's own title states ('2 BR, 2 BA - 990 SF', 'Studio - 539 SF'), else None."""
+    title = title or ""
+    if kind == "bedrooms":
+        if re.search(r"\bstudio\b", title, re.I):
+            return 0.0
+        m = re.search(r"\b(\d+)\s*(?:BR|BD|BED)", title, re.I)
+    elif kind == "bathrooms":
+        m = re.search(r"\b(\d+(?:\.\d)?)\s*(?:BA|BATH)", title, re.I)
+    else:
+        return None
+    return _num(m.group(1)) if m else None
+
+
 def scan_fits(fp: dict, summary: dict) -> float | None:
     """How well a scan summary (Evidence) fits a kit plan: relative sq ft gap (smaller is better), None = no fit."""
     if not isinstance(summary, dict) or summary.get("status") != "ok":

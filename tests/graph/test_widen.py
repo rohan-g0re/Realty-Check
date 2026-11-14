@@ -87,7 +87,9 @@ def test_record_plan_wording_and_missing_plan():
     assert v["verdict"] == "confirmed" and v["source"] == "record"
     assert "According to the building record, its plan A2s has 750 sq ft" in v["reason"]
     assert "by size" in v["reason"]
-    assert judge(claim("bedrooms", 1), [rec])["verdict"] == "cant_check"  # unnamed unit: kit plan says nothing
+    # unnamed unit: one kit plan's numbers may confirm it (some plan has 1 bedroom), never contradict it
+    assert judge(claim("bedrooms", 1), [rec])["verdict"] == "confirmed"
+    assert judge(claim("bedrooms", 3), [rec])["verdict"] == "cant_check"
     missing = evidence("record", "no_evidence", "s", {"plan": "Plan A", "plan_missing": True})
     v = judge(claim("bedrooms", 0, label="Plan A"), [missing])
     assert v["verdict"] == "cant_check" and "not in the building's records" in v["reason"]

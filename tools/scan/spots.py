@@ -140,6 +140,34 @@ def _load_model(model_id: str, client) -> dict | None:
     return m
 
 
+LABEL_RE = re.compile(r"^\d{1,4}$")
+
+
+def start_ss(model_id: str, pano_ids: list) -> str | None:
+    """The showcase `ss=` deep-link value that opens the scan at the first of these spots, from the cached scan data
+    only (never a network call). A spot's Model API `label` is its 0-based sweep number and `ss` counts from 1
+    (checked in the browser: label 13 needs ss=14). None when the spot or its label is not cached."""
+    want = [str(p) for p in pano_ids or [] if p]
+    if not want:
+        return None
+    for p in (rc_common.cache_dir("scan", model_id) / "summary.json",
+              rc_common.cache_dir("spots", model_id) / "model.json"):
+        try:
+            body = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+        except (OSError, ValueError):
+            continue
+        m = (body.get("data") or {}).get("model") if isinstance(body, dict) and "data" in body else body
+        if not isinstance(m, dict):
+            continue
+        labels = {str(x.get("id")): str(x.get("label") or "") for x in m.get("panoLocations") or []
+                  if isinstance(x, dict)}
+        for pid in want:
+            lab = labels.get(pid, "")
+            if LABEL_RE.match(lab):
+                return str(int(lab) + 1)
+    return None
+
+
 def _save_model(folder: Path, m: dict) -> None:
     (folder / "model.json").write_text(json.dumps(scrub(m), indent=1), encoding="utf-8")
 

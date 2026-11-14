@@ -1,5 +1,6 @@
 """False-alarm fixes in the judge (invented data only): unnamed unit claims, scan room-label counts,
 near-miss building facts, and the measured scan floor-area band."""
+import scripted_cli
 import fakes
 from graph_events import check_run
 from rc_common import evidence
@@ -65,7 +66,7 @@ def test_labelled_claim_ignores_a_scan_tied_to_no_plan():
 
 
 def test_run_gives_unnamed_claims_the_plan_list(monkeypatch):
-    monkeypatch.setattr(run_mod, "AGENT_ENABLED", False)
+    scripted_cli.install(monkeypatch)  # the real deep agent on scripted CLI replies
     cl = [claim("bedrooms", 2, cid="c1"), claim("bedrooms", 3, cid="c2"), claim("area_sqft", 720, cid="c3")]
     tb = Toolbox.fake(extract_claims=lambda s: [dict(c) for c in cl])
     events = []

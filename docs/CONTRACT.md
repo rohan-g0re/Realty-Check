@@ -5,15 +5,18 @@ Everything is a plain JSON-serializable dict. Names here are exact. Shared helpe
 ## 1. Flow
 1. Extension sends a `PageSnapshot` to the local server: `POST /check`.
 2. Server starts a run and streams `Event`s (server-sent events).
-3. Harness: extract claims → match address to a property → gather evidence (record, scan, aerial, county) → judge each claim → "Fill me in" facts → finish.
+3. Harness: extract claims → match address to a property → gather evidence (record, scan, aerial, county) → judge each claim → "Fill me in" facts → finish. All of it runs inside the deepagents harness (`harness/graph/agent.py`): the orchestrator's own tools read the claims, match the address, judge (fixed rules) and fill in; the `inside`, `outside` and `paper` subagents gather the evidence. If the agent fails or runs out of time, the run still judges what was gathered (no evidence = `cant_check`) and sends `done`; no fixed plan runs behind it. `RC_LEGACY=1` = the earlier flow (section 6).
 
 ## 2. Shapes
 
 ### 2.1 PageSnapshot (extension → server)
 ```json
-{"url": "https://…", "title": "…", "address_text": "2111 Austin St, Houston, TX 77002",
- "text": "visible page text, at most 60000 chars", "jsonld": [ {"@type": "ApartmentComplex"} ]}
+{"url": "https://…", "title": "…", "address_text": "418 Linden Grove Ave, Houston, TX 77006",
+ "text": "visible page text, at most 60000 chars", "jsonld": [ {"@type": "ApartmentComplex"} ],
+ "address_candidates": [{"text": "418 Linden Grove Ave, Houston, TX 77006", "score": 8.5,
+   "where": ["jsonld:ApartmentComplex", "h1", "url"], "why": "Given as the property's address in the page data, in the main heading."}]}
 ```
+- `address_candidates` (optional, additive): the page's addresses, best first, at most 5, from `RC.addressCandidates` in `extension/content/detect.js`. `where` tags: `jsonld:<@type>`, `meta`, `map`, `url`, `title-words`, `h1`, `hero`, `header`, `main`, `footer`, `nearby`, `label:corporate`, `label:leasing`, `label:located`. `address_text` stays the address to check (the best candidate unless the person picked another). Optional `address_locked: true` = the person picked `address_text`; the server keeps it. `server.address_pick.pick_address(snapshot)` cross-checks the candidates against the kit and returns `{chosen, property, confidence, why, alternatives: [{text, name, property_id, why}]}`.
 
 ### 2.2 Claim
 ```json
@@ -26,8 +29,8 @@ Everything is a plain JSON-serializable dict. Names here are exact. Shared helpe
 
 ### 2.3 Match
 ```json
-{"status": "matched", "confidence": 0.97, "property_id": "10122224", "name": "…",
- "address": "2111 Austin St, Houston, TX 77002", "city": "Houston", "state": "TX",
+{"status": "matched", "confidence": 0.97, "property_id": "900001", "name": "…",
+ "address": "418 Linden Grove Ave, Houston, TX 77006", "city": "Houston", "state": "TX",
  "lat": 29.75, "lon": -95.37,
  "record": {"stories": 5, "year_built": 2016, "unit_count": 100, "building_sf": 123456},
  "floorplans": [{"name": "Plan E", "beds": 2, "baths": 2, "sqft": 1100, "matterport_model_id": "abc"}],
@@ -64,8 +67,10 @@ Everything is a plain JSON-serializable dict. Names here are exact. Shared helpe
 | `evidence` | `evidence`: Evidence |
 | `verdict` | `verdict`: Verdict |
 | `fill_in` | `facts`: list of Fact (2.7), in display order. Sent once, after the last `verdict` and before `done`; may be empty |
-| `done` | `run_id`, `counts` `{confirmed, contradicted, close, cant_check}`, `headline` (one sentence), `report_url` |
+| `done` | `run_id`, `counts` `{confirmed, contradicted, close, cant_check}`, `headline` (one sentence), `report_url`; additive (harness runs only): `timing` `{total_s, phases: {<phase>: s}, model_calls, model_s: {<role>: s}}` and `harness` `{path: agent\|legacy, judged_by: agent\|close\|legacy, fill_in_by, stopped, helpers, needed}` (see below) |
 | `error` | `message` |
+
+- `done.timing`: wall seconds. `phases` keys (present when that phase ran): `agent`, `claims`, `match`, `inside`, `outside`, `paper`, `judge`, `fill_in`; legacy adds `standard_checks`, `pictures_wait`. A phase is its first start to its last end, so parallel checks are not added up. `model_s`: CLI seconds per role (`orchestrator`, `inside`, `outside`, `paper`, `claims`, `vision`), summed. `done.harness.stopped`: null, or why the agent stopped early (`timed out`, `time budget 75 s`, `model-call cap 14`, `error`, `ended before judging`); `judged_by: "close"` means the run judged after the agent stopped. The saved run keeps both, as part of the `done` event.
 
 The server rewrites every image path in outgoing events (evidence images, verdict `image`, fact `image`) to `/img/<token>` URLs it serves itself. The saved run keeps the `fill_in` event in `events` and its facts also at top level as `fill_in`; replays (`RC_REPLAY=1`) resend it, and the fake runner (`RC_FAKE=1`) sends invented facts.
 
@@ -85,10 +90,10 @@ The server rewrites every image path in outgoing events (evidence images, verdic
 {sources: [{key: record|scan|aerial|county, name, count}],
  claims:  [{id, kind, label, quote, claimed, verdict, verdict_words, found, reason, highlight,
             cells: {<source key>: {state: match|contra|close|data|none, verdict, found, reason,
-                                   summary, summaries, facts, observed, raw, image, images, tour?}}}],
+                                   summary, summaries, facts, observed, raw, image, images, tour?, tour_page?}}}],
  counts}
 ```
-A cell is the judge run on that one source's evidence alone. `claim_field_section(run)` returns the ready HTML section (`cf-` prefixed CSS and JS).
+A cell is the judge run on that one source's evidence alone. `tour` (Matterport cells whose claim has a 3D scan) is the inline viewer's embed URL (`/tour/<run_id>?claim=<id>&embed=1`); `tour_page` the standalone page. `claim_field_section(run, tours=False)` leaves both out (copies with no server). `claim_field_section(run)` returns the ready HTML section (`cf-` prefixed CSS and JS).
 
 ## 3. Tool signatures (plain Python functions)
 
@@ -112,8 +117,8 @@ A cell is the judge run on that one source's evidence alone. `claim_field_sectio
 | `harness.graph` | `judge(claim: dict, evidences: list[dict]) -> dict` | Verdict |
 | `harness.graph` | `run_check(snapshot: dict, emit, toolbox=None) -> dict` | emits Events through `emit(event: dict)`; returns the `done` event. `toolbox=None` means `Toolbox.real()`; `Toolbox.fake()` is the synthetic one |
 
-- Floor plans (`harness/graph/plans.py`), per listing plan label, first that applies:
-  a. kit plan whose name equals the label, else starts with it at a word boundary, else contains it (case-insensitive): `"Plan E"` → `"Plan E 1 Bedroom + Den"`;
+- Floor plans: the run links each listing plan label with `tools.kit.link_plan(label, match, claims, scans)` (both paths). When several record plans fit and none is picked (`ambiguous`, type-level), the record Evidence is `tools.kit.type_evidence(...)` (counts shared by every fitting plan, size only as `area_sqft_min/max`), an example scan of that kind of home carries `observed.example_for` instead of `observed.plan`, and that plan's unit claims are judged by `tools.kit.check_type_claim` (only `confirmed` or `cant_check`). The rules below (`harness/graph/plans.py`) are the earlier ones, per listing plan label, first that applies:
+  a. kit plan whose name equals the label, else starts with it at a word boundary, else contains it (case-insensitive): `"Plan E"` → `"Plan E 1 Bed + Den"`;
   b. no name match: kit plan with the listing's beds and baths and the nearest sq ft within 8% ("Matched to the building's plan A2s by size.");
   c. that kit plan has no scan id (or its scan's title gives a size more than 8% off the plan's): a property-level scan (`matterport_model_ids`) whose title has the plan's beds/baths and a sq ft within 3% (or names the plan). At most 8 uncached `scan_summary` fetches per run; two equal fits = no pick;
   d. otherwise the kit plan's own numbers as `source="record"` evidence; no kit plan at all = `cant_check`, "This floor plan is not in the building's records."
@@ -130,7 +135,7 @@ Each module re-exports its functions from its package `__init__.py` (e.g. `from 
 - Unit claims (`bedrooms`, `bathrooms`, `area_sqft`) with no plan label ("1 Bed", "645 sq ft"): evidence about one particular plan or one scan may only confirm them, never make them `close` or `contradicted`. `confirmed` when some plan in the building record (the per-plan record Evidence, or the full plan list a run adds as record Evidence with `observed.floorplans`) or some scan title has those numbers ("Listing says 1 bedroom without naming a floor plan; the building record's plan A has 1 bedroom."); otherwise `cant_check`. Room labels never confirm such a claim. Building-wide evidence (county, building record without a plan) is still judged the normal way.
 - A labelled unit claim ignores scan evidence that carries no `observed.plan`.
 - `area_sqft` against the record (kit) or county: within 5% → `confirmed`; 5–10% → `close`; beyond 10% → `contradicted`.
-- `area_sqft` against a scan whose title states a size (`observed.model_name` such as "1BR W Den 1BA - 855 SF"): the title's sq ft is compared with the same 5% / 10% rule; `found` is "855 sq ft (scan title)", reason "The 3D scan of this plan is titled '1BR W Den 1BA - 855 SF', which gives 855 sq ft."
+- `area_sqft` against a scan whose title states a size (`observed.model_name` such as "1BR W Den 1BA - 815 SF"): the title's sq ft is compared with the same 5% / 10% rule; `found` is "815 sq ft (scan title)", reason "The 3D scan of this plan is titled '1BR W Den 1BA - 815 SF', which gives 815 sq ft."
 - `area_sqft` against a scan's measured floor area (no size in the title): a scan measures interior floor and runs a median 11% under the advertised size (89 floor plans), so the band is one-sided: up to 12% smaller or 5% larger → `confirmed`; 12–20% smaller or 5–10% larger → `close`; beyond → `contradicted`. Reason: "The 3D scan measures 640 sq ft of floor, 10% smaller; scans usually measure about a tenth less than the advertised size."
 - No evidence with `status="ok"` that observes the claim's kind → `cant_check`.
 - When sources disagree, priority is scan and aerial (measured), then county, then record. Name the winning source in `source`.
@@ -146,7 +151,11 @@ Each module re-exports its functions from its package `__init__.py` (e.g. `from 
 - `RC_FAKE=1` uses the canned fake runner instead of the harness.
 
 - `GET /report/<run_id>` is design A (`server/report_a.py`); `?v=old` gives the earlier tabbed page. Anchors the drawer uses: `#claim-<claim_id>` (mismatches only), `#mismatch`, `#match`, `#cant-verify`, `#extra`. `GET /tour/<run_id>?claim=<claim_id>` opens the 3D walk for one finding.
+- `GET /tour/...` on host `127.0.0.1` answers `307` to the same URL on `localhost` (the Showcase SDK key accepts only `localhost` pages). `&embed=1` is the report's inline viewer; it tells its parent page how far it got with `postMessage({rc3d: 1, state, note, room?})`, target origin the server's own (`localhost` or `127.0.0.1`, same port), `state` = `loading | playing | ready | finding | off | error`, `room` = `moved` (standing at the picked spot) or `start`.
+- Report design A mounts the 3D viewers itself (no click, no new tab): the lead finding's (or the `#claim-<id>` one's) at once, the others near the screen, at most 2 live. `render_report(run, live_3d=False)` (the extension's static sample) draws the still picture only.
+- Spot picks for every scan mismatch start in the background when a run finishes and when its report is opened (`server.tour.prewarm(run)`; skipped for `RC_FAKE` runs and without an SDK key).
 
 ## 6. Environment
 - `RC_PRIVATE_DIR` = private driver folder. Keys through `rc_common.secret(NAME)`: `MATTERPORT_API_KEY`, `MATTERPORT_API_TOKEN`, `VEXCEL_API_KEY`, `COSTAR_ZIP_PASSWORD`, `COSTAR_KIT_ZIP`.
 - Cache root: `rc_common.cache_dir("<module>")`.
+- `RC_LEGACY=1`: the earlier run path (`harness/graph/legacy.py`, `legacy_agent.py`): claims and match as plain code, picture checks in a background thread, the old agent (35 s), then a fixed plan as a completion pass; 60 s budget. Default (unset): everything inside the deep agent; agent budget 75 s, run hard limit 100 s.

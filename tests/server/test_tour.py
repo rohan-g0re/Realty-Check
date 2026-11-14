@@ -1,6 +1,7 @@
 """Tour page (GET /tour/<run_id>?claim=<id>): invented run, isolated private folder under tmp_path.
 Spot picking uses a fake Matterport client and a fake picture check: no network, no model calls."""
 import json
+import re
 import threading
 
 import pytest
@@ -353,3 +354,106 @@ def test_match_row_gets_3d_viewer_and_checks_out_wording(client, monkeypatch):
     assert "Listing says 1 bathroom — checks out" in html and "<s>" not in html
     assert _cfg(html)["tag"]["label"] == "Listing says: 1 bathroom. The 3D scan agrees: 1 bathroom"
     assert "<s>2 bedrooms</s>" in client.get(f"/tour/{RUN_ID}?claim=c1").text  # mismatch wording unchanged
+
+
+# ---------- report design A: the live viewer is embedded inline, opens at the spot, never a new tab ----------
+
+def _report_a(client):
+    return client.get(f"/report/{RUN_ID}").text
+
+
+def test_report_a_embeds_live_viewer_without_click(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    html = _report_a(client)
+    assert f"<div class=walk data-src='/tour/{RUN_ID}?claim=c1&amp;embed=1' data-claim='c1'>" in html
+    assert "Opening at the spot that shows this" in html and "Live 3D · Matterport" in html
+    # mounted by the page script (lead viewer at once, the rest near the screen); nothing opens a new tab
+    assert "window.RC3D" in html and "IntersectionObserver" in html and "MAX=2" in html
+    assert "Walk into this room" not in html and "Open in new tab" not in html
+    assert not re.search(r"href='/tour/[^']*'[^>]*target=_blank", html)
+    assert "<link rel=preconnect href='https://my.matterport.com' crossorigin>" in html
+    assert FAKE_KEY not in html and "applicationKey" not in html
+    assert "<a class=btn href='#f1'>3D walk</a>" in html  # top nav goes to the finding's own viewer
+
+
+def test_report_a_match_row_opens_viewer_in_place(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    _add_claim({"id": "c5", "kind": "bathrooms", "value": 1, "unit": None, "scope": "unit", "label": "Plan Z",
+                "quote": "1 Bath", "checkable": True},
+               {"claim_id": "c5", "verdict": "confirmed", "claimed": "1 bathroom", "found": "1 bathroom",
+                "source": "scan", "reason": "The 3D scan shows 1 bathroom.", "image": None})
+    html = _report_a(client)
+    assert (f"<button type=button class=see3d data-src='/tour/{RUN_ID}?claim=c5&amp;embed=1' data-claim='c5'>"
+            "See it in 3D</button>") in html
+
+
+def test_report_a_static_copy_has_no_viewer():
+    from server.report_a import render_report
+    html = render_report(_run(), live_3d=False)
+    assert "data-src=" not in html and "/tour/" not in html and "my.matterport.com" not in html.split("<style>")[0]
+    assert "The live 3D view opens in the report from the local checker." in html
+
+
+def test_claim_field_panel_shows_viewer_not_a_tab():
+    from server.claim_field import claim_field_section
+    html = claim_field_section(_run())
+    assert f'"tour":"/tour/{RUN_ID}?claim=c1\\u0026embed=1"' in html and f'"tour_page":"/tour/{RUN_ID}?claim=c1"' in html
+    assert "/tour/" not in claim_field_section(_run(), tours=False)
+    assert "cf-3d" in html and "cf-3dhost" in html and "_blank\" rel=\"noopener\" href=\"'+esc(cell.tour)" not in html
+
+
+def test_embed_page_reports_progress_and_opens_at_spot_label(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    _summary(tmp_path, [{"id": "roomA", "tags": ["bathroom"]}, {"id": "roomB", "tags": ["living"]}])
+    html = client.get(f"/tour/{RUN_ID}?claim=c2&embed=1").text
+    cfg = _cfg(html)
+    assert cfg["embed"] is True and cfg["spot"]["sweeps"] == ["pano0000abcd"]
+    assert cfg["ss"] == "1"  # label 0 = the first sweep; ss counts from 1: the showcase opens there, not at the start
+    assert "postMessage" in html and "tell('ready'" in html and "Transition.INSTANT" in html
+    assert "&ss=" in html and "location.origin" in html
+    assert "rel=preconnect href='https://my.matterport.com'" in html
+    plain = _cfg(client.get(f"/tour/{RUN_ID}?claim=c2").text)
+    assert plain["embed"] is False
+
+
+def test_embed_message_pages_tell_the_report(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    off = client.get(f"/tour/{RUN_ID}?claim=c3&embed=1").text  # aerial claim: no scan
+    assert '"state": "off"' in off and "postMessage" in off
+    assert "postMessage" not in client.get(f"/tour/{RUN_ID}?claim=c3").text  # standalone page: nobody to tell
+    gate = threading.Event()
+
+    def slow(model_id, claim, verdict):
+        gate.wait(5)
+        return {"status": "none", "why": "Nothing found."}
+    monkeypatch.setattr(tour, "PICKER", slow)
+    monkeypatch.setattr(tour, "WAIT_S", 0.05)
+    assert '"state": "finding"' in client.get(f"/tour/{RUN_ID}?claim=c1&embed=1").text
+    gate.set()
+    for th in list(tour._JOBS.values()):
+        th.join(5)
+
+
+def test_prewarm_starts_mismatch_picks_only(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    seen = []
+
+    def stub(model_id, claim, verdict):
+        seen.append(claim["id"])
+        return {"status": "none", "why": "x"}
+    monkeypatch.setattr(tour, "PICKER", stub)
+    monkeypatch.setattr(tour, "PREWARM", True)
+    assert tour.prewarm(_run()) == 0  # the fake runner's scan ids are invented
+    run = {**_run(), "harness": "real"}
+    assert tour.prewarm(run) == 2  # c1, c2 (scan); c3 is an aerial finding
+    tour._WARMERS[-1].join(5)
+    assert sorted(seen) == ["c1", "c2"]
+    monkeypatch.delenv("MATTERPORT_SDK_KEY")
+    tour.reset_spots()
+    assert tour.prewarm(run) == 0  # no viewer key: nothing to warm
+
+
+def test_report_route_prewarms(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(tour, "prewarm", lambda run: calls.append(run.get("run_id")) or 0)
+    assert client.get(f"/report/{RUN_ID}").status_code == 200 and calls == [RUN_ID]

@@ -27,7 +27,7 @@ def _house_no(address: str) -> str:
 
 
 def _street(address: str) -> str:
-    """'1265 S Stearns Dr, Los Angeles' -> 'S Stearns Dr'."""
+    """'1250 S Dunmore Dr, Los Angeles' -> 'S Dunmore Dr'."""
     first = (address or "").split(",")[0]
     return re.sub(r"^\s*\d+[A-Za-z]?\s+", "", first).strip()
 

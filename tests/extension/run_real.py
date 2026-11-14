@@ -1,11 +1,12 @@
 """Integration check: the extension against the REAL local checker on the two demo pages (a script, not a test).
 
 Start the checker first (`python -m server`, port 8787), then:
-  .venv/Scripts/python.exe tests/extension/run_real.py [--headed] [--server URL] [--tag real] [--pages houston_austin.html ...]
+  .venv/Scripts/python.exe tests/extension/run_real.py [--headed] [--server URL] [--tag real] [--pages demo_houston.html ...]
 
 For each page: click the highlighted address, click "Inspect location", wait for the run to finish, and save
 screenshots under $RC_PRIVATE_DIR/rc_cache/shots/<tag>_<page>_{a_midrun,b_drawer,c_marks,d_claim,e_report}.png.
 Prints the headline, counts, every claim with its verdict, and the seconds taken.
+Set RC_DEMO_PAGES=<folder> to serve every *.html in that folder instead of tests/extension/fixture.
 """
 import argparse
 import json
@@ -19,7 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rc_harness as H  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
-PAGES = ("houston_austin.html", "la_sepulveda.html")
+PAGES_DIR = os.environ.get("RC_DEMO_PAGES") or None
+PAGES = tuple(sorted(p.name for p in Path(PAGES_DIR).glob("*.html"))) if PAGES_DIR else ("demo_houston.html", "demo_la.html")
 
 
 def shots_dir() -> Path:
@@ -160,7 +162,7 @@ def main():
     out = shots_dir()
     with urllib.request.urlopen(a.server + "/health", timeout=5) as r:
         print("health:", r.read().decode())
-    httpd, base = H.serve_fixtures()
+    httpd, base = H.serve_fixtures(PAGES_DIR)
     with sync_playwright() as pw:
         ctx, sw, udd = H.launch(pw, headless=not a.headed, viewport=(1440, 900))
         try:

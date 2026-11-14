@@ -68,15 +68,15 @@ def test_scan_title_size_beats_measured_area():
     def at(listed, measured, title):
         return judge(claim("area_sqft", listed, label="Plan E"),
                      [ev("scan", {"area_sqft": measured, "model_name": title, "plan": "Plan E"})])
-    v = at(855, 744, "1BR W Den 1BA - 855 SF")
-    assert v["verdict"] == "confirmed" and v["source"] == "scan" and v["found"] == "855 sq ft (scan title)"
-    assert v["reason"] == ("Listing says 855 sq ft. The 3D scan of this plan is titled "
-                           "'1BR W Den 1BA - 855 SF', which gives 855 sq ft.")
+    v = at(815, 744, "1BR W Den 1BA - 815 SF")
+    assert v["verdict"] == "confirmed" and v["source"] == "scan" and v["found"] == "815 sq ft (scan title)"
+    assert v["reason"] == ("Listing says 815 sq ft. The 3D scan of this plan is titled "
+                           "'1BR W Den 1BA - 815 SF', which gives 815 sq ft.")
     assert at(712, 640, "1BR 1BA - 735 SF")["verdict"] == "confirmed"
     v = at(1240, 1058, "2BR 2BA - 1,060 SF")
     assert v["verdict"] == "contradicted" and "15% smaller" in v["reason"]
     # a title without a size falls back to the measured area
-    assert at(855, 744, "1BR W Den")["found"] == "744 sq ft"
+    assert at(815, 744, "1BR W Den")["found"] == "744 sq ft"
 
 
 def test_year_built_confirmed_by_county():
@@ -119,7 +119,7 @@ def test_photo_floor_count_never_decides_stories():
 
 def test_short_plan_label_matches_kit_plan_name():
     v = judge(claim("bedrooms", 2, label="Plan E"),
-              [ev("scan", {"bedrooms": 1, "model_name": "1BR W Den 1BA", "plan": "Plan E 1 Bedroom + Den"})])
+              [ev("scan", {"bedrooms": 1, "model_name": "1BR W Den 1BA", "plan": "Plan E 1 Bed + Den"})])
     assert v["verdict"] == "contradicted" and v["found"] == "1 bedroom + den"
     assert judge(claim("bedrooms", 2, label="Plan E"),
                  [ev("scan", {"bedrooms": 1, "plan": "Plan EF"})])["verdict"] == "cant_check"

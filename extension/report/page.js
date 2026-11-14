@@ -26,8 +26,61 @@ var sh=t.closest('button.share');if(sh){copy(location.href,sh);return;}
 var m=t.closest('button.morebtn');if(m){var w=document.getElementById(m.getAttribute('aria-controls'));if(!w)return;
 var open=w.classList.toggle('open');m.setAttribute('aria-expanded',open?'true':'false');
 var l=m.getAttribute('data-less'),o=m.getAttribute('data-more');m.textContent=open?l:o;return;}
-var g=t.closest('.walk .go');if(g){var wk=g.closest('.walk'),v=wk.querySelector('.walk-view'),f=wk.querySelector('iframe');
-e.preventDefault();f.src=wk.getAttribute('data-src');v.hidden=false;wk.querySelector('.stage').hidden=true;return;}
-var s=t.closest('.walk .shut');if(s){var wk2=s.closest('.walk');wk2.querySelector('.walk-view').hidden=true;
-wk2.querySelector('iframe').src='about:blank';wk2.querySelector('.stage').hidden=false;}});
+var fs=t.closest('.walk .fs');if(fs){var wf=fs.closest('.walk');if(wf.requestFullscreen)wf.requestFullscreen();return;}
+var s3=t.closest('button.see3d');if(s3&&window.RC3D){var bx=window.RC3D.see(s3.getAttribute('data-claim'),s3.getAttribute('data-src'),
+s3.closest('.more-wrap')||s3.parentNode);if(bx)bx.scrollIntoView({behavior:still?'auto':'smooth',block:'nearest'});}});
+})();
+(function(){
+/* live 3D viewers: mount without a click, at most MAX live, still picture on top until the tour page says ready */
+var MAX=2,live=[],T0=performance.now(),R=window.RC3D={live:live,times:{},max:MAX};
+function all(){return [].slice.call(document.querySelectorAll('.walk[data-src]'));}
+function gap(w){var r=w.getBoundingClientRect(),h=innerHeight||800;return r.bottom<0?-r.bottom:r.top>h?r.top-h:0;}
+function note(w,s){var n=w.querySelector('.wnote');if(n&&s)n.textContent=s;}
+function stamp(w,k){var c=w.getAttribute('data-claim')||'?';(R.times[c]=R.times[c]||{})[k]=Math.round(performance.now()-T0);}
+function unmount(w){if(!w._f)return;try{w._f.src='about:blank';}catch(e){}w._f.remove();w._f=null;clearTimeout(w._to);
+var i=live.indexOf(w);if(i>=0)live.splice(i,1);w.classList.remove('live','loading');}
+function mount(w){if(w._f||w.classList.contains('off'))return;
+while(live.length>=MAX){var far=live.slice().sort(function(a,b){return gap(b)-gap(a);})[0];unmount(far);}
+var f=document.createElement('iframe');f.title='3D walkthrough';f.setAttribute('allow','fullscreen; xr-spatial-tracking');
+f.setAttribute('allowfullscreen','');
+/* Chrome pauses a cross-origin viewer that is off screen, so one mounted ahead of time loads "docked": fixed inside the
+   screen at its slot's size, invisible, until its slot scrolls into view (moving it by CSS never reloads it) */
+if(gap(w)>0){var r=w.getBoundingClientRect();f.className='dock';f.tabIndex=-1;f.style.width=r.width+'px';f.style.height=r.height+'px';}
+f.src=w.getAttribute('data-src');w.insertBefore(f,w.firstChild);w._f=f;live.push(w);
+w.classList.add('loading');stamp(w,'mount');if(inview)inview.observe(w);
+w._to=setTimeout(function(){if(w._f&&!w.classList.contains('live')){w.classList.add('live');w.classList.remove('loading');}},30000);}
+function undock(w){var f=w._f;if(!f||f.className!=='dock')return;f.className='';f.removeAttribute('tabindex');
+f.style.width='';f.style.height='';stamp(w,'undock');}
+R.mount=mount;R.unmount=unmount;
+var twin=location.origin.replace('//127.0.0.1','//localhost');  /* the viewer runs on localhost (SDK key rule) */
+window.addEventListener('message',function(e){if((e.origin!==location.origin&&e.origin!==twin)||!e.data||e.data.rc3d!==1)return;
+var w=all().filter(function(x){return x._f&&x._f.contentWindow===e.source;})[0];if(!w)return;var d=e.data;stamp(w,d.state);
+if(d.state==='ready'){w.classList.add('live');w.classList.remove('loading');clearTimeout(w._to);
+if(d.room==='start')note(w,d.note||'Showing the scan from its start position.');}
+else if(d.state==='finding'){note(w,'Finding the spot that shows this…');clearTimeout(w._to);
+w._to=setTimeout(function(){if(w._f&&!w.classList.contains('live')){w.classList.add('live');w.classList.remove('loading');}},60000);}
+else if(d.state==='error'){note(w,d.note);w.classList.add('live','nospot');w.classList.remove('loading');clearTimeout(w._to);}
+else if(d.state==='off'){unmount(w);w.classList.add('off');note(w,d.note||'The live 3D view is not available here.');}});
+R.see=function(cid,src,host){var a=cid&&document.getElementById('claim-'+cid),f=a&&a.closest('.find'),w=f&&f.querySelector('.walk[data-src]');
+if(w){mount(w);w.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});return w;}
+if(!src||!host)return null;var box=host.querySelector('.see3d-box');
+if(!box){box=document.createElement('div');box.className='see3d-box';box.innerHTML="<div class=walk><div class=stage>"+
+"<div class=tag>Live 3D · Matterport<small class=wnote></small></div><span class=spin aria-hidden=true></span></div>"+
+"<button type=button class=fs>Full screen</button></div>";var ul=host.querySelector('ul');
+if(ul&&ul.parentNode===host)host.insertBefore(box,ul.nextSibling);else host.appendChild(box);watch(box.querySelector('.walk'));}
+var w2=box.querySelector('.walk');if(w2.getAttribute('data-claim')!==(cid||'')){unmount(w2);w2.classList.remove('off','nospot');}
+w2.setAttribute('data-src',src);w2.setAttribute('data-claim',cid||'');note(w2,'Opening at the spot that shows this…');mount(w2);return w2;};
+var near=null,far=null,inview=null;
+function watch(w){if(near){near.observe(w);far.observe(w);}}
+if('IntersectionObserver' in window){
+near=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting)mount(x.target);});},{rootMargin:'700px 0px'});
+far=new IntersectionObserver(function(es){es.forEach(function(x){if(!x.isIntersecting)unmount(x.target);});},{rootMargin:'2400px 0px'});
+inview=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting)undock(x.target);});});}
+/* a fade-in parent (opacity 0, transform) would keep Chrome from running the viewer and pin the dock to it: show those
+   parents at once */
+all().forEach(function(w){var p=w.closest('.rv');if(p)p.classList.add('in');});
+var ws=all(),first=null,h=location.hash.match(/^#claim-([A-Za-z0-9_-]{1,32})$/);
+if(h){var a=document.getElementById('claim-'+h[1]),fd=a&&a.closest('.find');first=fd&&fd.querySelector('.walk[data-src]');}
+first=first||ws[0];if(first)mount(first);
+ws.forEach(function(w){if(near)watch(w);else if(w!==first&&live.length<MAX)mount(w);});
 })();

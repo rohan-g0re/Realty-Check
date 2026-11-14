@@ -6,6 +6,7 @@ import math
 
 import rc_common
 from tools.kit.normalize import parse, street_key
+from tools.kit.plan_match import plan_types
 
 NEAR_M = 60.0
 _IDX: dict | None = None
@@ -48,7 +49,8 @@ def _matched(p: dict, confidence: float, how: str) -> dict:
             "kind": p["kind"], "name": p["name"], "address": p["address"], "city": p["city"], "state": p["state"],
             "lat": p["lat"], "lon": p["lon"], "record": dict(p["record"]),
             "floorplans": [dict(f) for f in p["floorplans"]],
-            "matterport_model_ids": list(p["matterport_model_ids"]), "how": how}
+            "matterport_model_ids": list(p["matterport_model_ids"]), "how": how,
+            "plan_types": plan_types(p["floorplans"])}
 
 
 def _pick(hits: list, q: dict, lat, lon):
@@ -91,6 +93,7 @@ def _add_unit(m: dict, p: dict, hits: list, q: dict) -> dict:
     m["floorplans"] += [dict(f) for f in h["floorplans"]]
     m["matterport_model_ids"] += [k for k in h["matterport_model_ids"] if k not in m["matterport_model_ids"]]
     m["how"] += f"; unit {h['unit']} plan and scan from home listing {h['property_id']}"
+    m["plan_types"] = plan_types(m["floorplans"])
     return m
 
 

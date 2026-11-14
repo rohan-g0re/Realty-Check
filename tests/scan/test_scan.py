@@ -12,9 +12,15 @@ import rc_common
 from PIL import Image
 from tools.scan import scan_stills, scan_summary
 from tools.scan import matterport as mp
+from tests.private_golden import golden
 
-GOLDEN = "sYf5Jy4R2SK"  # 3700 Sepulveda Plan E, titled "1BR W Den 1BA - 855 SF"; listing says 2 beds
 BAD = ("X-Amz", "Signature=", "token=")
+
+
+@pytest.fixture(scope="module")
+def GOLDEN():
+    """The private demo scan (a 1BR + den plan whose listing says 2 beds); its id lives in the private folder."""
+    return golden("scan_model_id")
 
 
 def _clean(obj):
@@ -22,7 +28,7 @@ def _clean(obj):
     assert not any(b in s for b in BAD), "signed URL / token leaked"
 
 
-def test_golden_summary():
+def test_golden_summary(GOLDEN):
     ev = scan_summary(GOLDEN)
     print(json.dumps(ev, indent=1))
     assert ev["source"] == "scan" and ev["status"] == "ok"
@@ -34,7 +40,7 @@ def test_golden_summary():
     _clean(ev)
 
 
-def test_golden_stills_cached():
+def test_golden_stills_cached(GOLDEN):
     ev = scan_stills(GOLDEN, 4)
     assert ev["status"] == "ok", ev
     assert 1 <= len(ev["images"]) <= 4
@@ -60,7 +66,7 @@ def test_bogus_ids():
             _clean(ev)
 
 
-def test_cache_has_no_signed_urls():
+def test_cache_has_no_signed_urls(GOLDEN):
     scan_summary(GOLDEN)
     for p in rc_common.cache_dir("scan").rglob("*.json"):
         txt = p.read_text(encoding="utf-8")
@@ -69,7 +75,7 @@ def test_cache_has_no_signed_urls():
 
 
 def test_name_parsing():
-    assert mp._beds_from_name("1BR W Den 1BA - 855 SF") == 1
-    assert mp._baths_from_name("1BR W Den 1BA - 855 SF") == 1
+    assert mp._beds_from_name("1BR W Den 1BA - 815 SF") == 1
+    assert mp._baths_from_name("1BR W Den 1BA - 815 SF") == 1
     assert mp._beds_from_name("Studio A") == 0
     assert mp._beds_from_name("Plan E") is None

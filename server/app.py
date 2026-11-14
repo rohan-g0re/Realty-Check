@@ -14,7 +14,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response,
+                               StreamingResponse)
 
 from rc_common import cache_dir
 from server.report import render_report
@@ -190,6 +191,8 @@ def start_run(snapshot: dict, base_url: str) -> queue.Queue:
             except Exception:
                 pass
         q.put(ev)
+        if ev["type"] == "done":  # pick the 3D spots now, so the report's viewers open at them straight away
+            tour.prewarm(run)
 
     def work() -> None:
         push({"type": "run_started", "run_id": run_id, "address": snapshot.get("address_text") or ""})
@@ -299,16 +302,21 @@ def report(run_id: str, v: str | None = None):
     run = load_run(run_id)
     if run is None:
         return HTMLResponse("<!doctype html><title>Not found</title><p>No such check.</p>", status_code=404)
+    tour.prewarm(run)  # starts any 3D spot pick not cached yet; never waits
     return HTMLResponse(render_report(run) if v == "old" else render_report_a(run))
 
 
 @app.get("/tour/{run_id}", response_class=HTMLResponse)
-def tour_page(run_id: str, claim: str | None = None, embed: str | None = None):
+def tour_page(request: Request, run_id: str, claim: str | None = None, embed: str | None = None):
     """The real 3D walkthrough for one claim, with one client-side label (server/tour.py).
     embed=1: the report's inline viewer (same-origin iframe); no back link, fills the frame. No X-Frame-Options or
     frame-ancestors header is set here, so the report can frame it."""
     headers = {"Cache-Control": "no-store"}
     em = embed == "1"
+    # The Showcase SDK key only accepts pages served from "localhost" (127.0.0.1 gets HTTP 400 on the SDK), so the
+    # viewer always runs on localhost; the report at 127.0.0.1 frames it cross-origin and hears it by postMessage.
+    if request.url.hostname == "127.0.0.1":
+        return RedirectResponse(str(request.url.replace(hostname="localhost")), status_code=307, headers=headers)
     run = load_run(run_id)
     if run is None:
         return HTMLResponse(tour.message_page(None, "No such check.", embed=em), status_code=404, headers=headers)

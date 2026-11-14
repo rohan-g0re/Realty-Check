@@ -16,7 +16,16 @@ Sections, top to bottom (each one adapts to the run; nothing is invented):
   footer        wordmark, listing link, run meta, how we checked
 
 The data logic and wording come from server.report (grouping, image ranking, walk links, fill-in, captions).
-Pictures only via /img/<token>; the only outside request is the Newsreader font.
+Pictures only via /img/<token>; outside requests: the Newsreader font, and Matterport inside the 3D viewers.
+
+3D viewers (live_3d=True, the server's page): a finding whose proof is a 3D scan shows the live Matterport viewer
+inline (the same-origin /tour/<run_id>?claim=<id>&embed=1 page in an iframe), opened at the picked spot, with no
+click and no new tab. The viewer of the lead finding (or of the #claim-<id> the page was opened at) mounts at once;
+the others mount when they come near the screen (IntersectionObserver) and unmount when far away, never more than
+two live at a time. A still picture covers each viewer until the tour page reports "ready" (postMessage), so the
+reader sees the spot, not the scan's start. "See it in 3D" on matches and in the claim field panel opens a viewer
+in place (or scrolls to the finding's own one). live_3d=False (the extension's static sample, no server) keeps the
+still picture with a plain note and never makes a frame.
 """
 from __future__ import annotations
 
@@ -24,6 +33,7 @@ import math
 import re
 from html import escape
 
+from server.tour import PRECONNECT
 from server.report import (FACT_FROM, IMG_RE, TOPICS, Run, _cant_reason, _claimed_words, _first_sentence,
                            _fill_in, _fmt_n, _groups, _headline_claim, _kind, _meta, _norm, _num, _rooms,
                            _said, _same_plan, _scan_title, _short_caption, _source_line, _value_words)
@@ -142,10 +152,21 @@ font-size:16px;line-height:1.35;max-width:calc(100% - 24px)}
 background:var(--blue);box-shadow:0 0 0 3px #fff}
 .stage .pin::after{content:'';position:absolute;inset:0;border-radius:50%;background:var(--blue);animation:pulse 2.4s ease-out infinite}
 .stage .go{position:absolute;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px)}
-.walk-view{position:relative;background:#111}
-.walk-view iframe{display:block;width:100%;height:min(78vh,720px);border:0}
-.walk-bar{display:flex;justify-content:flex-end;gap:10px;padding:10px;background:#111}
-.walk-bar a,.walk-bar button{color:#fff;background:none;border:1px solid #555;font:inherit;font-size:15px;padding:8px 14px;cursor:pointer;text-decoration:none}
+.walk{position:relative;background:#17181a;overflow:hidden;aspect-ratio:16/9;min-height:320px;max-height:82vh}
+.two .walk,.cf-panel .walk,.see3d-box .walk{aspect-ratio:4/3}
+.walk>iframe{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:1;background:#17181a}
+.walk>iframe.dock{position:fixed;inset:auto;left:0;top:0;opacity:0;pointer-events:none;z-index:-1}
+.walk>.stage{position:absolute;inset:0;z-index:2;aspect-ratio:auto;min-height:0;transition:opacity .6s ease,visibility 0s linear 0s}
+.walk.live>.stage{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .6s ease,visibility 0s linear .6s}
+.walk .spin{position:absolute;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);width:26px;height:26px;border-radius:50%;
+border:3px solid rgba(255,255,255,.55);border-top-color:var(--blue);animation:spin 1s linear infinite;display:none}
+.walk.loading .spin{display:block}
+.walk .fs{position:absolute;right:12px;top:12px;z-index:3;display:none;background:#fff;color:#17181a;border:0;font:inherit;
+font-size:14px;padding:7px 12px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.walk.live .fs{display:block}
+.walk:fullscreen{max-height:none;aspect-ratio:auto}
+button.see3d{background:none;border:0;padding:0;font:inherit;color:var(--blue);text-decoration:underline;cursor:pointer}
+.see3d-box{margin:12px 0 4px;width:100%}
 /* proof: pictures */
 .pics{display:grid;gap:10px}
 .pics .lead img{width:100%;aspect-ratio:16/10;object-fit:cover;background:var(--soft)}
@@ -248,6 +269,7 @@ justify-content:center;gap:12px;padding:56px 16px 24px}
 .js .rv.in{opacity:1;transform:none}
 .js .fld-col i{transform:scaleY(.2);opacity:0;transition:transform .5s cubic-bezier(.2,.7,.2,1),opacity .5s ease}
 .js .rv.in .fld-col i{transform:none;opacity:1}
+@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse{0%{transform:scale(1);opacity:.55}100%{transform:scale(3.2);opacity:0}}
 @keyframes drift{from{transform:scale(1)}to{transform:scale(1.07) translateX(-1%)}}
 @keyframes tick{from{stroke-dashoffset:40}to{stroke-dashoffset:0}}
@@ -309,10 +331,63 @@ var sh=t.closest('button.share');if(sh){copy(location.href,sh);return;}
 var m=t.closest('button.morebtn');if(m){var w=document.getElementById(m.getAttribute('aria-controls'));if(!w)return;
 var open=w.classList.toggle('open');m.setAttribute('aria-expanded',open?'true':'false');
 var l=m.getAttribute('data-less'),o=m.getAttribute('data-more');m.textContent=open?l:o;return;}
-var g=t.closest('.walk .go');if(g){var wk=g.closest('.walk'),v=wk.querySelector('.walk-view'),f=wk.querySelector('iframe');
-e.preventDefault();f.src=wk.getAttribute('data-src');v.hidden=false;wk.querySelector('.stage').hidden=true;return;}
-var s=t.closest('.walk .shut');if(s){var wk2=s.closest('.walk');wk2.querySelector('.walk-view').hidden=true;
-wk2.querySelector('iframe').src='about:blank';wk2.querySelector('.stage').hidden=false;}});
+var fs=t.closest('.walk .fs');if(fs){var wf=fs.closest('.walk');if(wf.requestFullscreen)wf.requestFullscreen();return;}
+var s3=t.closest('button.see3d');if(s3&&window.RC3D){var bx=window.RC3D.see(s3.getAttribute('data-claim'),s3.getAttribute('data-src'),
+s3.closest('.more-wrap')||s3.parentNode);if(bx)bx.scrollIntoView({behavior:still?'auto':'smooth',block:'nearest'});}});
+})();
+(function(){
+/* live 3D viewers: mount without a click, at most MAX live, still picture on top until the tour page says ready */
+var MAX=2,live=[],T0=performance.now(),R=window.RC3D={live:live,times:{},max:MAX};
+function all(){return [].slice.call(document.querySelectorAll('.walk[data-src]'));}
+function gap(w){var r=w.getBoundingClientRect(),h=innerHeight||800;return r.bottom<0?-r.bottom:r.top>h?r.top-h:0;}
+function note(w,s){var n=w.querySelector('.wnote');if(n&&s)n.textContent=s;}
+function stamp(w,k){var c=w.getAttribute('data-claim')||'?';(R.times[c]=R.times[c]||{})[k]=Math.round(performance.now()-T0);}
+function unmount(w){if(!w._f)return;try{w._f.src='about:blank';}catch(e){}w._f.remove();w._f=null;clearTimeout(w._to);
+var i=live.indexOf(w);if(i>=0)live.splice(i,1);w.classList.remove('live','loading');}
+function mount(w){if(w._f||w.classList.contains('off'))return;
+while(live.length>=MAX){var far=live.slice().sort(function(a,b){return gap(b)-gap(a);})[0];unmount(far);}
+var f=document.createElement('iframe');f.title='3D walkthrough';f.setAttribute('allow','fullscreen; xr-spatial-tracking');
+f.setAttribute('allowfullscreen','');
+/* Chrome pauses a cross-origin viewer that is off screen, so one mounted ahead of time loads "docked": fixed inside the
+   screen at its slot's size, invisible, until its slot scrolls into view (moving it by CSS never reloads it) */
+if(gap(w)>0){var r=w.getBoundingClientRect();f.className='dock';f.tabIndex=-1;f.style.width=r.width+'px';f.style.height=r.height+'px';}
+f.src=w.getAttribute('data-src');w.insertBefore(f,w.firstChild);w._f=f;live.push(w);
+w.classList.add('loading');stamp(w,'mount');if(inview)inview.observe(w);
+w._to=setTimeout(function(){if(w._f&&!w.classList.contains('live')){w.classList.add('live');w.classList.remove('loading');}},30000);}
+function undock(w){var f=w._f;if(!f||f.className!=='dock')return;f.className='';f.removeAttribute('tabindex');
+f.style.width='';f.style.height='';stamp(w,'undock');}
+R.mount=mount;R.unmount=unmount;
+var twin=location.origin.replace('//127.0.0.1','//localhost');  /* the viewer runs on localhost (SDK key rule) */
+window.addEventListener('message',function(e){if((e.origin!==location.origin&&e.origin!==twin)||!e.data||e.data.rc3d!==1)return;
+var w=all().filter(function(x){return x._f&&x._f.contentWindow===e.source;})[0];if(!w)return;var d=e.data;stamp(w,d.state);
+if(d.state==='ready'){w.classList.add('live');w.classList.remove('loading');clearTimeout(w._to);
+if(d.room==='start')note(w,d.note||'Showing the scan from its start position.');}
+else if(d.state==='finding'){note(w,'Finding the spot that shows this…');clearTimeout(w._to);
+w._to=setTimeout(function(){if(w._f&&!w.classList.contains('live')){w.classList.add('live');w.classList.remove('loading');}},60000);}
+else if(d.state==='error'){note(w,d.note);w.classList.add('live','nospot');w.classList.remove('loading');clearTimeout(w._to);}
+else if(d.state==='off'){unmount(w);w.classList.add('off');note(w,d.note||'The live 3D view is not available here.');}});
+R.see=function(cid,src,host){var a=cid&&document.getElementById('claim-'+cid),f=a&&a.closest('.find'),w=f&&f.querySelector('.walk[data-src]');
+if(w){mount(w);w.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});return w;}
+if(!src||!host)return null;var box=host.querySelector('.see3d-box');
+if(!box){box=document.createElement('div');box.className='see3d-box';box.innerHTML="<div class=walk><div class=stage>"+
+"<div class=tag>Live 3D · Matterport<small class=wnote></small></div><span class=spin aria-hidden=true></span></div>"+
+"<button type=button class=fs>Full screen</button></div>";var ul=host.querySelector('ul');
+if(ul&&ul.parentNode===host)host.insertBefore(box,ul.nextSibling);else host.appendChild(box);watch(box.querySelector('.walk'));}
+var w2=box.querySelector('.walk');if(w2.getAttribute('data-claim')!==(cid||'')){unmount(w2);w2.classList.remove('off','nospot');}
+w2.setAttribute('data-src',src);w2.setAttribute('data-claim',cid||'');note(w2,'Opening at the spot that shows this…');mount(w2);return w2;};
+var near=null,far=null,inview=null;
+function watch(w){if(near){near.observe(w);far.observe(w);}}
+if('IntersectionObserver' in window){
+near=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting)mount(x.target);});},{rootMargin:'700px 0px'});
+far=new IntersectionObserver(function(es){es.forEach(function(x){if(!x.isIntersecting)unmount(x.target);});},{rootMargin:'2400px 0px'});
+inview=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting)undock(x.target);});});}
+/* a fade-in parent (opacity 0, transform) would keep Chrome from running the viewer and pin the dock to it: show those
+   parents at once */
+all().forEach(function(w){var p=w.closest('.rv');if(p)p.classList.add('in');});
+var ws=all(),first=null,h=location.hash.match(/^#claim-([A-Za-z0-9_-]{1,32})$/);
+if(h){var a=document.getElementById('claim-'+h[1]),fd=a&&a.closest('.find');first=fd&&fd.querySelector('.walk[data-src]');}
+first=first||ws[0];if(first)mount(first);
+ws.forEach(function(w){if(near)watch(w);else if(w!==first&&live.length<MAX)mount(w);});
 })();
 """
 
@@ -418,7 +493,7 @@ def _walk_hrefs(run: Run, v: dict):
             return None
     except Exception:
         return None
-    return tour_href(run.raw, cid), tour_href(run.raw, cid, embed=True)
+    return tour_href(run.raw, cid), tour_href(run.raw, cid, embed=True), cid
 
 
 def _fig(p: str, cap: str, cls: str = "") -> str:
@@ -613,13 +688,13 @@ def _fallback_field(run: Run) -> str:
             "<span>One column per claim.</span></figcaption></figure>")
 
 
-def _field(run: Run) -> str:
+def _field(run: Run, live_3d: bool = True) -> str:
     try:
         from server.claim_field import claim_field_section
     except ImportError:
         return _fallback_field(run)
     try:
-        out = claim_field_section(run.raw)
+        out = claim_field_section(run.raw, tours=live_3d)
         if isinstance(out, str) and out.strip():
             return out
     except Exception:
@@ -627,7 +702,7 @@ def _field(run: Run) -> str:
     return _fallback_field(run)
 
 
-def _hero(run: Run, n: dict, first_find: str | None) -> str:
+def _hero(run: Run, n: dict, first_find: str | None, live_3d: bool = True) -> str:
     l1, l2, calm = _headline(n)
     address = run.snap.get("address_text") or run.match.get("address") or "Unknown address"
     parts = [p.strip() for p in str(address).split(",") if p.strip()]
@@ -656,10 +731,22 @@ def _hero(run: Run, n: dict, first_find: str | None) -> str:
             f"<h1><span>{_e(l1)}</span><span class=l2>{_e(l2)}{tick}</span></h1>"
             f"<div class='addr rv' style='--d:150ms'><p class=where>{where}</p><p>{_e(sub)}</p>"
             + (f"<p class=meta>{_e(meta)}</p>" if meta else "") + btn + "</div></div>"
-            f"<div class=field-wrap>{_field(run)}</div></section>")
+            f"<div class=field-wrap>{_field(run, live_3d)}</div></section>")
 
 
-def _finding_group(run: Run, label, vs: list, idx: int, used_walk: list) -> str:
+def _walk_box(src: str | None, cid: str, bg: str, small: str, live_3d: bool) -> str:
+    """The inline 3D viewer: a still picture (bg) the page's script covers with the live viewer once it stands at
+    the spot. live_3d False (static sample): the picture only, with a plain note, and no frame is ever made."""
+    if not live_3d or not src:
+        return (f"<div class=walk><div class=stage>{bg}<div class=tag>3D scan · Matterport<small class=wnote>"
+                "The live 3D view opens in the report from the local checker.</small></div></div></div>")
+    return (f"<div class=walk data-src='{_e(src)}' data-claim='{_e(cid)}'><div class=stage>{bg}"
+            f"<div class=tag>Live 3D · Matterport<small class=wnote>{_e(small)}</small></div>"
+            "<span class=pin aria-hidden=true></span><span class=spin aria-hidden=true></span></div>"
+            "<button type=button class=fs>Full screen</button></div>")
+
+
+def _finding_group(run: Run, label, vs: list, idx: int, used_walk: list, live_3d: bool = True) -> str:
     lead = idx == 0
     v0 = vs[0]
     walk = None
@@ -673,7 +760,7 @@ def _finding_group(run: Run, label, vs: list, idx: int, used_walk: list) -> str:
 
     # proof slot, picked from what this item actually has
     if walk:
-        used_walk.append(walk[0])
+        used_walk.append(f"#f{idx + 1}")
         view = next(((p, c) for p, c in imgs if "floor plan" not in c.lower()), None)
         if view:
             imgs = [view] + [x for x in imgs if x != view]
@@ -682,15 +769,8 @@ def _finding_group(run: Run, label, vs: list, idx: int, used_walk: list) -> str:
             "<path d='M0 0h160v80H0z' fill='#e4e4e1'/><path d='M0 0l55 22h50L160 0z' fill='#f5f5f3'/>"
             "<path d='M0 80l55-22h50l55 22z' fill='#d6d5d1'/><path d='M55 22h50v36H55z' fill='#efefed'/></svg>")
         scan_name = _scan_title(run, label) if label else ""
-        tag = "Live walkable model · Matterport"
-        proof = (f"<div class=walk data-src='{_e(walk[1])}'><div class=stage>{bg}"
-                 f"<div class=tag>{_e(tag)}<small>{_e(scan_name or 'Opens at the spot. Drag to look, tap to walk.')}</small></div>"
-                 "<span class=pin aria-hidden=true></span>"
-                 f"<a class='btn go' href='{_e(walk[0])}' target=_blank rel=noopener>Walk into this room</a></div>"
-                 "<div class=walk-view hidden><div class=walk-bar>"
-                 f"<a href='{_e(walk[0])}' target=_blank rel=noopener>Open in new tab</a>"
-                 "<button type=button class=shut>Close</button></div>"
-                 "<iframe title='3D walkthrough' allow='fullscreen; xr-spatial-tracking' allowfullscreen></iframe></div></div>")
+        small = (f"{scan_name} · " if scan_name else "") + "Opening at the spot that shows this…"
+        proof = _walk_box(walk[1], walk[2], bg, small, live_3d)
         rest = imgs[1:] if view else imgs
         if rest:
             proof += "<div class=thumbs>" + "".join(_fig(p, c) for p, c in rest) + "</div>"
@@ -755,7 +835,7 @@ def _finding_group(run: Run, label, vs: list, idx: int, used_walk: list) -> str:
             f"<figure class=proof>{proof}</figure><div class=text>{text}</div></div>{subs}{rooms}</article>")
 
 
-def _findings(run: Run, verdicts: list, used_walk: list) -> str:
+def _findings(run: Run, verdicts: list, used_walk: list, live_3d: bool = True) -> str:
     if not verdicts:
         return ""
     head = _headline_claim(run, verdicts)
@@ -765,7 +845,7 @@ def _findings(run: Run, verdicts: list, used_walk: list) -> str:
     for i, (label, vs) in enumerate(groups):
         vs = sorted(vs, key=lambda v: (0 if v.get("claim_id") == head else 1,
                                        0 if v.get("verdict") == "contradicted" else 1))
-        h.append(_finding_group(run, label, vs, i, used_walk))
+        h.append(_finding_group(run, label, vs, i, used_walk, live_3d))
     return f"<section class='wrap findings' id=mismatch aria-label='What does not match'>{''.join(h)}</section>"
 
 
@@ -976,7 +1056,7 @@ def _extra(run: Run, facts: list) -> str:
             f"<div class=more-wrap id=extra-more><div class=topics>{''.join(blocks)}</div></div>{foot}</section>")
 
 
-def _matches(run: Run, verdicts: list, used_walk: list) -> str:
+def _matches(run: Run, verdicts: list, used_walk: list, live_3d: bool = True) -> str:
     if not verdicts:
         return "<span id=match></span>"
     items = []
@@ -988,7 +1068,8 @@ def _matches(run: Run, verdicts: list, used_walk: list) -> str:
             if len(_relevant(run, v)) >= 2:
                 multi += 1
             walk = _walk_hrefs(run, v)
-            link = (f"<a href='{_e(walk[0])}' target=_blank rel=noopener>See it in 3D</a>" if walk else "")
+            link = (f"<button type=button class=see3d data-src='{_e(walk[1])}' data-claim='{_e(walk[2])}'>"
+                    "See it in 3D</button>" if walk and live_3d else "")
             text = f"“{_e(said)}”" if is_q else _e(_cap(said))
             small = f"<small>{_e(label)}</small>" if label else ""
             items.append(f"{small}{text}{link}")
@@ -1107,7 +1188,7 @@ def _footer(run: Run) -> str:
             f"<div class=foot-end><span>Report {_e(rid)}</span><a href='#top'>Back to the top</a></div></div></footer>")
 
 
-def render_report(run_dict: dict) -> str:
+def render_report(run_dict: dict, live_3d: bool = True) -> str:
     run = Run(run_dict)
     address = run.snap.get("address_text") or "Unknown address"
     n = _counts(run)
@@ -1117,19 +1198,19 @@ def render_report(run_dict: dict) -> str:
     facts = _fill_in(run)
     used_walk: list = []
 
-    findings = _findings(run, off, used_walk)  # claims images first, as the old report does
+    findings = _findings(run, off, used_walk, live_3d)  # claims images first, as the old report does
     lead_pic = None
     for m in re.finditer(r"<a class='pic[^']*' href='(/img/[a-f0-9]{16})' data-cap='([^']*)'", findings):
         if not m.group(2).lower().startswith("floor plan"):
             lead_pic = (m.group(1), m.group(2))
             break
-    hero = _hero(run, n, "f1" if off else None)
+    hero = _hero(run, n, "f1" if off else None, live_3d)
     url = run.snap.get("url") or ""
     nav = []
     if url.startswith(("http://", "https://")):
         nav.append(f"<a class=back href='{_e(url)}' target=_blank rel=noopener>{ARROW_LEFT}<span>Listing</span></a>")
     if used_walk:
-        nav.append(f"<a class=btn href='{_e(used_walk[0])}' target=_blank rel=noopener>3D walk</a>")
+        nav.append(f"<a class=btn href='{_e(used_walk[0])}'>3D walk</a>")  # the finding's own inline viewer
     else:
         nav.append("<button type=button class='btn share'>Share</button>")
     err = ""
@@ -1141,9 +1222,10 @@ def render_report(run_dict: dict) -> str:
          f"<title>Reality Check: {_e(address)}</title>",
          "<link rel=preconnect href='https://fonts.googleapis.com'><link rel=preconnect href='https://fonts.gstatic.com' crossorigin>",
          "<link rel=stylesheet href='https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&display=swap'>",
+         PRECONNECT if used_walk and live_3d else "",
          f"<style>{CSS}</style></head><body id=top>",
          f"<div class=wrap><header class=top><a class=brand href='#top'>Reality Check</a><nav aria-label=Report>{''.join(nav)}</nav></header>",
-         hero, "</div>", err, findings, _sources(run, facts), _extra(run, facts), _matches(run, ok, used_walk),
+         hero, "</div>", err, findings, _sources(run, facts), _extra(run, facts), _matches(run, ok, used_walk, live_3d),
          _cant(run, cant), _questions(run, off, cant, lead_pic), _footer(run),
          "<div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"
          "<button type=button class=btn>Close</button><img alt=''><p></p></div>",

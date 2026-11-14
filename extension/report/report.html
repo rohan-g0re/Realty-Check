@@ -93,10 +93,21 @@ font-size:16px;line-height:1.35;max-width:calc(100% - 24px)}
 background:var(--blue);box-shadow:0 0 0 3px #fff}
 .stage .pin::after{content:'';position:absolute;inset:0;border-radius:50%;background:var(--blue);animation:pulse 2.4s ease-out infinite}
 .stage .go{position:absolute;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px)}
-.walk-view{position:relative;background:#111}
-.walk-view iframe{display:block;width:100%;height:min(78vh,720px);border:0}
-.walk-bar{display:flex;justify-content:flex-end;gap:10px;padding:10px;background:#111}
-.walk-bar a,.walk-bar button{color:#fff;background:none;border:1px solid #555;font:inherit;font-size:15px;padding:8px 14px;cursor:pointer;text-decoration:none}
+.walk{position:relative;background:#17181a;overflow:hidden;aspect-ratio:16/9;min-height:320px;max-height:82vh}
+.two .walk,.cf-panel .walk,.see3d-box .walk{aspect-ratio:4/3}
+.walk>iframe{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:1;background:#17181a}
+.walk>iframe.dock{position:fixed;inset:auto;left:0;top:0;opacity:0;pointer-events:none;z-index:-1}
+.walk>.stage{position:absolute;inset:0;z-index:2;aspect-ratio:auto;min-height:0;transition:opacity .6s ease,visibility 0s linear 0s}
+.walk.live>.stage{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .6s ease,visibility 0s linear .6s}
+.walk .spin{position:absolute;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);width:26px;height:26px;border-radius:50%;
+border:3px solid rgba(255,255,255,.55);border-top-color:var(--blue);animation:spin 1s linear infinite;display:none}
+.walk.loading .spin{display:block}
+.walk .fs{position:absolute;right:12px;top:12px;z-index:3;display:none;background:#fff;color:#17181a;border:0;font:inherit;
+font-size:14px;padding:7px 12px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.walk.live .fs{display:block}
+.walk:fullscreen{max-height:none;aspect-ratio:auto}
+button.see3d{background:none;border:0;padding:0;font:inherit;color:var(--blue);text-decoration:underline;cursor:pointer}
+.see3d-box{margin:12px 0 4px;width:100%}
 /* proof: pictures */
 .pics{display:grid;gap:10px}
 .pics .lead img{width:100%;aspect-ratio:16/10;object-fit:cover;background:var(--soft)}
@@ -199,6 +210,7 @@ justify-content:center;gap:12px;padding:56px 16px 24px}
 .js .rv.in{opacity:1;transform:none}
 .js .fld-col i{transform:scaleY(.2);opacity:0;transition:transform .5s cubic-bezier(.2,.7,.2,1),opacity .5s ease}
 .js .rv.in .fld-col i{transform:none;opacity:1}
+@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse{0%{transform:scale(1);opacity:.55}100%{transform:scale(3.2);opacity:0}}
 @keyframes drift{from{transform:scale(1)}to{transform:scale(1.07) translateX(-1%)}}
 @keyframes tick{from{stroke-dashoffset:40}to{stroke-dashoffset:0}}
@@ -321,6 +333,7 @@ white-space:pre-wrap;overflow-wrap:anywhere}
 .cf-body .cf-go{display:inline-block;margin-top:10px;background:var(--cf-ink);color:#fff;padding:9px 16px;
 text-decoration:none;font-size:15px}
 .cf-body .cf-go:hover{background:#333}
+.cf-body button.cf-go{border:0;font:inherit;cursor:pointer}.cf-3dhost .see3d-box{margin-top:12px}
 @media(max-width:640px){.cf-field{--cf-h:44px;--cf-min:18px;--cf-gap:4px}
 .cf-rows{width:96px;font-size:15px}.cf-legend{font-size:14px;gap:6px 18px}.cf-body{padding:18px 16px 32px}
 .cf-body h3{font-size:26px}}

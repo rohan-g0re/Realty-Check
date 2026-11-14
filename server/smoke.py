@@ -10,9 +10,9 @@ import sys
 import httpx
 
 SAMPLE = {
-    "url": "https://example.com/listing/2111-austin-st",
-    "title": "2111 Austin St Apartments",
-    "address_text": "2111 Austin St, Houston, TX 77002",
+    "url": "https://example.com/listing/418-linden-grove-ave",
+    "title": "418 Linden Grove Ave Apartments",
+    "address_text": "418 Linden Grove Ave, Houston, TX 77006",
     "text": "Plan E. 2 Beds, 2 Baths, 1,100 sq ft. 5-story building. Built in 2016. Resort-style pool.",
     "jsonld": [{"@type": "ApartmentComplex"}],
 }

@@ -22,17 +22,17 @@ LD = '<script type="application/ld+json">{"@type":"ApartmentComplex","address":{
 
 PAGES = {
     # house number in its own element, city line in the next block
-    "split.html": "<h1>Larkspur</h1><p><span>2111</span><span>Austin St</span></p><div>Houston, TX 77002</div>",
+    "split.html": "<h1>Larkspur</h1><p><span>418</span><span>Linden Grove Ave</span></p><div>Houston, TX 77006</div>",
     # building named after its address: the heading must not glue onto the street line
-    "named.html": "<h1>2111 Austin</h1><p>2111 Austin St, Houston, Texas 77002</p>",
+    "named.html": "<h1>418 Linden Grove</h1><p>418 Linden Grove Ave, Houston, Texas 77006</p>",
     # address only in JSON-LD (not visible anywhere)
-    "ldonly.html": LD % ("5520 Wilshire Blvd", "Los Angeles", "CA", "90036") + "<h1>Desmond</h1><p>Studio from $2,400</p>",
+    "ldonly.html": LD % ("7310 Brantley Blvd", "Los Angeles", "CA", "90036") + "<h1>Halvard</h1><p>Studio from $2,400</p>",
     # aggregator: nearby listings come first in the page; the listing's own address is in JSON-LD and the URL
-    "200-n-vermont-ave.html": "<ul><li>1000 S Hope St, Los Angeles, CA 90015</li><li>3600 Wilshire Blvd, Los Angeles, CA 90010</li></ul>"
-                              + LD % ("200 N Vermont Ave", "Los Angeles", "CA", "90004")
-                              + "<main><h1>sageLA</h1><p>200 N Vermont Ave, Los Angeles, CA 90004</p></main>",
+    "640-n-calloway-ave.html": "<ul><li>1150 S Merrow St, Los Angeles, CA 90015</li><li>3480 Ellery Blvd, Los Angeles, CA 90010</li></ul>"
+                              + LD % ("640 N Calloway Ave", "Los Angeles", "CA", "90004")
+                              + "<main><h1>fernLA</h1><p>640 N Calloway Ave, Los Angeles, CA 90004</p></main>",
     # capitals, and a price that must not be read as a house number
-    "caps.html": "<h1>3663 WASHINGTON AVE</h1><p>HOUSTON, TX 77007</p><p>From $1,250 Main St Specials</p>",
+    "caps.html": "<h1>5120 HALVORSEN AVE</h1><p>HOUSTON, TX 77007</p><p>From $1,250 Main St Specials</p>",
 }
 
 
@@ -42,7 +42,7 @@ def env():
     for name, body in PAGES.items():
         (d / name).write_text(f"<!doctype html><meta charset=utf-8><title>t</title><body>{body}</body>", encoding="utf-8")
     (d / "report").mkdir()
-    (d / "report" / "r1.html").write_text("<!doctype html><body><h1>2111 Austin St, Houston, TX 77002</h1>", encoding="utf-8")
+    (d / "report" / "r1.html").write_text("<!doctype html><body><h1>418 Linden Grove Ave, Houston, TX 77006</h1>", encoding="utf-8")
 
     class Quiet(SimpleHTTPRequestHandler):
         def log_message(self, *a):
@@ -76,27 +76,27 @@ def picks(env, name):
 
 def test_split_number_and_city_line(env):
     p, marks = picks(env, "split.html")
-    assert p == ["2111 Austin St, Houston, TX 77002"] and marks >= 1
+    assert p == ["418 Linden Grove Ave, Houston, TX 77006"] and marks >= 1
 
 
 def test_building_named_after_address_not_glued(env):
     p, _ = picks(env, "named.html")
-    assert p == ["2111 Austin St, Houston, Texas 77002"], p
+    assert p == ["418 Linden Grove Ave, Houston, Texas 77006"], p
 
 
 def test_jsonld_only_address_is_pickable(env):
     p, marks = picks(env, "ldonly.html")
-    assert p == ["5520 Wilshire Blvd, Los Angeles, CA 90036"] and marks == 0
+    assert p == ["7310 Brantley Blvd, Los Angeles, CA 90036"] and marks == 0
 
 
 def test_own_address_ranks_first_on_aggregator(env):
-    p, _ = picks(env, "200-n-vermont-ave.html")
-    assert p[0] == "200 N Vermont Ave, Los Angeles, CA 90004" and len(p) == 3, p
+    p, _ = picks(env, "640-n-calloway-ave.html")
+    assert p[0] == "640 N Calloway Ave, Los Angeles, CA 90004" and len(p) == 3, p
 
 
 def test_capitals_and_prices(env):
     p, _ = picks(env, "caps.html")
-    assert p == ["3663 WASHINGTON AVE, HOUSTON, TX 77007"], p
+    assert p == ["5120 HALVORSEN AVE, HOUSTON, TX 77007"], p
 
 
 def test_own_report_page_is_not_scanned(env):

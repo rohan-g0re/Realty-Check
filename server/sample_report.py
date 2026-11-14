@@ -63,7 +63,7 @@ def _script_name(code: str) -> str:
 
 def build() -> dict[str, str]:
     """{file name in extension/report/: content}. Pure: nothing is written."""
-    html = render_report(sample_run())
+    html = render_report(sample_run(), live_3d=False)  # no server: still pictures only, never a 3D frame
     files: dict[str, str] = {}
 
     def externalise(m: re.Match) -> str:

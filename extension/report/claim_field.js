@@ -61,7 +61,8 @@ grid.addEventListener('keydown',function(e){var b=e.target.closest('.cf-cell');i
  else if(e.key==='Home'){rove(at(0,r));e.preventDefault();}else if(e.key==='End'){rove(at(C.length-1,r));e.preventDefault();}});
 /* slide-in panel */
 var cur=null,opener=null,closeT;
-function fill(b){var d=data(b),st=d.cell.state,c=d.c,cell=d.cell,h='';cur=b;
+function drop3d(){var w=body.querySelector('.walk');if(w&&window.RC3D)window.RC3D.unmount(w);}
+function fill(b){var d=data(b),st=d.cell.state,c=d.c,cell=d.cell,h='';drop3d();cur=b;
  cells.forEach(function(x){x.classList.toggle('cf-on',x===b);});
  panel.querySelector('.cf-where').textContent=d.s.name+' · claim '+(+b.getAttribute('data-c')+1)+' of '+C.length;
  panel.querySelector('.cf-prev').disabled=!step(+b.getAttribute('data-c'),+b.getAttribute('data-r'),-1,0,true);
@@ -74,7 +75,7 @@ function fill(b){var d=data(b),st=d.cell.state,c=d.c,cell=d.cell,h='';cur=b;
  if(st==='none'){h+='<p class="cf-dim">'+esc(d.s.name)+' had nothing usable about this claim.</p>';}
  else{if(cell.reason&&st!=='data'&&(c.reason||'').indexOf(cell.reason.split('. ').slice(0,2).join('. '))<0)h+='<p class="cf-dim">'+esc(cell.reason)+'</p>';
   (cell.summaries||[]).forEach(function(s){h+='<p>'+esc(s)+'</p>';});
-  if(cell.tour)h+='<a class="cf-go" target="_blank" rel="noopener" href="'+esc(cell.tour)+'">See it in 3D</a>';
+  if(cell.tour)h+='<button type="button" class="cf-go cf-3d" data-claim="'+esc(c.id)+'">See it in 3D</button><div class="cf-3dhost"></div>';
   if(cell.images&&cell.images.length){h+='<div class="cf-pics">'+cell.images.map(function(im){return'<figure><a href="'+esc(im.url)+'" target="_blank" rel="noopener"><img loading="lazy" alt="'+esc(im.caption||'Evidence picture')+'" src="'+esc(im.url)+'"></a>'+(im.caption?'<figcaption>'+esc(im.caption)+'</figcaption>':'')+'</figure>';}).join('')+'</div>';}
   if(cell.facts&&cell.facts.length)h+='<p class="cf-lbl">What we pulled</p><dl class="cf-kv">'+cell.facts.map(function(p){return'<dt>'+esc(p[0])+'</dt><dd>'+esc(p[1])+'</dd>';}).join('')+'</dl>';
   if(cell.raw&&cell.raw.length)h+='<details><summary>Raw data</summary><pre>'+esc(JSON.stringify(cell.raw,null,1))+'</pre></details>';}
@@ -82,7 +83,7 @@ function fill(b){var d=data(b),st=d.cell.state,c=d.c,cell=d.cell,h='';cur=b;
 function open(b){if(b.classList.contains('cf-none'))return;opener=b;clearTimeout(closeT);hide();fill(b);
  back.hidden=false;panel.hidden=false;void panel.offsetWidth;back.classList.add('cf-show');panel.classList.add('cf-show');
  panel.querySelector('.cf-x').focus({preventScroll:true});}
-function close(){if(panel.hidden)return;back.classList.remove('cf-show');panel.classList.remove('cf-show');
+function close(){if(panel.hidden)return;drop3d();back.classList.remove('cf-show');panel.classList.remove('cf-show');
  cells.forEach(function(x){x.classList.remove('cf-on');});
  closeT=setTimeout(function(){panel.hidden=true;back.hidden=true;},reduce?0:330);
  if(opener){rove(opener);}}
@@ -90,6 +91,13 @@ function go(dc,dr){if(!cur)return;var t=step(+cur.getAttribute('data-c'),+cur.ge
  if(t){opener=t;fill(t);t.scrollIntoView({block:'nearest',inline:'nearest'});}}
 grid.addEventListener('click',function(e){var b=e.target.closest('.cf-cell');if(b)open(b);});
 back.addEventListener('click',close);panel.querySelector('.cf-x').addEventListener('click',close);
+/* "See it in 3D": the finding's own inline viewer when it has one (panel closes, page scrolls there), else a live
+   viewer inside this panel; never a new tab */
+body.addEventListener('click',function(e){var g=e.target.closest('.cf-3d');if(!g||!cur)return;var cell=data(cur).cell,cid=g.getAttribute('data-claim');
+ var R=window.RC3D;if(!R){if(cell.tour_page)location.href=cell.tour_page;return;}
+ var a=document.getElementById('claim-'+cid),f=a&&a.closest('.find');
+ if(f&&f.querySelector('.walk[data-src]')){close();R.see(cid);return;}
+ var w=R.see(cid,cell.tour,body.querySelector('.cf-3dhost'));g.hidden=true;if(w)w.scrollIntoView({block:'nearest'});});
 panel.querySelector('.cf-prev').addEventListener('click',function(){go(-1,0);});
 panel.querySelector('.cf-next').addEventListener('click',function(){go(1,0);});
 document.addEventListener('keydown',function(e){if(panel.hidden)return;

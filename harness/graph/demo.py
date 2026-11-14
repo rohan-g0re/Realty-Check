@@ -1,12 +1,14 @@
-"""python -m harness.graph.demo [--fake] [--no-agent] "<address>"
+"""python -m harness.graph.demo [--fake] [--legacy] "<address>"
 
 Prints the run's events as JSON lines for a snapshot built from the synthetic listing text in
-tests/graph/listing_fixture.txt. --fake uses the canned synthetic toolbox; --no-agent skips the deep agent.
+tests/graph/listing_fixture.txt. --fake uses the canned synthetic toolbox; --legacy runs the old path (RC_LEGACY=1)
+with its fixed plan and no deep agent.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from rc_common import REPO
@@ -20,12 +22,13 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m harness.graph.demo")
     ap.add_argument("address", nargs="?", default="100 Example St, Houston, TX 77002")
     ap.add_argument("--fake", action="store_true", help="use the synthetic toolbox (no network)")
-    ap.add_argument("--no-agent", action="store_true", help="skip the deep agent; run the fixed plan")
+    ap.add_argument("--legacy", action="store_true", help="the old path (RC_LEGACY=1), fixed plan, no deep agent")
     a = ap.parse_args(argv)
     text = (REPO / "tests" / "graph" / "listing_fixture.txt").read_text(encoding="utf-8")
     snapshot = {"url": "https://example.test/listing", "title": "Synthetic Lofts", "address_text": a.address,
                 "text": text, "jsonld": []}
-    if a.no_agent:
+    if a.legacy:
+        os.environ["RC_LEGACY"] = "1"
         run_mod.AGENT_ENABLED = False
     tb = Toolbox.fake() if a.fake else Toolbox.real()
     run_check(snapshot, lambda ev: print(json.dumps(ev), flush=True), tb)

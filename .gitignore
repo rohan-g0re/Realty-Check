@@ -19,3 +19,12 @@ iso_cwd/
 vision_cwd/
 .claude/worktrees/
 .playwright-mcp/
+# private, machine-local or run output
+*.local.js
+rc_cache/
+tests/extension/real_sites.py
+screenshots/
+shots/
+test-results/
+playwright-report/
+*.log

@@ -14,8 +14,18 @@ from PIL import Image
 import rc_common
 from tools.aerial import aerial, aerial_images, building_height
 from tools.aerial.aerial import stories_from_height
+from tests.private_golden import golden
 
-AUSTIN = (29.7460624, -95.3679203)  # 2111 Austin St, Houston (kit 10122224)
+
+@pytest.fixture(scope="module")
+def houston():
+    """The private Houston demo building: its coordinates and expected aerial height live in the private folder."""
+    return golden("houston")
+
+
+@pytest.fixture(scope="module")
+def HOUSTON_BLDG(houston):
+    return (houston["lat"], houston["lon"])
 
 
 def _no_key(obj):
@@ -28,18 +38,19 @@ def test_stories_rule():
     assert stories_from_height(16.2)[0] == 4
 
 
-def test_height_austin():
-    ev = building_height(*AUSTIN)
+def test_height_houston(houston, HOUSTON_BLDG):
+    ev = building_height(*HOUSTON_BLDG)
     assert ev["source"] == "aerial" and ev["status"] == "ok", ev["summary"]
-    assert 21 <= ev["observed"]["height_m"] <= 25
-    assert ev["observed"]["stories"] == 6
+    lo_m, hi_m = houston["aerial_height_m"]
+    assert lo_m <= ev["observed"]["height_m"] <= hi_m
+    assert ev["observed"]["stories"] == houston["aerial_stories"]
     lo, hi = ev["observed"]["stories_range"]
-    assert lo <= 6 <= hi
+    assert lo <= houston["aerial_stories"] <= hi
     _no_key(ev)
 
 
-def test_images_austin():
-    ev = aerial_images(*AUSTIN)
+def test_images_houston(HOUSTON_BLDG):
+    ev = aerial_images(*HOUSTON_BLDG)
     assert ev["status"] == "ok", ev["summary"]
     cache = rc_common.cache_dir()
     tops = [i for i in ev["images"] if i["caption"].startswith("Top-down")]
@@ -52,12 +63,12 @@ def test_images_austin():
     _no_key(ev)
 
 
-def test_repeat_calls_are_cached():
-    building_height(*AUSTIN)
-    aerial_images(*AUSTIN)
+def test_repeat_calls_are_cached(HOUSTON_BLDG):
+    building_height(*HOUSTON_BLDG)
+    aerial_images(*HOUSTON_BLDG)
     n = aerial.CALLS["n"]
-    building_height(*AUSTIN)
-    aerial_images(*AUSTIN)
+    building_height(*HOUSTON_BLDG)
+    aerial_images(*HOUSTON_BLDG)
     assert aerial.CALLS["n"] == n
 
 

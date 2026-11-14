@@ -238,10 +238,10 @@ def test_stub_server_through_service_worker(env):
 
 
 DEMO = {  # page -> (full address, claim quotes the stub returns, phrases the snapshot text must contain)
-    "houston_austin.html": ("2111 Austin St, Houston, TX 77002", ["5-story building", "Built in 2019", "216 apartments"],
-                            ["5-story building", "Built in 2019", "216 apartments", "Resort-style pool", "Garage parking"]),
-    "la_sepulveda.html": ("3700 Sepulveda Blvd, Los Angeles, CA 90034", ["2 Beds · 1 Bath · 855 sq ft", "Plan E", "Saltwater pool"],
-                          ["Plan E", "2 Beds · 1 Bath · 855 sq ft", "Saltwater pool"]),
+    "demo_houston.html": ("1820 Marrow Bend St, Houston, TX 77002", ["5-story building", "Built in 2018", "184 apartments"],
+                          ["5-story building", "Built in 2018", "184 apartments", "Resort-style pool", "Garage parking"]),
+    "demo_la.html": ("2750 Corbel Ave, Los Angeles, CA 90064", ["2 Beds · 1 Bath · 815 sq ft", "Plan E", "Saltwater pool"],
+                     ["Plan E", "2 Beds · 1 Bath · 815 sq ft", "Saltwater pool"]),
 }
 
 

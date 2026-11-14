@@ -1,40 +1,40 @@
-"""One-shot calls to Claude Code CLI (headless Sonnet, isolated, no API key).
+"""One-shot calls through the harness chat model (Claude Code CLI, headless Sonnet, isolated, no API key).
 
 ask_text / ask_json: text in, text or parsed JSON out.  ask_images: same, with image files.
-Each call is a fresh process with no memory of any other call.
+Every call goes through ClaudeCLIChatModel, the chat model the deep agent runs on. Inside a run the
+agent sets CURRENT_MODEL to its own budgeted model, so the claim reading and photo checks its tools make
+share that model's deadline and timing log; outside a run a fresh model is used. Each call is a fresh
+CLI process with no memory of any other call.
 """
 from __future__ import annotations
 
+import base64
+import contextvars
 import json
 import re
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
 
-from .cli_chat_model import ISO_CWD, ISOLATION_FLAGS, child_env, find_cli
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from .cli_chat_model import ClaudeCLIChatModel, _text
 
 PLAIN_SYSTEM = "You are a careful analyst. Follow the user's output format exactly. No preamble."
 
+# The run's chat model (set by harness.graph.agent for the duration of a run), and a role tag for its log.
+CURRENT_MODEL: contextvars.ContextVar[Any] = contextvars.ContextVar("rc_current_model", default=None)
+ROLE: contextvars.ContextVar[str | None] = contextvars.ContextVar("rc_model_role", default=None)
 
-def _run(cmd: list[str], prompt: str, cwd: Path, timeout_s: int) -> str:
-    cwd.mkdir(parents=True, exist_ok=True)
-    p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
-                       cwd=str(cwd), env=child_env(), timeout=timeout_s)
-    try:
-        res = json.loads(p.stdout)
-    except json.JSONDecodeError:
-        raise RuntimeError(f"claude CLI exit {p.returncode}: {p.stdout[-300:]} {p.stderr[-300:]}")
-    if res.get("is_error"):
-        raise RuntimeError(f"claude CLI error: {str(res.get('result'))[:300]}")
-    return res.get("result") or ""
+_MIME = {".png": "image/png", ".webp": "image/webp", ".gif": "image/gif"}
+
+
+def _model(model: str, timeout_s: int):
+    return CURRENT_MODEL.get() or ClaudeCLIChatModel(model=model, timeout_s=timeout_s)
 
 
 def ask_text(prompt: str, system: str = PLAIN_SYSTEM, model: str = "sonnet", timeout_s: int = 180) -> str:
-    cmd = [find_cli(), "-p", "--model", model, "--output-format", "json", *ISOLATION_FLAGS,
-           "--tools", "", "--system-prompt", system]
-    return _run(cmd, prompt, ISO_CWD, timeout_s)
+    msg = _model(model, timeout_s).invoke([SystemMessage(system), HumanMessage(prompt)], role=ROLE.get() or "ask")
+    return _text(msg.content)
 
 
 def parse_json(text: str) -> Any:
@@ -66,20 +66,18 @@ def ask_json(prompt: str, system: str = PLAIN_SYSTEM, model: str = "sonnet", ret
     raise ValueError(err)
 
 
+def image_message(image_paths: list[str], question: str) -> HumanMessage:
+    """A user message carrying the images as base64 content blocks, then the question."""
+    blocks: list[Any] = [{"type": "text", "text": "Look at these images, then answer."}]
+    for p in image_paths:
+        data = base64.b64encode(Path(p).read_bytes()).decode("ascii")
+        blocks.append({"type": "image", "base64": data, "mime_type": _MIME.get(Path(p).suffix.lower(), "image/jpeg")})
+    blocks.append({"type": "text", "text": question})
+    return HumanMessage(content=blocks)
+
+
 def ask_images(image_paths: list[str], question: str, model: str = "sonnet", timeout_s: int = 240) -> str:
-    """Ask a question about image files. Images are copied to a fresh empty folder the model may Read."""
-    work = Path(tempfile.mkdtemp(prefix="rc_vision_"))
-    try:
-        names = []
-        for i, src in enumerate(image_paths):
-            name = f"img{i + 1}{Path(src).suffix.lower() or '.jpg'}"
-            shutil.copyfile(src, work / name)
-            names.append(name)
-        prompt = ("Read these image files in the current folder, then answer.\n"
-                  + "\n".join(f"- {n}" for n in names) + f"\n\n{question}")
-        cmd = [find_cli(), "-p", "--model", model, "--output-format", "json", *ISOLATION_FLAGS,
-               "--tools", "Read", "--allowedTools", "Read", "--restricted",
-               "--permission-prompts", "none", "--system-prompt", PLAIN_SYSTEM]
-        return _run(cmd, prompt, work, timeout_s)
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    """Ask a question about image files, through the chat model's image path (files in a fresh folder, Read only)."""
+    msg = _model(model, timeout_s).invoke([SystemMessage(PLAIN_SYSTEM), image_message(image_paths, question)],
+                                          role=ROLE.get() or "vision")
+    return _text(msg.content)

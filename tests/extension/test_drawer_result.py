@@ -205,7 +205,7 @@ def test_walkthrough_link_for_scan_finding(run):
         walk.click()
     rep = newp.value
     rep.wait_for_load_state()
-    assert rep.url == r.stub.url + "/tour/r1?claim=c1"
+    assert rep.url == r.stub.url + "/report/r1#claim-c1"  # the report at this finding, its 3D viewer embedded there
     rep.close()
 
 

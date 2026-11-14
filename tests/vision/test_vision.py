@@ -219,15 +219,21 @@ def _private_obliques() -> list[str]:
     if not p:
         return []
     out = Path(p) / "probes" / "verify_groundtruth" / "out"
-    return [str(f) for f in sorted(out.glob("oblique_full_10122224_*.jpg"))]
+    try:  # the building's kit id is not kept in the repo: resolve it from the private golden address
+        from tests.private_golden import golden
+        from tools.kit import match_address
+        pid = match_address(golden("houston")["address"]).get("property_id")
+    except Exception:
+        return []
+    return [str(f) for f in sorted(out.glob(f"oblique_full_{pid}_*.jpg"))] if pid else []
 
 
 @live
-def test_live_count_floors_private_2111_austin():
+def test_live_count_floors_private_houston():
     imgs = _private_obliques()
     if not imgs:
-        pytest.skip("private oblique images of 2111 Austin St not present")
+        pytest.skip("private oblique images of the private Houston demo building not present")
     r = _timed(count_floors, imgs)
     assert r["status"] == "ok"
     # Earlier manual verification says 6 floors; reported, not asserted, since it is a real-world probe.
-    print(f"[live] 2111 Austin St: model says {r['answer']['stories']} (truth 6), confidence {r['confidence']}")
+    print(f"[live] the private Houston demo building: model says {r['answer']['stories']} (truth 6), confidence {r['confidence']}")

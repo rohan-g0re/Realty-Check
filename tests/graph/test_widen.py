@@ -1,4 +1,5 @@
 """Floor plans matched by size / scan title / record, and amenity picture checks. No model, no network."""
+import scripted_cli
 import fakes
 from graph_events import check_run
 from rc_common import evidence
@@ -10,7 +11,7 @@ from harness.graph import run as run_mod
 KIT = [{"name": "A2s", "beds": 1, "baths": 1, "sqft": 750, "matterport_model_id": None},
        {"name": "B", "beds": 1, "baths": 1, "sqft": 791, "matterport_model_id": None},
        {"name": "Es", "beds": 2, "baths": 2, "sqft": 1065, "matterport_model_id": None},
-       {"name": "Plan D 2 Bedroom", "beds": 2, "baths": 2, "sqft": 1060, "matterport_model_id": None}]
+       {"name": "Plan D Two Bed", "beds": 2, "baths": 2, "sqft": 1060, "matterport_model_id": None}]
 
 
 def claim(kind, value, scope="unit", label=None, cid="c1", checkable=True, quote=None):
@@ -27,8 +28,21 @@ def test_size_match_needs_same_beds_baths_and_8_percent():
     assert plans.by_size(facts, KIT)["name"] == "A2s"  # 750 beats 791
     assert plans.by_size({"bedrooms": 0, "bathrooms": 1, "area_sqft": 520}, KIT) is None
     assert plans.by_size({"bedrooms": 2, "bathrooms": 2, "area_sqft": 1300}, KIT) is None  # 18% off
-    assert plans.by_name("Plan D", KIT)["name"] == "Plan D 2 Bedroom"
-    assert plans.by_name("Plan B", KIT) is None  # "B" is not "Plan B"
+    assert plans.by_name("Plan D", KIT)["name"] == "Plan D Two Bed"
+    assert plans.by_name("Plan B", KIT) is None  # the old name rule (legacy helpers only)
+
+
+def test_run_links_plans_with_the_kit_plan_matcher():
+    # the run now links plans with tools.kit.link_plan: a page plan code equal to a record plan code that does not
+    # disagree on beds/baths is the same plan ("Plan B" -> "B")
+    run = run_mod.Run({"address_text": fakes.ADDRESS}, lambda e: None, Toolbox.fake())
+    run.match = {**fakes.MATCH, "floorplans": KIT, "matterport_model_ids": []}
+    run.claims = [claim("bedrooms", 1, label="Plan B")]
+    assert run.resolve("Plan B")["kit"]["name"] == "B"
+    run.claims = [claim("bedrooms", 2, label="2 Bedroom", cid="c2")]
+    link = run.resolve("2 Bedroom")  # two 2-bed plans fit: type-level, never a mismatch
+    assert link["ambiguous"] and run.type_verdict(claim("area_sqft", 5000, label="2 Bedroom"))["verdict"] == "cant_check"
+    assert run.type_verdict(claim("area_sqft", 1062, label="2 Bedroom"))["verdict"] == "confirmed"
 
 
 def test_scan_title_fit_and_ambiguity():
@@ -96,7 +110,7 @@ def test_record_plan_wording_and_missing_plan():
 
 
 def test_run_with_size_matched_plan_and_pictures(monkeypatch):
-    monkeypatch.setattr(run_mod, "AGENT_ENABLED", False)
+    scripted_cli.install(monkeypatch)  # the real deep agent on scripted CLI replies
     cl = [claim("bedrooms", 1, label="Plan Q", cid="c1"), claim("area_sqft", 745, label="Plan Q", cid="c2"),
           claim("amenity", "Resort-style pool", scope="building", cid="c3"),
           claim("amenity", "Rooftop deck", scope="building", cid="c4"),

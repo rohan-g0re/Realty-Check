@@ -14,7 +14,7 @@ import server.fake_run as fake
 
 TYPES = {"run_started", "step", "claims", "match", "evidence", "verdict", "fill_in", "done", "error"}
 SNAP = {"url": "https://example.com/l/1", "title": "Test listing",
-        "address_text": "2111 Austin St, Houston, TX 77002", "text": "2 Beds", "jsonld": []}
+        "address_text": "418 Linden Grove Ave, Houston, TX 77006", "text": "2 Beds", "jsonld": []}
 
 
 @pytest.fixture(autouse=True)
@@ -99,7 +99,7 @@ def test_replay(client, monkeypatch):
     monkeypatch.setattr(srv, "pick_runner", lambda: ("fake", counting))
     monkeypatch.setenv("RC_REPLAY", "1")
     _, first = post(client)
-    snap2 = {**SNAP, "address_text": "2111  austin st., Houston TX 77002"}
+    snap2 = {**SNAP, "address_text": "418  linden grove ave., Houston TX 77006"}
     _, second = post(client, snap2)
     assert len(calls) == 1
     assert second == first

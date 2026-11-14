@@ -1,6 +1,6 @@
 """Shared helpers for the extension tests and the headed walk-through.
 
-- serve_fixtures(): static server for tests/extension/fixture on a random 127.0.0.1 port.
+- serve_fixtures(directory=None): static server for tests/extension/fixture (or `directory`) on a random 127.0.0.1 port.
 - StubChecker: a tiny local checker speaking docs/CONTRACT.md (POST /check -> SSE Events).
 - launch(): bundled Chromium with the unpacked extension loaded (launch_persistent_context).
 """
@@ -28,8 +28,8 @@ class _Quiet(SimpleHTTPRequestHandler):
         pass
 
 
-def serve_fixtures():
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(_Quiet, directory=str(FIXTURE)))
+def serve_fixtures(directory=None):
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(_Quiet, directory=str(directory or FIXTURE)))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd, f"http://127.0.0.1:{httpd.server_address[1]}"
 

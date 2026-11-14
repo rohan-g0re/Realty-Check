@@ -47,7 +47,7 @@ def _tokens(name: str) -> list[str]:
 
 
 def street_key(name: str) -> str:
-    """Kit streetName -> key. 'S Sepulveda Blvd' -> 'sepulveda'; 'Park Row' -> 'park'; 'First St' -> '1st'.
+    """Kit streetName -> key. 'S Corbel Blvd' -> 'corbel'; 'Park Row' -> 'park'; 'First St' -> '1st'.
 
     The kit keeps direction and type out of streetName, so peel trailing types/directions and a
     leading direction, always keeping at least one word.

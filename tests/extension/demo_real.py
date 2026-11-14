@@ -2,14 +2,16 @@
 
 Run:  .venv/Scripts/python.exe tests/extension/demo_real.py [--keep 900] [--server http://127.0.0.1:8787]
 
-Opens a bundled Chromium window with the extension loaded and two tabs:
-  houston_austin.html  (2111 Austin St, Houston, TX 77002)
-  la_sepulveda.html    (3700 Sepulveda Blvd, Los Angeles, CA 90034)
-served from tests/extension/fixture on a random local port. It clicks nothing: click the highlighted
+Opens a bundled Chromium window with the extension loaded and one tab per page:
+  demo_houston.html  (1820 Marrow Bend St, Houston, TX 77002)
+  demo_la.html       (2750 Corbel Ave, Los Angeles, CA 90064)
+served from tests/extension/fixture on a random local port.
+Set RC_DEMO_PAGES=<folder> to serve every *.html in that folder instead (e.g. pages with addresses the checker knows). It clicks nothing: click the highlighted
 address, then "Inspect location". Start the checker on 127.0.0.1:8787 first. The window stays open
 for --keep seconds (or until you close it).
 """
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -18,7 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rc_harness as H  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
-PAGES = ("houston_austin.html", "la_sepulveda.html")
+PAGES_DIR = os.environ.get("RC_DEMO_PAGES") or None
+PAGES = tuple(sorted(p.name for p in Path(PAGES_DIR).glob("*.html"))) if PAGES_DIR else ("demo_houston.html", "demo_la.html")
 
 
 def main():
@@ -26,7 +29,7 @@ def main():
     ap.add_argument("--keep", type=int, default=900)
     ap.add_argument("--server", default="http://127.0.0.1:8787")
     a = ap.parse_args()
-    httpd, base = H.serve_fixtures()
+    httpd, base = H.serve_fixtures(PAGES_DIR)
     with sync_playwright() as pw:
         ctx, sw, udd = H.launch(pw, headless=False, viewport=(1440, 900))
         try:

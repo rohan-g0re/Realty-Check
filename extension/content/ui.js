@@ -209,8 +209,8 @@
   $("ft").addEventListener("click", (e) => {
     const walk = e.target.closest("#btnWalk");
     if (walk && run && run.done && run.mode === "server") {
-      // The real 3D walkthrough for one finding (server route /tour/<run_id>?claim=<id>).
-      send({ type: "openReport", report_url: `/tour/${encodeURIComponent(run.done.run_id || "")}?claim=${encodeURIComponent(walk.dataset.id)}` });
+      // The report, at this finding: its live 3D viewer is embedded there and opens at the spot by itself.
+      openReport("#claim-" + encodeURIComponent(walk.dataset.id));
       return;
     }
     if (e.target.closest("#btnAnother")) { stopRun(); run = null; rebuildMarks(); overlay.setSelected(null); render(true); }

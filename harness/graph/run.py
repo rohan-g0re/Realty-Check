@@ -1,11 +1,18 @@
 """run_check(snapshot, emit, toolbox=None) -> done event (docs/CONTRACT.md 2.6).
 
-Deterministic preamble (claims, match) -> deep agent plans and gathers evidence -> deterministic close
-(judge every claim, done). If the agent fails, runs out of budget or gathers nothing, a fixed plan runs
-every relevant check once, so the user always gets verdicts.
+Default path: the whole check runs inside the deepagents harness (harness/graph/agent.py). The
+orchestrator reads the claims and matches the address with its own tools, delegates the checks to the
+inside / outside / paper subagents, then calls the rule-based judge and "Fill me in" as its final tools.
+If the agent fails, times out or stops early, the run still ends cleanly: whatever evidence was gathered is
+judged by the same rules (claims without evidence get "couldn't check"), and done is sent. Nothing runs a
+fixed plan behind the agent's back.
+
+RC_LEGACY=1: the earlier flow (harness/graph/legacy.py): code preamble, old agent, fixed completion plan.
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import os
 import re
@@ -23,15 +30,18 @@ from . import amenities, plans
 from .judge import SOURCE_NAME, VERB, judge
 from .toolbox import Toolbox
 
-AGENT_ENABLED = True  # tests switch the deep agent off to exercise the fixed plan
+AGENT_ENABLED = True  # False: no agent at all (claims and match only, every claim "couldn't check")
 LAST_AGENT_STATS: dict = {}  # stats of the latest deep-agent run (model calls, delegations, trace)
 UNIT_KINDS = ("bedrooms", "bathrooms", "area_sqft")
 SEVERITY = ["bedrooms", "area_sqft", "bathrooms", "stories", "unit_count", "year_built"]
-RUN_BUDGET_S = 60.0     # whole-run target; vision calls are skipped once less than VISION_MIN_LEFT_S remains
-VISION_MIN_LEFT_S = 15.0
-FINISH_RESERVE_S = 1.5  # picture checks still running this close to the budget are reported as not checked
+RUN_BUDGET_S = 100.0    # hard end of a run: the agent is abandoned in time for the close to finish by then
+CLOSE_RESERVE_S = 4.0   # kept for the close (judge, fill in, done: milliseconds) after an abandoned agent
+VISION_MIN_LEFT_S = 15.0  # a vision call is skipped once less than this remains of the budget
+FINISH_RESERVE_S = 1.5  # (legacy) picture checks still running this close to the budget are not checked
 MAX_SCAN_FETCH = 8      # property-level scan summaries fetched from Matterport per run (cached ones are free)
 MAX_FEATURE_SCANS = 2   # scans whose photos are searched for in-unit features per run
+MAX_STILLS_FETCH = 3    # uncached scan stills (proof pictures) fetched per run; cached ones are free
+HELPERS = ("inside", "outside", "paper")
 
 
 class Run:
@@ -59,17 +69,80 @@ class Run:
         self._pic_claims: dict[str, list[str]] = {}  # job name -> claim ids it answers
         self._pic_done: set[str] = set()
         self.vision_calls = 0
+        self.budget_s = RUN_BUDGET_S  # what tools measure time_left() against (the agent path uses its own budget)
+        self.path = "agent"
+        # contract order (claims, match, evidence, verdicts, fill_in, done), whoever calls what when
+        self._order = threading.RLock()
+        self.claims_ready = self.match_ready = False
+        self.claims_sent = self.match_sent = False
+        self._held: list[dict] = []           # evidence events waiting for the match event
+        self.sealed = False                   # judging started: later evidence is ignored
+        self.finished = False                 # done sent: nothing more is emitted
+        self.verdicts: list[dict] | None = None
+        self.judged_by: str | None = None
+        self.facts_sent = False
+        self._judged = threading.Event()
+        self.needed: dict[str, str] = {}      # helper -> why (from the claim kinds)
+        self.helpers_used: set[str] = set()   # helpers whose tools ran
+        self._judge_refused = False
+        self._stills_fetched = 0
+        self._aerial: dict | None = None
+        self._aerial_lock = threading.Lock()
+        self._spans: dict[str, list[tuple[float, float]]] = {}
+        self._late: dict[str, dict] = {}       # evidence that arrived after judging started (not used)
 
     def time_left(self) -> float:
-        return RUN_BUDGET_S - (time.monotonic() - self.t0)
+        return self.budget_s - (time.monotonic() - self.t0)
+
+    # ---- timing -------------------------------------------------------------------------------
+    @contextlib.contextmanager
+    def phase(self, name: str):
+        a = time.monotonic() - self.t0
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._spans.setdefault(name, []).append((a, time.monotonic() - self.t0))
+
+    def timing(self) -> dict:
+        """Wall seconds of the run and of each phase (a phase's first start to its last end, so parallel
+        checks of one helper are not added up), plus model seconds per role."""
+        with self._lock:
+            spans = {k: list(v) for k, v in self._spans.items()}
+        phases = {k: round(max(b for _, b in v) - min(a for a, _ in v), 2) for k, v in spans.items() if v}
+        out = {"total_s": round(time.monotonic() - self.t0, 2), "phases": phases}
+        calls = (self.agent_stats or {}).get("calls") or []
+        if calls:
+            by: dict[str, list[float]] = {}
+            for c in calls:
+                by.setdefault(str(c.get("role") or "other"), []).append(float(c.get("wall_s") or 0))
+            out["model_calls"] = len(calls)
+            out["model_s"] = {k: round(sum(v), 2) for k, v in sorted(by.items())}
+        return out
 
     # ---- events -------------------------------------------------------------------------------
     def emit(self, event: dict) -> None:
         with self._lock:
+            if self.finished:
+                return  # an abandoned agent thread may still be talking; done was already sent
             try:
                 self._emit(event)
             except Exception:
                 pass  # a broken listener must not kill the run
+
+    def _flush(self) -> None:
+        """Send claims, then match, then held evidence, as soon as each is ready (contract order)."""
+        with self._order:
+            if self.claims_ready and not self.claims_sent:
+                self.claims_sent = True
+                self.emit({"type": "claims", "claims": self.claims})
+            if self.claims_sent and self.match_ready and not self.match_sent:
+                self.match_sent = True
+                self.emit({"type": "match", "match": self.match})
+            if self.match_sent and self._held:
+                held, self._held = self._held, []
+                for ev in held:
+                    self.emit(ev)
 
     def step(self, agent: str, text: str) -> None:
         self.emit({"type": "step", "agent": agent, "text": text})
@@ -87,15 +160,26 @@ class Run:
               "detail": str(ev.get("detail") or "")}
         if plan and ev["source"] == "scan":
             ev["observed"].setdefault("plan", plan)
-        with self._lock:
-            eid = f"E{len(self.evidence) + 1}"
-            self.evidence[eid] = ev
-        self.emit({"type": "evidence", "evidence": ev})
+        with self._order:
+            if self.sealed:  # judging has started: too late to count, and too late to show
+                with self._lock:
+                    eid = f"L{len(self._late) + 1}"
+                    self._late[eid] = ev
+                return eid
+            with self._lock:
+                eid = f"E{len(self.evidence) + 1}"
+                self.evidence[eid] = ev
+            if self.match_sent:
+                self.emit({"type": "evidence", "evidence": ev})
+            else:
+                self._held.append({"type": "evidence", "evidence": ev})
         return eid
 
     def line(self, eid: str) -> str:
         """Short text an agent sees: id + status + one-line summary + small observed dict."""
-        ev = self.evidence[eid]
+        ev = self.evidence.get(eid) or self._late.get(eid)
+        if eid in self._late:
+            return f"{eid} arrived after judging started, so it was not used."
         obs = {k: v for k, v in ev["observed"].items()
                if not isinstance(v, (list, dict)) or len(json.dumps(v)) < 120}
         text = f"{eid} [{ev['source']} {ev['status']}] {ev['summary'][:160]} observed={json.dumps(obs)[:240]}"
@@ -135,43 +219,35 @@ class Run:
             return self._summaries
 
     def resolve(self, label: str | None) -> dict:
-        """Listing plan -> {kit, how, scan_id, scan_how, scan_title, note} (harness/graph/plans.py, steps a-d)."""
+        """Listing plan -> link (tools.kit.plan_match.link_plan): {kit, kit_plans, how, ambiguous, scan_id,
+        scan_how, scan_title, note, ...}. `ambiguous` = a type-level match: several record plans fit, none picked."""
         label = (label or "").strip()
         key = label.lower()
         with self._plan_lock:
             if key in self._plans:
                 return self._plans[key]
-        r = {"label": label, "kit": None, "how": None, "scan_id": None, "scan_how": None, "scan_title": None,
-             "note": ""}
-        fps = self.match.get("floorplans") or [] if self.match.get("status") == "matched" else []
         if not label:
+            r = {"label": label, "kit": None, "kit_plans": [], "how": None, "ambiguous": False, "scan_id": None,
+                 "scan_how": None, "scan_title": None, "note": ""}
             ids = self.match.get("matterport_model_ids") or []
             if len(ids) == 1:
                 r.update(scan_id=ids[0], scan_how="only")
         else:
-            fp, how = plans.by_name(label, fps), "name"
-            if not fp:
-                fp, how = plans.by_size(plans.listing_facts(label, self.claims), fps), "size"
-            if fp:
-                name = plans.plan_label(fp)
-                r.update(kit=fp, how=how)
-                if how == "size":
-                    r["note"] = f"Matched to the building's plan {name} by size."
-                own = fp.get("matterport_model_id")
-                bad = self._scan_misfit(fp, own) if own else None
-                if own and not bad:
-                    r.update(scan_id=own, scan_how="kit")
-                else:
-                    if bad:
-                        r["note"] = (r["note"] + " " if r["note"] else "") + bad
-                    taken = {f.get("matterport_model_id") for f in fps if f.get("matterport_model_id")}
-                    got = plans.pick_scan(fp, self.property_scans(), taken)
-                    if got:
-                        r.update(scan_id=got[0], scan_how="title", scan_title=got[1])
-                        r["note"] = (f"{label} has no 3D scan of its own in the building record; the building's "
-                                     f"scan titled '{got[1]}' fits its plan {name}.")
+            scans = self.property_scans() if self.match.get("status") == "matched" else {}
+            try:
+                r = _link_plan()(label, self.match, self.claims, scans)
+            except Exception as e:  # the matcher must never break a run: an unlinked plan is "not in the records"
+                r = {"label": label, "kit": None, "kit_plans": [], "how": None, "ambiguous": False, "scan_id": None,
+                     "scan_how": None, "scan_title": None, "note": "", "error": f"{type(e).__name__}: {e}"[:200]}
         with self._plan_lock:
             return self._plans.setdefault(key, r)
+
+    def type_link(self, label: str | None) -> dict | None:
+        """The link of a listing plan when it is type-level (several record plans fit, none picked), else None."""
+        if not label:
+            return None
+        r = self.resolve(label)
+        return r if r.get("ambiguous") else None
 
     def _scan_misfit(self, fp: dict, mid: str) -> str | None:
         """A plan's own scan whose title gives a size more than 8% off the plan's is not used for that plan.
@@ -190,7 +266,7 @@ class Run:
         return self.resolve(plan)["scan_id"]
 
     def canon_plan(self, plan: str) -> str:
-        """Map whatever plan name the agent passes (e.g. the kit's 'Plan E 1 Bedroom + Den') back to the claim
+        """Map whatever plan name the agent passes (e.g. the kit's 'Plan E 1 Bed + Den') back to the claim
         label that resolves to the same plan or scan ('Plan E'), so evidence and claims share one plan tag."""
         plan = (plan or "").strip()
         if not plan:
@@ -242,7 +318,10 @@ class Run:
         def body():
             r = self.resolve(plan)
             out = []
-            if plan and r["kit"]:
+            example = bool(r.get("ambiguous"))  # type-level: several record plans fit, none was picked
+            if plan and example:
+                out.append(self.line(self.add(_type_parts()[1](r, self.match), "record")))
+            elif plan and r["kit"]:
                 out.append(self.line(self.add(self._plan_record(plan, r), "record")))
             elif plan and self.match.get("status") == "matched":
                 out.append(self.line(self.add(make_evidence(
@@ -259,7 +338,12 @@ class Run:
             ev = self._safe("scan", self.tb.scan_summary, r["scan_id"])
             if r["note"] and isinstance(ev, dict) and ev.get("status") == "ok":
                 ev = {**ev, "observed": {**(ev.get("observed") or {}), "plan_match": r["note"]}}
-            out.append(self.line(self.add(ev, "scan", plan)))
+            if example and isinstance(ev, dict):
+                # an example of the kind of home only: not tied to the listing's plan, so it never decides its claims
+                ev = {**ev, "observed": {**(ev.get("observed") or {}), "example_for": plan}}
+                out.append(self.line(self.add(ev, "scan")))
+            else:
+                out.append(self.line(self.add(ev, "scan", plan)))
             return "\n".join(out)
         return self._check(f"scan_rooms:{plan.lower()}", agent, f"Checking the floor plan {name}: its scan or record.",
                            body)
@@ -317,11 +401,18 @@ class Run:
         return self.line(self.add(make_evidence("aerial", "no_evidence", "We have no map location for this address."),
                                   "aerial"))
 
+    def aerial_ev(self) -> dict:
+        """The aerial photos of this location, fetched once per run (roof check and amenity check share them)."""
+        with self._aerial_lock:
+            if self._aerial is None:
+                self._aerial = self._safe("aerial", self.tb.aerial_images, self.lat, self.lon)
+            return self._aerial
+
     def aerial_photos(self, agent: str = "outside") -> str:
         def body():
             if self.lat is None or self.lon is None:
                 return self._no_location()
-            return self.line(self.add(self._safe("aerial", self.tb.aerial_images, self.lat, self.lon), "aerial"))
+            return self.line(self.add(self.aerial_ev(), "aerial"))
         return self._check("aerial_photos", agent, "Fetching aerial photos of the building.", body)
 
     def measure_building(self, agent: str = "outside") -> str:
@@ -374,6 +465,304 @@ class Run:
                 ev = self._safe("record", self.tb.record_evidence, self.match)
             return self.line(self.add(ev, "record"))
         return self._check("record", agent, "Reading the building record.", body)
+
+    # ---- agent path: the orchestrator's own tools ----------------------------------------------------
+    def read_claims(self) -> str:
+        """Orchestrator tool: read the listing's claims (rules + JSON-LD + one model call through the run's
+        chat model), send the claims event, and say which helpers the claim kinds need."""
+        with self._order:
+            if self.claims_ready:
+                return self.claims_text() + " (already read)"
+            if getattr(self, "_reading", False):
+                return "The claims are being read already."
+            self._reading = True
+        self.step("claims", "Reading what the listing claims.")
+        try:
+            with self.phase("claims"):
+                claims = self.tb.extract_claims(self.snapshot) or []
+            self.claims = [c for c in claims if isinstance(c, dict) and c.get("id")]
+        except Exception as e:
+            self.error(f"reading claims failed: {type(e).__name__}: {e}")
+        self.needed = helpers_needed(self.claims, self.match)
+        with self._order:
+            self.claims_ready = True
+            self._flush()
+        return self.claims_text()
+
+    def claims_text(self) -> str:
+        checkable = [c for c in self.claims if c.get("checkable")]
+        rows = [f"{c['id']} {c.get('kind')}={json.dumps(c.get('value'))}" + (f" [{c['label']}]" if c.get("label") else "")
+                for c in checkable]
+        need = "; ".join(f"{h} ({why})" for h, why in self.needed.items()) or "none (nothing measurable)"
+        return (f"{len(self.claims)} claims, {len(checkable)} checkable:\n" + "\n".join(rows)
+                + f"\nHelpers needed: {need}")
+
+    def do_match(self) -> None:
+        """Address -> Match (the matcher's public function), plus a geocoded location when the match has none."""
+        m = self.tb.match_address(self.address)
+        if isinstance(m, dict) and m.get("status") in ("matched", "no_match"):
+            self.match = m
+        if self.match.get("lat") is None or self.match.get("lon") is None:
+            g = self.tb.geocode(self.address) if self.address else None
+            if isinstance(g, dict) and g.get("lat") is not None:
+                self.match = {**self.match, "lat": g["lat"], "lon": g["lon"]}
+        self.lat, self.lon = self.match.get("lat"), self.match.get("lon")
+
+    def match_listing(self) -> str:
+        """Orchestrator tool: match the listing's address to a building record (plans, scans, location)."""
+        with self._order:
+            if self.match_ready or getattr(self, "_matching", False):
+                return self.match_text() + " (already matched)"
+            self._matching = True
+        self.step("matcher", f"Finding the building at {self.address or 'this address'}.")
+        try:
+            with self.phase("match"):
+                self.do_match()
+        except Exception as e:
+            self.error(f"address match failed: {type(e).__name__}: {e}")
+        if self.claims_ready:
+            self.needed = helpers_needed(self.claims, self.match)
+        with self._order:
+            self.match_ready = True
+            self._flush()  # sent right after the claims event, never before it
+        return self.match_text()
+
+    def match_text(self) -> str:
+        m = self.match
+        if m.get("status") != "matched":
+            loc = "has a map location" if self.lat is not None else "no map location"
+            return f"No building record matched this address ({m.get('how')}); {loc}."
+        fps = m.get("floorplans") or []
+        scans = sum(1 for f in fps if f.get("matterport_model_id"))
+        return (f"Matched {m.get('name')} ({m.get('kind', 'building')}), confidence {m.get('confidence')}: "
+                f"{len(fps)} floor plans ({scans} with a 3D scan), {len(m.get('matterport_model_ids') or [])} scans "
+                f"in all, record {json.dumps(m.get('record'))}, "
+                f"{'has a map location' if self.lat is not None else 'no map location'}.")
+
+    def judge_claims(self) -> str:
+        """Orchestrator's final tool: the rule-based judge over the gathered evidence. Refuses once while a
+        needed helper has not been asked, so a check does not stop at one source."""
+        missing = [h for h in self.needed if h not in self.helpers_used]
+        if missing and not self._judge_refused and self.claims_ready:
+            self._judge_refused = True
+            return (f"Not judged yet: these helpers are needed and were not asked: {', '.join(missing)}. "
+                    "Ask them now with the task tool (all in one message), then call judge_claims again.")
+        verdicts = self.judge_all(by="agent")
+        counts = {k: sum(v["verdict"] == k for v in verdicts) for k in ("confirmed", "contradicted", "close", "cant_check")}
+        return "Judged: " + ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in counts.items()) + "."
+
+    def fill_in_tool(self) -> str:
+        """Orchestrator tool: "Fill me in" facts, sent after the verdicts."""
+        if not self._judged.wait(timeout=max(0.0, min(15.0, self.time_left()))):
+            return "Not sent: call judge_claims first."
+        n = self.send_fill_in(by="agent")
+        return f"Sent {n} facts the listing does not mention." if n is not None else "Already sent."
+
+    # ---- agent path: the subagents' tools -----------------------------------------------------------
+    def check_floor_plans(self, names: list[str] | None = None, agent: str = "inside") -> str:
+        """Every listing floor plan (or the given ones): its kit plan, 3D scan or record numbers, then cached or
+        a few fresh scan stills as proof pictures (plans whose scan disagrees with the listing first)."""
+        self.helpers_used.add(agent)
+        listing = sorted({c.get("label") or "" for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS})
+        # the plans the agent names first, then any listing plan it left out (every claimed plan gets checked)
+        todo = list(dict.fromkeys([self.canon_plan(str(n)) for n in names or [] if str(n).strip()] + listing))
+        if not todo:
+            return "The listing names no floor plan claims to check."
+        with self.phase(agent):
+            outs = _ctx_map(lambda p: self.scan_rooms(p, agent=agent), todo, 6)
+            stills = [p for p in todo if p and self.model_for(p)]
+            stills.sort(key=lambda p: (0 if self._plan_disagrees(p) else 1))
+            fresh = []
+            for p in stills:
+                if _stills_cached(self.model_for(p)):
+                    fresh.append(p)
+                elif self._stills_fetched < MAX_STILLS_FETCH and self.time_left() > VISION_MIN_LEFT_S:
+                    self._stills_fetched += 1
+                    fresh.append(p)
+            if fresh:  # proof pictures only: waited for while time allows, never past the reserve for judging
+                got = self._bounded(lambda: _ctx_map(lambda p: self.scan_photos(p, agent=agent), fresh, 4))
+                outs += got if got is not None else [
+                    f"Scan photos of {', '.join(fresh)} are still downloading; they are not needed for the counts."]
+        return "\n".join(outs)
+
+    def _plan_disagrees(self, plan: str) -> bool:
+        claimed = {c.get("kind"): c.get("value") for c in self.claims
+                   if (c.get("label") or "") == plan and c.get("kind") in ("bedrooms", "bathrooms")}
+        for e in list(self.evidence.values()):
+            o = e["observed"]
+            if e["source"] == "scan" and e["status"] == "ok" and str(o.get("plan", "")) == plan:
+                if any(k in o and o[k] is not None and o[k] != v for k, v in claimed.items()):
+                    return True
+        return False
+
+    def features(self, which: str, agent: str) -> str:
+        """Picture checks of one kind, run now: 'aerial' (outdoor amenities on the aerial photos) or 'unit'
+        (in-unit features on scan photos, plus amenity rooms the building has scanned)."""
+        self.helpers_used.add(agent)
+        feats = [(c, amenities.feature_for(c)) for c in self.claims]
+        if which == "aerial":
+            jobs = {"aerial": (self._aerial_features, [(c, f) for c, f in feats if f and f[2] == "aerial"])}
+        else:
+            titled = [c for c in self.claims if amenities.title_rooms(c)] if self.match.get("matterport_model_ids") else []
+            jobs = {"unit": (self._unit_features, [(c, f) for c, f in feats if f and f[2] == "scan"]),
+                    "titles": (self._title_rooms, titled)}
+        jobs = {k: v for k, v in jobs.items() if v[1]}
+        if not jobs:
+            return "No claims of this kind to look for in pictures."
+
+        def body():
+            cancel = threading.Event()
+            with self.phase(agent):
+                res = self._bounded(lambda: _ctx_map(lambda kv: self._run_pictures(kv[0], *kv[1], cancel=cancel),
+                                                     list(jobs.items()), len(jobs)))
+            if res is None:  # out of time: these claims are honestly "not checked"; a late answer is dropped
+                cancel.set()
+                res = []
+                for name, (_, items) in jobs.items():
+                    ids = [(x[0] if isinstance(x, tuple) else x)["id"] for x in items]
+                    src = "aerial" if name == "aerial" else "scan"
+                    res.append([self.line(self.add(make_evidence(
+                        src, "no_evidence", "We ran out of time before the photos were checked.",
+                        {"feature_check": True, "claim_ids": ids, "presence": "skipped"}), src))])
+            return "\n".join(line for r in res for line in r) or "Nothing found."
+        return self._check(f"features:{which}", agent, "Looking for the claimed features in "
+                           + ("the aerial photos." if which == "aerial" else "the 3D scan photos."), body)
+
+    def _bounded(self, fn: Callable[[], Any], reserve: float = 12.0) -> Any:
+        """fn() in a worker thread (same context: the run's model), waited for until `reserve` seconds of the budget
+        are left (time for the orchestrator to judge). None when it did not finish; the worker is left to end."""
+        box: dict[str, Any] = {}
+        ctx = contextvars.copy_context()
+
+        def work():
+            try:
+                box["v"] = ctx.run(fn)
+            except Exception as e:
+                box["e"] = e
+        th = threading.Thread(target=work, daemon=True, name="rc-bounded")
+        th.start()
+        th.join(timeout=max(0.0, self.time_left() - reserve))
+        if th.is_alive():
+            return None
+        if "e" in box:
+            raise box["e"]
+        return box["v"]
+
+    def _run_pictures(self, name: str, fn: Callable, items: list, cancel: threading.Event | None = None) -> list[str]:
+        try:
+            evs = fn(items)
+        except Exception as e:
+            ids = [(x[0] if isinstance(x, tuple) else x)["id"] for x in items]
+            evs = [make_evidence("aerial" if name == "aerial" else "scan", "error", "The picture check failed.",
+                                 {"feature_check": True, "claim_ids": ids, "presence": "unclear"},
+                                 detail=f"{type(e).__name__}: {str(e)[:200]}")]
+        if cancel is not None and cancel.is_set():
+            return []
+        return [self.line(self.add(ev, ev["source"])) for ev in evs]
+
+    def tool(self, agent: str, fn: Callable[..., str], *args) -> str:
+        """Run one subagent check, marking the helper as used and timing it under its name."""
+        self.helpers_used.add(agent)
+        with self.phase(agent):
+            return fn(*args, agent=agent)
+
+    # ---- the close: verdicts, fill in, done (also when the agent never got there) ---------------------
+    def ensure_claims_and_match(self) -> None:
+        """Before any verdict: a claims and a match event exist. Claims the agent never read come from the
+        page's own words (rules and JSON-LD, no model); an address it never matched is said to be unmatched."""
+        with self._order:
+            if not self.claims_ready:
+                try:
+                    try:
+                        claims = self.tb.extract_claims(self.snapshot, use_model=False)
+                    except TypeError:
+                        claims = []
+                    self.claims = [c for c in claims or [] if isinstance(c, dict) and c.get("id")]
+                except Exception:
+                    self.claims = []
+                self.claims_ready = True
+            if not self.match_ready:
+                if self.match.get("how") == "not run":
+                    self.match = {**self.match, "how": "The check stopped before the address was matched."}
+                self.match_ready = True
+            self._flush()
+
+    def judge_all(self, by: str) -> list[dict]:
+        """Judge every claim once (rules, no model) and send the verdicts; later calls return the same list."""
+        with self._order:
+            if self.verdicts is not None:
+                return self.verdicts
+            self.ensure_claims_and_match()
+            self.sealed = True
+            self.step("judge", "Comparing every claim with the evidence.")
+            t = time.monotonic()
+            evs = list(self.evidence.values())
+            verdicts = []
+            for c in self.claims:
+                try:
+                    v = self.type_verdict(c) or judge(c, evs)
+                except Exception as e:
+                    v = {"claim_id": c.get("id"), "verdict": "cant_check", "claimed": str(c.get("quote") or ""),
+                         "found": "no data", "source": None,
+                         "reason": f"This claim could not be judged ({type(e).__name__}).", "image": None}
+                verdicts.append(v)
+                self.emit({"type": "verdict", "verdict": v})
+            self.verdicts, self.judged_by = verdicts, by
+            with self._lock:
+                self._spans.setdefault("judge", []).append((t - self.t0, time.monotonic() - self.t0))
+        self._judged.set()
+        return verdicts
+
+    def type_verdict(self, claim: dict) -> dict | None:
+        """A unit claim on a type-level plan link (several record plans fit, none picked) is only ever confirmed
+        or "couldn't check" (tools.kit.check_type_claim): an ambiguous pairing never gives a mismatch."""
+        if claim.get("kind") not in UNIT_KINDS or not claim.get("label") or self.match.get("status") != "matched":
+            return None
+        with self._plan_lock:
+            link = self._plans.get(str(claim["label"]).strip().lower())
+        if not link or not link.get("ambiguous"):
+            return None
+        return _type_parts()[0](claim, link)
+
+    def send_fill_in(self, by: str) -> int | None:
+        with self._order:
+            if self.facts_sent:
+                return None
+            self.facts_sent = True
+            with self.phase("fill_in"):
+                try:
+                    facts = self.fill_in()
+                except Exception as e:  # extra information only: never turn the check into an error
+                    facts = []
+                    self.agent_stats["fill_in_error"] = f"{type(e).__name__}: {str(e)[:200]}"
+            self.emit({"type": "fill_in", "facts": facts})
+            self.fill_in_by = by
+            return len(facts)
+
+    def close(self, by: str) -> dict:
+        """Verdicts (if the agent did not judge), fill in (if not sent), done. Never raises."""
+        verdicts = self.judge_all(by)
+        self.send_fill_in(by)
+        counts = {k: sum(v["verdict"] == k for v in verdicts) for k in ("confirmed", "contradicted", "close", "cant_check")}
+        try:
+            headline = _headline(verdicts, {c["id"]: c for c in self.claims})
+        except Exception:
+            headline = "The check finished."
+        stopped = (self.agent_stats or {}).get("stopped")
+        done = {"type": "done", "run_id": self.run_id, "counts": counts, "headline": headline,
+                "report_url": f"/report/{self.run_id}",
+                "harness": {"path": self.path, "judged_by": self.judged_by,
+                            "fill_in_by": getattr(self, "fill_in_by", None), "stopped": stopped,
+                            "helpers": sorted(self.helpers_used), "needed": sorted(self.needed)},
+                "timing": self.timing()}
+        LAST_AGENT_STATS.clear()
+        LAST_AGENT_STATS.update(self.agent_stats)
+        LAST_AGENT_STATS["vision_calls"] = self.vision_calls
+        LAST_AGENT_STATS["done"] = done
+        self.emit(done)
+        with self._lock:
+            self.finished = True
+        return done
 
     # ---- picture checks: amenities from the air, in-unit features in scan photos (soft, presence only) ----
     def start_pictures(self) -> None:
@@ -463,7 +852,7 @@ class Run:
         if self.lat is None or self.lon is None:
             return [make_evidence("aerial", "no_evidence", "We have no map location, so no aerial photos.",
                                   {"feature_check": True, "claim_ids": ids, "presence": "unclear"})]
-        ev = self._safe("aerial", self.tb.aerial_images, self.lat, self.lon)
+        ev = self.aerial_ev()
         images = [im for im in ev.get("images") or [] if im.get("path")][:3]
         if ev.get("status") != "ok" or not images:
             return [make_evidence("aerial", "no_evidence", "No aerial photos are available here.",
@@ -514,9 +903,8 @@ class Run:
                                      {"feature_check": True, "claim_ids": [c["id"] for c, _ in unlabeled],
                                       "presence": "unclear"}))
         if wanted:
-            with ThreadPoolExecutor(len(wanted)) as ex:
-                for evs in ex.map(one, wanted):
-                    out.extend(evs)
+            for evs in _ctx_map(one, wanted, len(wanted)):
+                out.extend(evs)
         return out
 
     def _title_rooms(self, claims: list[dict]) -> list[dict]:
@@ -618,11 +1006,67 @@ class Run:
             self.building_record()
 
 
+def _ctx_map(fn: Callable, items: list, workers: int) -> list:
+    """ThreadPoolExecutor.map that carries the caller's context (the run's chat model) into each worker."""
+    if not items:
+        return []
+    with ThreadPoolExecutor(max(1, min(workers, len(items)))) as ex:
+        futs = [ex.submit(contextvars.copy_context().run, fn, x) for x in items]
+        return [f.result() for f in futs]
+
+
+def _link_plan():
+    from tools.kit import link_plan  # lazy: the harness imports without the kit (fake toolbox tests)
+    return link_plan
+
+
+def _type_parts():
+    from tools.kit import check_type_claim, type_evidence
+    return check_type_claim, type_evidence
+
+
 def _scan_cached(model_id: str) -> bool:
     try:
         return (Path(os.environ["RC_PRIVATE_DIR"]) / "rc_cache" / "scan" / model_id / "summary.json").exists()
     except Exception:
         return False
+
+
+def _stills_cached(model_id: str | None) -> bool:
+    try:
+        return bool(model_id) and (Path(os.environ["RC_PRIVATE_DIR"]) / "rc_cache" / "scan" / model_id
+                                   / "stills.json").exists()
+    except Exception:
+        return False
+
+
+def helpers_needed(claims: list[dict], match: dict | None = None) -> dict[str, str]:
+    """Which helpers the claim kinds call for, and why. Every source that applies is listed, so the
+    orchestrator does not stop at one (stories: the roof height AND the paper records)."""
+    checkable = [c for c in claims if c.get("checkable")]
+    kinds = {c.get("kind") for c in checkable}
+    feats = [amenities.feature_for(c) for c in checkable]
+    need: dict[str, str] = {}
+    inside = []
+    if kinds & set(UNIT_KINDS):
+        inside.append("floor plan bedrooms/bathrooms/area")
+    if any(f and f[2] == "scan" for f in feats):
+        inside.append("in-unit features on scan photos")
+    if any(amenities.title_rooms(c) for c in checkable):
+        inside.append("amenity rooms the building has scanned")
+    if inside:
+        need["inside"] = ", ".join(inside)
+    outside = []
+    if "stories" in kinds:
+        outside.append("roof height for floors")
+    if any(f and f[2] == "aerial" for f in feats):
+        outside.append("outdoor amenities on aerial photos")
+    if outside:
+        need["outside"] = ", ".join(outside)
+    paper = sorted(kinds & {"stories", "year_built", "unit_count"})
+    if paper:
+        need["paper"] = "county and building records for " + ", ".join(k.replace("_", " ") for k in paper)
+    return need
 
 
 def _overstated(v: dict, claim: dict) -> bool:
@@ -676,95 +1120,36 @@ def run_check(snapshot: dict, emit: Callable[[dict], Any], toolbox: Toolbox | No
     if setup_error:
         run.error(setup_error)
 
-    # 1. Deterministic preamble.
-    try:
-        run.step("claims", "Reading what the listing claims.")
-        claims = run.tb.extract_claims(run.snapshot) or []
-        run.claims = [c for c in claims if isinstance(c, dict) and c.get("id")]
-    except Exception as e:
-        run.error(f"reading claims failed: {type(e).__name__}: {e}")
-    run.emit({"type": "claims", "claims": run.claims})
-    try:
-        run.step("matcher", f"Finding the building at {run.address or 'this address'}.")
-        m = run.tb.match_address(run.address)
-        if isinstance(m, dict) and m.get("status") in ("matched", "no_match"):
-            run.match = m
-        if run.match.get("lat") is None or run.match.get("lon") is None:
-            g = run.tb.geocode(run.address) if run.address else None
-            if isinstance(g, dict) and g.get("lat") is not None:
-                run.match = {**run.match, "lat": g["lat"], "lon": g["lon"]}
-        run.lat, run.lon = run.match.get("lat"), run.match.get("lon")
-    except Exception as e:
-        run.error(f"address match failed: {type(e).__name__}: {e}")
-    run.emit({"type": "match", "match": run.match})
-    try:
-        run.start_pictures()  # amenity / in-unit picture checks run alongside the agent
-    except Exception as e:
-        run.error(f"picture checks failed to start: {type(e).__name__}: {e}")
+    if os.environ.get("RC_LEGACY") == "1":
+        from .legacy import run_check_legacy
+        try:
+            return run_check_legacy(run)
+        except Exception as e:  # the close below still sends verdicts and done
+            run.error(f"legacy run failed: {type(e).__name__}: {str(e)[:300]}")
+            return run.close(by="close")
 
-    # 2. The deep agent plans and gathers evidence; the fixed plan covers failure or an empty result.
-    if any(c.get("checkable") for c in run.claims):
-        reason = None
-        if AGENT_ENABLED:
+    # Everything runs inside the deep agent: claims, match, the three helpers, the judge, fill in.
+    if AGENT_ENABLED:
+        with run.phase("agent"):
             try:
                 from .agent import run_agent
-                run.agent_stats = run_agent(run)
-                if run.agent_stats.get("budget_hit"):
-                    reason = "The planner ran out of its turn budget"
-                elif not run.evidence:
-                    reason = "The planner gathered no evidence"
+                run.agent_stats = run_agent(run, hard_s=RUN_BUDGET_S - CLOSE_RESERVE_S)
             except Exception as e:
-                run.error(f"agent failed: {type(e).__name__}: {str(e)[:300]}")
-                run.agent_stats = {"error": traceback.format_exc()[-1500:]}
-                reason = "The planner hit an error"
-        else:
-            reason = "The planner is switched off"
-        if reason:
-            run.step("orchestrator", f"{reason}, so we run the standard checks for each claim.")
-        try:
-            run.fixed_plan()  # completion pass: every claim gets its checks; ones already done are not repeated
-        except Exception as e:
-            run.error(f"standard checks failed: {type(e).__name__}: {e}")
-        try:
-            run.proof_images()
-        except Exception as e:
-            run.error(f"proof images failed: {type(e).__name__}: {e}")
+                run.error(f"The check's planner stopped: {type(e).__name__}: {str(e)[:300]}")
+                run.agent_stats = {"error": traceback.format_exc()[-1500:], "stopped": "error"}
     else:
-        run.step("orchestrator", "Nothing on this page can be measured, so no checks are needed.")
-
+        run.agent_stats = {"stopped": "agent switched off"}
+    stopped = run.agent_stats.get("stopped")
+    if run.verdicts is None:
+        run.step("orchestrator", "The planner stopped before judging, so claims without evidence are marked "
+                                 "as not checked." if stopped else "Judging what was gathered.")
+    # The close: whatever the agent did not get to. No checks run here, only the judge's rules.
     try:
-        run.collect_pictures()
-    except Exception as e:
-        run.error(f"picture checks failed: {type(e).__name__}: {e}")
-    LAST_AGENT_STATS.clear()
-    LAST_AGENT_STATS.update(run.agent_stats)
-    LAST_AGENT_STATS["vision_calls"] = run.vision_calls
-
-    # 3. Deterministic close.
-    run.step("judge", "Comparing every claim with the evidence.")
-    evs = list(run.evidence.values())
-    verdicts = []
-    for c in run.claims:
-        try:
-            v = judge(c, evs)
-        except Exception as e:
-            v = {"claim_id": c.get("id"), "verdict": "cant_check", "claimed": str(c.get("quote") or ""),
-                 "found": "no data", "source": None, "reason": f"This claim could not be judged ({type(e).__name__}).",
-                 "image": None}
-        verdicts.append(v)
-        run.emit({"type": "verdict", "verdict": v})
-    try:
-        facts = run.fill_in()
-    except Exception as e:  # extra information only: never turn the check into an error
-        facts = []
-        LAST_AGENT_STATS["fill_in_error"] = f"{type(e).__name__}: {str(e)[:200]}"
-    run.emit({"type": "fill_in", "facts": facts})
-    counts = {k: sum(v["verdict"] == k for v in verdicts) for k in ("confirmed", "contradicted", "close", "cant_check")}
-    try:
-        headline = _headline(verdicts, {c["id"]: c for c in run.claims})
-    except Exception:
-        headline = "The check finished."
-    done = {"type": "done", "run_id": run.run_id, "counts": counts, "headline": headline,
-            "report_url": f"/report/{run.run_id}"}
-    run.emit(done)
-    return done
+        return run.close(by="close")
+    except Exception as e:  # last resort: still a done event
+        run.error(f"closing the check failed: {type(e).__name__}: {e}")
+        counts = {k: 0 for k in ("confirmed", "contradicted", "close", "cant_check")}
+        done = {"type": "done", "run_id": run.run_id, "counts": counts, "headline": "The check finished.",
+                "report_url": f"/report/{run.run_id}"}
+        run.emit(done)
+        return done

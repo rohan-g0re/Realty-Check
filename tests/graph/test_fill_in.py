@@ -1,4 +1,5 @@
 """"Fill me in" fact builder (harness/fill_in.py) and its run wiring. Invented data only."""
+import scripted_cli
 import time
 
 from graph_events import check_fact, check_run
@@ -150,7 +151,7 @@ def test_no_match_still_uses_gathered_evidence_and_is_fast():
 
 
 def test_run_check_emits_fill_in_before_done(monkeypatch):
-    monkeypatch.setattr(run_mod, "AGENT_ENABLED", False)
+    scripted_cli.install(monkeypatch)  # the real deep agent on scripted CLI replies
     events = []
     snap = {"url": "https://example.test/l", "title": "t", "address_text": "100 Example St, Houston, TX 77002",
             "text": "2 Beds 1,100 sq ft", "jsonld": []}
@@ -164,7 +165,7 @@ def test_run_check_emits_fill_in_before_done(monkeypatch):
 
 
 def test_run_check_survives_broken_kit_facts(monkeypatch):
-    monkeypatch.setattr(run_mod, "AGENT_ENABLED", False)
+    scripted_cli.install(monkeypatch)  # the real deep agent on scripted CLI replies
 
     def boom(*a, **k):
         raise RuntimeError("kit down")

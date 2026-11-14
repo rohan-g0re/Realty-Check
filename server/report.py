@@ -182,7 +182,7 @@ def _norm(s) -> str:
 
 
 def _same_plan(a, b) -> bool:
-    """'Plan E' vs 'Plan E 1 Bedroom + Den': equal or one starts the other at a word boundary."""
+    """'Plan E' vs 'Plan E 1 Bed + Den': equal or one starts the other at a word boundary."""
     a, b = _norm(a), _norm(b)
     if not a or not b:
         return False

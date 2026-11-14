@@ -6,8 +6,18 @@ check; cached; "Finding the spot…" page while the first pick runs), turns towa
 (Tag.add, never saved to the model) there with what the listing says and what the scan shows. No spot found: the
 scan's start view, and the card says so. Confirmed claims get the same view, worded as "checks out".
 
-?embed=1 is the report's inline viewer (an iframe on /report/<run_id>): no "Back to the report" link, the page fills
-the frame, and the "Finding the spot…" reload keeps embed=1 and the claim.
+?embed=1 is the report's inline viewer (an iframe on /report/<run_id>, mounted without a click): no "Back to the
+report" link, the page fills the frame, the "Finding the spot…" reload keeps embed=1 and the claim, and the page tells
+the report how far it got with window.parent.postMessage({rc3d: 1, state, note}) (same origin only). States:
+"loading", "playing" (showcase running), "ready" (standing at the picked spot, or at the start view when there is none),
+"finding" (spot pick still running), "off" (no viewer here), "error". The report keeps its still picture over the frame
+until "ready", so the reader never sees the scan's start position fly over to the spot.
+
+Speed: the showcase URL carries ss=<panorama label> when the cached scan data knows the picked spot's label, so the
+scan opens at the spot instead of its start position (ss counts from 1, the label from 0); the SDK then
+only turns the camera, or moves instantly while the report's still picture still covers the frame.
+prewarm(run) starts the spot picks of every mismatch in the background (on run end and on report load), so the
+viewer seldom has to show "Finding the spot…".
 
 The Showcase SDK key is read at request time from the environment or the private .env and only ever written into
 the served page. No key: the page says the 3D view is not available.
@@ -27,6 +37,10 @@ MODEL_RE = re.compile(r"^[A-Za-z0-9]{6,24}$")
 CLAIM_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 PANO_RE = re.compile(r"^[A-Za-z0-9]{6,40}$")
 SDK_BOOT = "https://api.matterport.com/sdk/bootstrap/3.1.0-0-g1cd7e0997a/sdk.es6.js"
+# hosts the showcase and the SDK load from; the report and the tour page open connections to them early
+MP_HOSTS = ("https://my.matterport.com", "https://api.matterport.com", "https://static.matterport.com",
+            "https://cdn-2.matterport.com")
+PRECONNECT = "".join(f"<link rel=preconnect href='{h}' crossorigin><link rel=dns-prefetch href='{h}'>" for h in MP_HOSTS)
 KIND_WORDS = {"bedrooms": "Bedrooms", "bathrooms": "Bathrooms", "area_sqft": "Size", "stories": "Floors",
               "amenity": "Amenity", "parking": "Parking", "laundry": "Laundry", "view": "View"}
 
@@ -179,6 +193,47 @@ def spot_for(target: dict, wait_s: float | None = None) -> dict:
         return _RESULTS.get(key) or {"status": "pending"}
 
 
+PREWARM = True  # tests switch it off (tests/conftest.py) and turn it on with a picker stub
+
+
+def prewarm(run: dict) -> int:
+    """Start (never wait for) the spot picks of every mismatch that has a scan, so the report's viewers open at the
+    spot without the "Finding the spot…" wait. One background thread runs them one after another, in report order
+    (gentle on the Matterport rate limit and the picture model); cached picks cost nothing; a viewer that asks first
+    starts its own pick. Skipped for the fake runner (invented scan ids) and when there is no viewer key. Returns how
+    many picks it will look at."""
+    if not PREWARM or run.get("harness") == "fake" or not sdk_key():
+        return 0
+    targets = []
+    try:
+        _, verdicts, _ = _parts(run)
+        for v in verdicts:
+            if v.get("verdict") not in ("contradicted", "close") or not CLAIM_RE.match(str(v.get("claim_id") or "")):
+                continue
+            t = tour_target(run, v["claim_id"])
+            if t:
+                targets.append(t)
+    except Exception:  # noqa: BLE001 - a warm-up never breaks the report
+        return 0
+    if not targets:
+        return 0
+
+    def work():
+        for t in targets:
+            try:
+                spot_for(t, wait_s=180)
+            except Exception:  # noqa: BLE001
+                pass
+    th = threading.Thread(target=work, daemon=True, name="spot-prewarm")
+    _WARMERS.append(th)
+    del _WARMERS[:-8]
+    th.start()
+    return len(targets)
+
+
+_WARMERS: list[threading.Thread] = []
+
+
 def _spot_note(spot: dict) -> str:
     """The card's plain line: what is visible at this spot, or why the tour stays at the start view."""
     st = spot.get("status")
@@ -217,14 +272,26 @@ body.embed{overflow:hidden}.embed .pill{max-width:calc(100% - 32px)}
 # Runs in the page. CFG comes from the server; nothing here is saved to the model (Tag.add is client-side only).
 SCRIPT = r"""
 const CFG = window.TOUR_CFG, T = window.TOUR = {connected: false, placed: null, room: 'start', how: ''};
+// the report frames this page from the same server under either name (this page itself always runs on localhost)
+const PARENTS = [location.origin, location.origin.replace('//localhost', '//127.0.0.1')].filter((o, i, a) => a.indexOf(o) === i);
 const note = document.getElementById('note');
 const say = (s) => { T.how = s; if (note) note.textContent = s; };
 const f = document.getElementById('mp');
+const tell = (state, extra) => { T.state = state; T['t_' + state] = Math.round(performance.now());
+  if (CFG.embed && window.parent !== window) for (const o of PARENTS) { try { window.parent.postMessage(Object.assign({rc3d: 1, state, note: T.how}, extra || {}), o); } catch (e) {} } };
 f.src = 'https://my.matterport.com/show/?m=' + encodeURIComponent(CFG.model) +
-  '&play=1&qs=1&title=0&brand=0&help=0&applicationKey=' + encodeURIComponent(CFG.key);
+  '&play=1&qs=1&title=0&brand=0&help=0' + (CFG.ss ? '&ss=' + encodeURIComponent(CFG.ss) : '') +
+  (CFG.embed ? '&hr=0&wh=0' : '') + '&applicationKey=' + encodeURIComponent(CFG.key);
+tell('loading');
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
-const coll = (c) => new Promise(r => { let d = 0; c.subscribe({onCollectionUpdated(x) { if (!d) { d = 1; r(Object.values(x)); } }});
-  setTimeout(() => { if (!d) { d = 1; r([]); } }, 8000); });
+// a collection's first non-empty state (the first update can be empty while the model is still loading)
+const coll = (c, ms) => new Promise(r => { let d = 0, last = [], sub = null;
+  const fin = () => { if (!d) { d = 1; r(last); try { sub && sub.cancel(); } catch (e) {} } };
+  sub = c.subscribe({onCollectionUpdated(x) { last = Object.values(x || {}); if (last.length) fin(); }});
+  setTimeout(fin, ms || 15000); });
+// the sweep the camera stands at now (id), or null
+const here = (sdk) => new Promise(r => { let d = 0, sub = null; const fin = (x) => { if (!d) { d = 1; r(x); try { sub && sub.cancel(); } catch (e) {} } };
+  try { sub = sdk.Sweep.current.subscribe(c => { if (c && c.id) fin(c); }); } catch (e) { fin(null); } setTimeout(() => fin(null), 3000); });
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 try {
   const {connect} = await import(CFG.boot + '?applicationKey=' + encodeURIComponent(CFG.key));
@@ -232,11 +299,21 @@ try {
   T.connected = true; window.sdk = sdk;
   await new Promise(r => { let d = 0; sdk.App.state.subscribe(s => { if (!d && s.phase === sdk.App.Phase.PLAYING) { d = 1; r(); } });
     setTimeout(() => { if (!d) { d = 1; r(); } }, 20000); });
-  const sweeps = await coll(sdk.Sweep.data);
-  T.sweeps = sweeps.length;
-  let rooms = [];
-  try { rooms = await coll(sdk.Room.data); } catch (e) {}
+  tell('playing');
   const S = CFG.spot || {};
+  // fast path: ss= opened the showcase right at the picked spot, so only turn to the view that shows it
+  const cur0 = S.sweep && CFG.ss ? await here(sdk) : null;
+  if (cur0 && (cur0.id === S.sweep || cur0.sid === S.sweep)) {
+    T.startedAtSpot = true; T.at = cur0.id;
+    if (Number.isInteger(S.face) && cur0.rotation) {
+      try { await sdk.Camera.setRotation({x: 0, y: (cur0.rotation.y || 0) + CFG.faceBase + CFG.faceStep * S.face}, {speed: 2000}); T.faced = true; } catch (e) {}
+    }
+    T.room = 'moved'; T.t_moved = Math.round(performance.now()); say(CFG.note);
+  } else {
+  const sweeps = await coll(sdk.Sweep.data);
+  T.sweeps = sweeps.length; T.t_sweeps = Math.round(performance.now());
+  let rooms = [];
+  if (!S.sweep && S.sweeps && S.sweeps.length) { try { rooms = await coll(sdk.Room.data, 4000); } catch (e) {} }
   let go = null, rot = null;
   if (S.sweep) {
     // a. the one spot the server picked (Model API panoLocation id = SDK sweep id), facing the view that shows it
@@ -260,14 +337,37 @@ try {
     }
   }
   if (go) {
-    const opts = {transition: sdk.Sweep.Transition.FLY, transitionTime: 1200};
+    // embedded: the report's still picture covers the frame until "ready", so the move is instant
+    const opts = CFG.embed ? {transition: sdk.Sweep.Transition.INSTANT} : {transition: sdk.Sweep.Transition.FLY, transitionTime: 1200};
     if (rot) { opts.rotation = rot; T.faced = true; }
-    await sdk.Sweep.moveTo(go.id, opts);
-    await wait(1800);
-    T.room = 'moved'; T.at = go.id; say(CFG.note);
+    // with ss= the showcase already opened at the spot: then only turn the camera (a move there costs seconds)
+    const start = await here(sdk); T.startedAtSpot = !!(start && (start.id === go.id || start.sid === go.sid));
+    if (T.startedAtSpot) { if (rot) { try { await sdk.Camera.setRotation(rot, {speed: 2000}); } catch (e) { T.moveErr = 'turn'; } } }
+    else {
+      try { await sdk.Sweep.moveTo(go.id, opts); }
+      catch (e) { T.moveErr = String(e && e.message || e); if (rot) { try { await sdk.Camera.setRotation(rot, {speed: 1000}); } catch (e2) {} } }
+    }
+    T.t_moved = Math.round(performance.now());
+    await wait(CFG.embed ? 350 : 1800);
+    // where the camera really stands now (the SDK's current sweep), not where it was asked to go
+    const cur = await here(sdk); T.at = cur && cur.id; T.t_here = Math.round(performance.now());
+    if (T.at === go.id || (T.at && T.at === go.sid)) { T.room = 'moved'; say(CFG.note); }
+    else say('The picked spot could not be reached in this viewer, so this is the scan\'s start position.');
+  } else if (S.sweep || (S.sweeps && S.sweeps.length)) {
+    // no sweep list (slow load): the showcase may already stand at the spot through ss=
+    const cur = await here(sdk); T.at = cur && cur.id;
+    const want = new Set([S.sweep].concat(S.sweeps || []).filter(Boolean));
+    if (cur && (want.has(cur.id) || want.has(cur.sid))) {
+      T.room = 'moved'; T.viaSs = true; say(CFG.note);
+      if (S.sweep && Number.isInteger(S.face) && cur.rotation) {
+        try { await sdk.Camera.setRotation({x: 0, y: (cur.rotation.y || 0) + CFG.faceBase + CFG.faceStep * S.face}, {speed: 1000}); T.faced = true; } catch (e) {}
+      }
+    } else say('The picked spot is not in this viewer, so this is the scan\'s start position.');
   } else {
-    say(S.sweep || (S.sweeps && S.sweeps.length) ? 'The picked spot is not in this viewer, so this is the scan\'s start position.' : CFG.note);
+    say(CFG.note);
   }
+  }
+  tell('ready', {room: T.room});
   // label: on what the view looks at, pulled a little toward the camera so it does not sit inside a wall
   const pose = await sdk.Camera.getPose();
   let at = null;
@@ -286,7 +386,8 @@ try {
   try { await sdk.Tag.open(T.placed); } catch (e) { T.openErr = String(e && e.message || e); }
 } catch (e) {
   T.err = String(e && e.message || e);
-  say('The 3D view could not start here.');
+  say(T.connected ? 'The 3D view could not turn to the spot here.' : 'The 3D view could not go to the spot here, so this is the scan\'s start position.');
+  if (T.state !== 'ready') tell(T.connected ? 'ready' : 'error', {room: T.room});
 }
 T.done = true;
 """
@@ -308,6 +409,14 @@ def _first_sentence_after_listing(reason: str) -> str:
     return parts[0] if parts else ""
 
 
+def _embed_note(state: str, text: str) -> str:
+    """In the report's frame, tell the report what this message page says (same origin only; words only)."""
+    msg = json.dumps({"rc3d": 1, "state": state, "note": text}).replace("</", "<\\/")
+    return ("<script>(function(){if(window.parent===window)return;var o=location.origin;"
+            "[o,o.replace('//localhost','//127.0.0.1')].forEach(function(t,i,a){if(a.indexOf(t)!==i)return;"
+            f"try{{window.parent.postMessage({msg},t)}}catch(e){{}}}});}})();</script>")
+
+
 def _page(title: str, body: str, script: str = "", refresh_s: int | None = None, embed: bool = False,
           refresh_url: str | None = None) -> str:
     meta = ""
@@ -316,7 +425,7 @@ def _page(title: str, body: str, script: str = "", refresh_s: int | None = None,
         meta = f"<meta http-equiv=refresh content='{escape(f'{int(refresh_s)}{to}', True)}'>"
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<meta name=referrer content=no-referrer>{meta}"
+            f"<meta name=referrer content=no-referrer>{meta}{PRECONNECT}"
             f"<title>{escape(title)}</title><style>{CSS}</style></head>"
             f"<body{' class=embed' if embed else ''}>{body}{script}</body></html>")
 
@@ -329,9 +438,10 @@ def _back(run_id: str | None, embed: bool) -> str:
 
 
 def message_page(run_id: str | None, text: str, sub: str = "", refresh_s: int | None = None,
-                 embed: bool = False, refresh_url: str | None = None) -> str:
+                 embed: bool = False, refresh_url: str | None = None, state: str = "off") -> str:
+    tell = _embed_note(state, text) if embed else ""
     return _page("3D view", f"{_back(run_id, embed)}<div class=msg><h1>{escape(text)}</h1><p>{escape(sub)}</p></div>",
-                 refresh_s=refresh_s, embed=embed, refresh_url=refresh_url)
+                 tell, refresh_s=refresh_s, embed=embed, refresh_url=refresh_url)
 
 
 def finding_page(run_id: str, claim_id: str | None = None, embed: bool = False) -> str:
@@ -339,7 +449,7 @@ def finding_page(run_id: str, claim_id: str | None = None, embed: bool = False) 
     return message_page(run_id, "Finding the spot…",
                         "Looking through the scan's photos for the spot that shows this. "
                         "The first look takes about half a minute; after that it opens straight away.",
-                        refresh_s=3, embed=embed, refresh_url=tour_url(run_id, claim_id, embed))
+                        refresh_s=3, embed=embed, refresh_url=tour_url(run_id, claim_id, embed), state="finding")
 
 
 def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | None = None,
@@ -354,7 +464,8 @@ def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | Non
     if not key:
         body = back + ("<div class=msg><h1>3D view not available</h1>"
                        "<p>The 3D viewer is not set up on this computer. The report still has the scan pictures.</p></div>")
-        return _page("3D view not available", body, embed=embed)
+        off = _embed_note("off", "The 3D view is not set up on this computer.") if embed else ""
+        return _page("3D view not available", body, off, embed=embed)
     spot = spot or {"status": "skip", "why": spots.WHOLE_UNIT}
     found_spot = spot.get("status") == "found"
     note = _spot_note(spot)
@@ -377,7 +488,8 @@ def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | Non
     sweep = spot.get("sweep") if found_spot and PANO_RE.match(str(spot.get("sweep") or "")) else None
     room_sweeps = [s for s in spot.get("sweeps") or [] if PANO_RE.match(str(s))] if found_spot and not sweep else []
     face = spot.get("face") if isinstance(spot.get("face"), int) and 0 <= spot["face"] < 4 else None
-    cfg = {"model": target["model_id"], "key": key, "boot": SDK_BOOT, "note": note,
+    ss = spots.start_ss(target["model_id"], [sweep] if sweep else room_sweeps) if (sweep or room_sweeps) else None
+    cfg = {"model": target["model_id"], "key": key, "boot": SDK_BOOT, "note": note, "embed": bool(embed), "ss": ss,
            "spot": {"status": spot.get("status"), "sweep": sweep, "sweeps": room_sweeps, "face": face},
            "faceBase": spots.FACE_YAW_BASE, "faceStep": spots.FACE_YAW_STEP,
            "pull": 0.5 if sweep else 1.6,

@@ -84,7 +84,7 @@ def _fake_facts(scan_path: str, aerial_path: str) -> list[dict]:
 
 def run_fake(snapshot: dict, emit) -> dict:
     scan_path, aerial_path = _images()
-    address = snapshot.get("address_text") or "2111 Austin St, Houston, TX 77002"
+    address = snapshot.get("address_text") or "418 Linden Grove Ave, Houston, TX 77006"
     run_id = snapshot.get("run_id", "fake")
 
     def say(ev: dict) -> None:
@@ -103,7 +103,7 @@ def run_fake(snapshot: dict, emit) -> dict:
         {"id": "c5", "kind": "amenity", "value": "pool", "unit": None, "scope": "building", "label": None,
          "quote": "Resort-style pool", "checkable": True},
     ]
-    match = {"status": "matched", "confidence": 0.97, "property_id": "10122224", "name": "Austin Street Lofts",
+    match = {"status": "matched", "confidence": 0.97, "property_id": "900001", "name": "Linden Grove Lofts",
              "address": address, "city": "Houston", "state": "TX", "lat": 29.7520, "lon": -95.3700,
              "record": {"stories": 5, "year_built": 2016, "unit_count": 100, "building_sf": 123456},
              "floorplans": [{"name": "Plan E", "beds": 2, "baths": 2, "sqft": 1100, "matterport_model_id": "fake01"}],

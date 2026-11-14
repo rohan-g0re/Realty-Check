@@ -4,7 +4,7 @@
 - Reality Check: a Chrome extension plus a local server and a deepagents harness. On any rental listing page it finds an address and, on request, fact-checks what the page claims about that location against a building record, a 3D scan, aerial imagery and county data.
 - Built at HackPrinceton, Nov 13–15 2026. Code only. This repo is public at submission time.
 - Contract: `docs/CONTRACT.md` (data shapes, tool signatures, events). Build order: `docs/DELIVERABLES.md`. Log: `docs/DECISIONS.md`.
-- Private driver folder (read-only from here): `C:/Users/rohan/Desktop/Work/STUFF/Projects/hack-princeton`. It holds the sponsor kit, `.env` with keys, earlier probes and verification results. Its path is given to code through the `RC_PRIVATE_DIR` environment variable, never hard-coded.
+- Private driver folder (read-only from here): `$RC_PRIVATE_DIR` (a private folder outside the repo). It holds the sponsor kit, `.env` with keys, earlier probes and verification results. Code reads its path from that environment variable, never hard-coded.
 
 ## Hard rules
 - No secrets, keys, tokens, zip passwords or signed URLs in any file, commit, log line or report. Keys are read at run time from `$RC_PRIVATE_DIR/.env`.
@@ -28,7 +28,7 @@
 - Plain Python functions first, each testable alone with a fixture; the harness wires them afterwards.
 - Keep it boring: small functions, no new framework, no clever abstractions.
 - A tool never guesses. No evidence means `status: "no_evidence"`, with the reason.
-- Python: `C:/Users/rohan/Desktop/Work/STUFF/Projects/reality-check/.venv/Scripts/python.exe`. Do not pip-install without listing the package in your report; tell the orchestrator instead of editing `pyproject.toml`.
+- Python: `.venv/Scripts/python.exe` (relative to the repo root). Do not pip-install without listing the package in your report; tell the orchestrator instead of editing `pyproject.toml`.
 - Shell is Git Bash on Windows 11 ARM64.
 
 ## Before reporting ready

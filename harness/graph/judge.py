@@ -223,7 +223,7 @@ def _judge_unnamed(claim: dict, evidences: list[dict], base: dict) -> dict | Non
 
 
 def _same_plan(a: str, b: str) -> bool:
-    """'Plan E' and 'Plan E 1 Bedroom + Den' are the same plan; 'Plan E' and 'Plan EF' are not."""
+    """'Plan E' and 'Plan E 1 Bed + Den' are the same plan; 'Plan E' and 'Plan EF' are not."""
     a, b = a.strip().lower(), b.strip().lower()
     short, long_ = sorted((a, b), key=len)
     return a == b or bool(short) and re.match(re.escape(short) + r"(\s|$)", long_) is not None

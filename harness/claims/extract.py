@@ -7,8 +7,11 @@ If the model fails, the deterministic claims are returned. Site-agnostic: no sel
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
+from pathlib import Path
 from typing import Any
 
 NUMERIC_KINDS = ("bedrooms", "bathrooms", "area_sqft", "stories", "year_built", "unit_count")
@@ -17,7 +20,9 @@ UNIT_KINDS = ("bedrooms", "bathrooms", "area_sqft")
 # Claims read from page metadata (JSON-LD) carry "origin": METADATA; their quote is a plain phrase, not page text.
 METADATA = "metadata"
 MAX_CLAIMS = 40
-PROMPT_BUDGET = 6000
+PROMPT_BUDGET = 9000
+# Bump whenever the prompt, the candidate rules or the post-model rules change: it keys the per-page claim cache.
+EXTRACTOR_VERSION = "claims-2026-11-14.2"
 
 # ---------------------------------------------------------------- addresses and page regions
 
@@ -177,7 +182,10 @@ def _plan_blocks(lines: list[str]) -> tuple[list[str | None], dict[int, tuple[in
     for i, ln in enumerate(lines):
         m = PLAN_RE.match(ln)
         g = GROUP_RE.match(ln)
-        if g and (nxt := _next_nonempty(lines, i, 1)) and nxt[0] in named:
+        # A "1 Bed" line is a group heading only right above a bare-name card; inside a card ("Plan 1A" /
+        # "1 Bed" / "1 Bath") it is the card's own spec and must keep the card's label.
+        is_head = bool(g and (nxt := _next_nonempty(lines, i, 1)) and nxt[0] in named)
+        if is_head:
             heading = (0 if g.group(1) else to_number(g.group(2)), ln.strip(), i)
         if m:
             current, start = m.group(1).strip(), i
@@ -185,7 +193,7 @@ def _plan_blocks(lines: list[str]) -> tuple[list[str | None], dict[int, tuple[in
             current, start = ln.strip(), i
             if heading:
                 headed[i] = heading
-        elif current and (not ln.strip() or i - start >= PLAN_BLOCK_MAX or g):
+        elif current and (not ln.strip() or i - start >= PLAN_BLOCK_MAX or is_head):
             current = None
         labels[i] = current
     return labels, headed
@@ -399,25 +407,48 @@ def _jsonld_claims(jsonld: Any, self_re: re.Pattern | None) -> list[dict]:
     return out
 
 
-# ---------------------------------------------------------------- model layer
+# ---------------------------------------------------------------- candidate statements (deterministic)
 
 KEYWORD_RE = re.compile(r"\b(bed|bd|bath|ba|sq|sqft|feet|story|stories|floor|built|year|unit|amenit|pool|garage|"
                         r"parking|laundry|washer|view|balcon|gym|fitness|elevator|plan|studio|roof|luxury)", re.I)
 NEAR_SELF = 8
 FEATURE_HEAD_RE = re.compile(r"amenit|features|appliances|utilities included", re.I)
+# Statements longer than this are cut into sentences; each sentence is its own candidate.
+SENTENCE_SPLIT_AT = 160
+SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"“'(])")
+CANDIDATE_MAX = 400
+# Short lines that only carry what changes from day to day (price, date, "6 Available Units"). They are no
+# claim kind and would make the same page read as a new page: left out of the candidates and the cache key.
+VOLATILE_TOKEN_RE = re.compile(
+    r"\$\s?[\d,]+(?:\.\d+)?(?:\s*(?:-|–|to)\s*\$?\s?[\d,]+(?:\.\d+)?)?(?:\s*/\s*mo(?:nth)?\.?)?"
+    r"|\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b"
+    r"|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b"
+    r"|\b\d+\s+available\s+units?\b", re.I)
+VOLATILE_FILLER_RE = re.compile(
+    r"\b(?:starting|starts|base|rent|from|price[sd]?|pricing|available|availability|as|soon|of|on|now|today|"
+    r"date|move-?in|per|month|mo|monthly|at|is|the|a|an|for|up|to)\b|[\s:/|·•,.\-–()+*]", re.I)
 
 
-def prefilter(lines: list[str], excluded: list[bool], self_lines: list[int], budget: int = PROMPT_BUDGET) -> str:
-    """Compact excerpt of the page about the clicked listing, for the model prompt."""
+def volatile(line: str) -> bool:
+    """A short line that is only a price, a date or an availability count (no claim kind; changes daily)."""
+    s = line.strip()
+    if not s or len(s) > 60 or not VOLATILE_TOKEN_RE.search(s):
+        return False
+    return not VOLATILE_FILLER_RE.sub("", VOLATILE_TOKEN_RE.sub("", s))
+
+
+def _picked_lines(lines: list[str], excluded: list[bool], self_lines: list[int], labels: list[str | None],
+                  budget: int) -> list[tuple[int, str]]:
+    """(line number, stripped text) of the page lines about the clicked listing, in page order, within budget.
+    Plan card lines repeat ("1 Bed", "2 Baths"); they are kept per card, other repeats only once."""
     picked, seen, size = [], set(), 0
-    labels = _plan_labels(lines)
     in_list = 0  # lines left in an "Amenities" / "Features" list
     for i, ln in enumerate(lines):
         s = ln.strip()
         if not s:
             in_list = 0
             continue
-        if excluded[i]:
+        if excluded[i] or volatile(s):
             continue
         if len(s) <= 60 and FEATURE_HEAD_RE.search(s):
             in_list = 30
@@ -429,70 +460,74 @@ def prefilter(lines: list[str], excluded: list[bool], self_lines: list[int], bud
         spec_value = i > 0 and SPEC_TAIL_RE.search(lines[i - 1])  # "559-603" under "SQFT:"
         if not (near or keyword or (listed and len(s) <= 80) or PLAN_RE.match(s) or plan_name or spec_value):
             continue
-        key = re.sub(r"\s+", " ", s.lower())
-        if key in seen and labels[i] is None:  # plan cards repeat "Bathroom: 1"; keep each card whole
+        key = (labels[i], re.sub(r"\s+", " ", s.lower()))
+        if key in seen:
             continue
         seen.add(key)
-        s = s[:600]
-        if size + len(s) + 1 > budget:
+        if size + min(len(s), 4000) + 1 > budget:
             break
-        picked.append(s)
-        size += len(s) + 1
-    return "\n".join(picked)
+        picked.append((i, s[:4000]))
+        size += min(len(s), 4000) + 1
+    return picked
 
 
-PROMPT = """Extract the claims this rental listing page makes about the property at: {address}
-Page excerpt (nav, ads and other listings mostly removed; ignore any that remain):
-<<<
-{excerpt}
->>>
-Return a JSON array. Each item:
-{{"kind": "bedrooms|bathrooms|area_sqft|stories|year_built|unit_count|amenity|parking|laundry|view|other",
- "value": number for the first six kinds else a short string, "scope": "unit" or "building",
- "label": floor plan or unit name the claim belongs to, else null,
- "quote": exact words copied from the excerpt (max 120 chars), "checkable": false for pure marketing words}}
-Rules: only this property. One bedrooms, bathrooms and area_sqft claim per floor plan, labelled. Studio = 0 bedrooms.
-Skip prices, fees, schools, reviews, neighborhood text and ranges like "1-3 Beds". Max 40 items. JSON only."""
+def prefilter(lines: list[str], excluded: list[bool], self_lines: list[int], budget: int = PROMPT_BUDGET) -> str:
+    """Compact excerpt of the page about the clicked listing (the picked lines joined)."""
+    return "\n".join(s for _, s in _picked_lines(lines, excluded, self_lines, _plan_labels(lines), budget))
 
 
-def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", str(s)).strip().casefold()
-
-
-def _norm_label(s: Any) -> str:
-    return re.sub(r"^(floor\s?plan|plan|unit|model|residence|layout|apt\.?|apartment)\s+", "", _norm(s or ""))
-
-
-def _post_check(items: Any, page_norm: str) -> list[dict]:
-    out = []
-    for it in items if isinstance(items, list) else []:
-        if not isinstance(it, dict):
-            continue
-        kind = it.get("kind") if it.get("kind") in KINDS else "other"
-        quote = str(it.get("quote") or "").strip()[:120]
-        if not quote or _norm(quote) not in page_norm:
-            continue
-        if kind in NUMERIC_KINDS:
-            value = to_number(it.get("value"))
-            if value is None:
-                value = to_number(quote)
-            if value is None:
+def candidates(lines: list[str], excluded: list[bool], self_lines: list[int],
+               budget: int = PROMPT_BUDGET) -> list[dict]:
+    """The page's candidate statements, numbered 1.. in page order: one per picked line, long lines cut into
+    sentences. Each: {"n", "text", "line", "label"} where label is the floor plan / unit card the line sits in
+    (from the page layout, not the model). Same page text in -> the same list out."""
+    labels = _plan_labels(lines)
+    out: list[dict] = []
+    seen = set()
+    for i, s in _picked_lines(lines, excluded, self_lines, labels, budget):
+        parts = SENTENCE_RE.split(s) if len(s) > SENTENCE_SPLIT_AT else [s]
+        for p in parts:
+            p = p.strip()[:CANDIDATE_MAX].strip()
+            if not re.search(r"[A-Za-z0-9]", p):
+                continue  # "/" between "1 Bed" and "1 Bath"
+            key = (labels[i], _norm(p))
+            if key in seen:
                 continue
-        else:
-            value = str(it.get("value") or quote)[:80]
-        scope = it.get("scope") if it.get("scope") in ("unit", "building") else (
-            "unit" if kind in UNIT_KINDS else "building")
-        label = it.get("label")
-        label = str(label).strip()[:60] if label not in (None, "", "null") else None
-        out.append(_claim(kind, value, scope, label, quote, bool(it.get("checkable", True))))
+            seen.add(key)
+            out.append({"n": len(out) + 1, "text": p, "line": i, "label": labels[i]})
     return out
+
+
+def _render(cands: list[dict]) -> str:
+    return "\n".join(f"{c['n']}. {c['text']}" + (f"   [plan: {c['label']}]" if c["label"] else "") for c in cands)
+
+
+# ---------------------------------------------------------------- model layer: a judge over the fixed list
+
+PROMPT = """You read a rental listing page about the property at: {address}
+Below are the page's statements, numbered, in page order (navigation, ads and other listings mostly removed;
+ignore any that remain). A tag [plan: X] means the statement sits in the card of floor plan or unit X.
+<<<
+{candidates}
+>>>
+For EACH numbered statement decide whether it states a fact about this property that a building record, a 3D scan
+or a photo could check. Return a JSON array with one item per claim:
+{{"n": statement number, "kind": "bedrooms|bathrooms|area_sqft|stories|year_built|unit_count|amenity|parking|laundry|view|other",
+ "value": number for the first six kinds, else the feature in a few words taken from the statement,
+ "scope": "unit" or "building", "label": the floor plan or unit name the claim is about, else null,
+ "quote": the exact words of that statement that make the claim (max 120 chars),
+ "checkable": false when nothing could measure it (e.g. "largest in North America")}}
+Rules: only this property. One item per number and one per amenity: a statement listing several amenities gives one
+item for each. A floor plan card gives its bedrooms, bathrooms and area_sqft, labelled with the plan. Studio = 0
+bedrooms. A size range inside one plan card: value = the low end. Skip prices, fees, specials, availability, dates,
+phone numbers, hours, schools, reviews, neighborhood and nearby places, and ranges over the whole building like
+"1-3 Beds" or "Studio, 1, 2 Bedrooms". Skip pure marketing words. A statement that states no fact gets no item.
+Items in statement order. JSON only."""
 
 
 def _ask_cached(prompt: str) -> Any:
     """ask_json, with the parsed reply cached under rc_cache/claims by prompt hash (repeat runs are instant)."""
     from harness.model.ask import ask_json  # imported lazily: keeps the deterministic path dependency-free
-    import hashlib
-    import os
     path = None
     if os.environ.get("RC_PRIVATE_DIR"):
         try:
@@ -512,28 +547,201 @@ def _ask_cached(prompt: str) -> Any:
     return reply
 
 
-def _model_claims(address: str, excerpt: str, page_norm: str) -> list[dict]:
-    return _post_check(_ask_cached(PROMPT.format(address=address or "(unknown)", excerpt=excerpt)), page_norm)
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", str(s)).strip().casefold()
+
+
+def _norm_label(s: Any) -> str:
+    return re.sub(r"^(floor\s?plan|plan|unit|model|residence|layout|apt\.?|apartment)\s+", "", _norm(s or ""))
+
+
+QUOTE_CHARS = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"', "–": "-", "—": "-", "\u00a0": " "})
+
+
+def clean_text(s: Any, n: int = 80) -> str:
+    """Canonical form of a feature value: straight quotes, one space, no bullets or trailing punctuation,
+    first letter upper case, at most n chars."""
+    t = re.sub(r"\s+", " ", str(s or "").translate(QUOTE_CHARS)).strip()
+    t = re.sub(r"^[•*·\-\s]+", "", t)
+    t = re.sub(r"[\s.,;:!\-]+$", "", t)
+    if t[:1].islower():
+        t = t[0].upper() + t[1:]
+    return t[:n].strip()
+
+
+LIST_LEAD_RE = re.compile(r"\b(?:with|including|includes|include|like|such as|featuring|features)\b\s*:?\s*|:\s*",
+                          re.I)
+LIST_SPLIT_RE = re.compile(r"\s*(?:,\s+|;\s*|\s•\s*|\s\|\s|\s·\s)\s*")
+
+
+def split_list(text: str) -> list[str]:
+    """Fixed rule for a compound amenity list: "grills, lounge seating, and firepits" -> 3 items. Only a
+    comma / semicolon / bullet list is split ("pool and spa" stays one); a lead before "with" / "including" /
+    ":" ("Outdoor spaces with ...") is dropped when it has no comma itself."""
+    t = clean_text(text, 400)
+    if not LIST_SPLIT_RE.search(t):
+        return [clean_text(t)] if t else []
+    m = LIST_LEAD_RE.search(t)
+    if m and "," not in t[:m.start()] and m.end() < len(t):
+        t = t[m.end():]
+    parts = [re.sub(r"^(?:and|&|or|plus)\s+", "", p.strip(), flags=re.I) for p in LIST_SPLIT_RE.split(t)]
+    out: list[str] = []
+    for p in parts:
+        p = clean_text(p)
+        if re.search(r"[A-Za-z]", p) and p.casefold() not in {o.casefold() for o in out}:
+            out.append(p)
+    return out or [clean_text(text)]
+
+
+SPLIT_KINDS = ("amenity", "parking")
+FEATURE_KINDS = ("amenity", "parking", "laundry", "view", "other")
+SHORT_STATEMENT = 80  # a list item / bullet: its own words are the feature value
+RANGE_RE = re.compile(r"(\d{1,2},\d{3}|\d{3,5})\s*(?:-|–|to)\s*(\d{1,2},\d{3}|\d{3,5})")
+
+
+def _int(v: Any) -> int | None:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_reply(items: Any, cands: list[dict], page_norm: str) -> list[dict]:
+    """The model's per-statement answers -> claims, in statement order. Everything the model does not decide is
+    fixed here: the label of a statement in a plan card, numeric scope, quotes (the statement's own words), the
+    value of a short list item (its own words, split by split_list), the low end of a size range."""
+    by_n = {c["n"]: c for c in cands}
+    rows: list[tuple[dict, dict, int]] = []  # (item, candidate, reply order)
+    for k, it in enumerate(items if isinstance(items, list) else []):
+        if not isinstance(it, dict):
+            continue
+        cand = by_n.get(_int(it.get("n")))
+        if cand is None:  # no / bad number: the statement whose words it quotes
+            q = _norm(it.get("quote") or "")
+            cand = next((c for c in cands if q and q in _norm(c["text"])), None)
+        if cand is None:
+            continue
+        rows.append((it, cand, k))
+    # statement order, then a fixed kind order inside one statement; the reply order only among one kind
+    rows.sort(key=lambda r: (r[1]["n"], KINDS.index(r[0].get("kind")) if r[0].get("kind") in KINDS else len(KINDS), r[2]))
+    # short statements answered with one feature kind: their own words are the value(s)
+    kinds_of: dict[int, set] = {}
+    for it, cand, _ in rows:
+        kind = it.get("kind") if it.get("kind") in KINDS else "other"
+        if kind in FEATURE_KINDS:
+            kinds_of.setdefault(cand["n"], set()).add(kind)
+    out: list[dict] = []
+    done_short: set[tuple] = set()
+    for it, cand, k in rows:
+        kind = it.get("kind") if it.get("kind") in KINDS else "other"
+        text = cand["text"]
+        q = str(it.get("quote") or "").strip()
+        if len(text) <= 120:
+            quote = text
+        elif q and _norm(q) in _norm(text) and _norm(q) in page_norm:
+            quote = q[:120]
+        else:
+            quote = text[:120].rsplit(" ", 1)[0] if " " in text[:120] else text[:120]
+        checkable = it.get("checkable", True) not in (False, "false", "False", 0)
+        if kind in NUMERIC_KINDS:
+            value = to_number(it.get("value"))
+            if value is None:
+                value = to_number(q or text)
+            if value is None:
+                continue
+            if kind == "area_sqft" and (r := RANGE_RE.search(text)):
+                lo, hi = to_number(r.group(1)), to_number(r.group(2))
+                if value in (lo, hi):
+                    value = lo
+            scope = "unit" if kind in UNIT_KINDS else "building"
+            label = cand["label"] if kind in UNIT_KINDS else None
+            if label is None and kind in UNIT_KINDS:
+                lab = it.get("label")
+                lab = re.sub(r"\s+", " ", str(lab)).strip()[:60] if lab not in (None, "", "null") else ""
+                label = lab if lab and _norm(lab) in page_norm else None
+            out.append(_claim(kind, value, scope, label, quote, checkable, line=cand["line"]))
+            out[-1]["_n"] = cand["n"]
+            continue
+        scope = it.get("scope") if it.get("scope") in ("unit", "building") else (
+            "unit" if kind in ("laundry", "view") else "building")
+        if len(text) <= SHORT_STATEMENT and kinds_of.get(cand["n"]) == {kind}:
+            if (cand["n"], kind) in done_short:
+                continue
+            done_short.add((cand["n"], kind))
+            values = split_list(text) if kind in SPLIT_KINDS else [clean_text(text)]
+        else:
+            raw = it.get("value") or q or text
+            values = split_list(raw) if kind in SPLIT_KINDS else [clean_text(raw)]
+        for v in values:
+            if v:
+                out.append(_claim(kind, v, scope, None, quote, checkable, line=cand["line"]))
+                out[-1]["_n"] = cand["n"]
+    return out
+
+
+def _model_claims(address: str, cands: list[dict], page_norm: str) -> list[dict]:
+    if not cands:
+        return []
+    prompt = PROMPT.format(address=address or "(unknown)", candidates=_render(cands))
+    return _read_reply(_ask_cached(prompt), cands, page_norm)
 
 
 # ---------------------------------------------------------------- merge and finish
 
+def _amenity_names(value: str) -> tuple:
+    """The building-record amenity names a feature value names (tools.kit.facts.AMENITIES, the list the judge
+    uses), else the local amenity patterns. Two claims naming the same names get the same verdict."""
+    try:
+        from tools.kit.facts import _AMENITIES as names
+    except Exception:
+        names = [(canon, rx) for rx, _k, _s, canon in AMENITY_RES]
+    return tuple(sorted({name for name, rx in names if rx.search(value)}))
+
+
 def _key(c: dict) -> tuple:
-    v = _norm(c["value"]) if isinstance(c["value"], str) else c["value"]
+    v = c["value"]
+    if isinstance(v, str):
+        if c["kind"] == "amenity" and (names := _amenity_names(v)):
+            return c["kind"], "", names
+        v = " ".join(re.sub(r"[^a-z0-9]+", " ", _norm(v.translate(QUOTE_CHARS))).split())
     return c["kind"], _norm_label(c["label"]), v
 
 
+def _drop_unlabeled_on_plan_pages(claims: list[dict]) -> list[dict]:
+    """On a page with two or more labelled plans for a unit kind, an unlabeled unit number of that kind belongs
+    to no home ("2 Bedrooms" in a hero line): dropped. Page metadata is left as is."""
+    plans = {k: {_norm_label(c["label"]) for c in claims if c["kind"] == k and c["label"]} for k in UNIT_KINDS}
+    return [c for c in claims if not (c["kind"] in UNIT_KINDS and not c["label"] and len(plans[c["kind"]]) >= 2
+                                      and c.get("origin") != METADATA)]
+
+
+def _rank(c: dict) -> int:
+    """Which claims fill the MAX_CLAIMS slots first: checkable numbers, then checkable features a building record
+    names (pool, courtyard, ...) or parking / laundry, then other checkable features, then the rest."""
+    if not c["checkable"]:
+        return 3
+    if c["kind"] in NUMERIC_KINDS:
+        return 0
+    if c["kind"] in ("parking", "laundry") or (c["kind"] == "amenity" and _amenity_names(str(c["value"]))):
+        return 1
+    return 2
+
+
 def _finish(groups: list[list[dict]]) -> list[dict]:
+    """Merge -> page order (page claims by line, then page metadata) -> drop duplicates (first wins) ->
+    stable sort by _rank -> at most MAX_CLAIMS, ids c1.."""
+    allc = [(g_i, k, c) for g_i, g in enumerate(groups) for k, c in enumerate(g)]
+    allc.sort(key=lambda t: (1 if t[2].get("origin") == METADATA else 0,
+                             t[2]["_line"] if t[2].get("origin") != METADATA else 0, t[0], t[1]))
     seen, merged = set(), []
-    for g in groups:
-        for c in g:
-            k = _key(c)
-            if c["value"] is None or k in seen:
-                continue
-            seen.add(k)
-            merged.append(c)
-    rank = lambda c: (0 if c["kind"] in NUMERIC_KINDS and c["checkable"] else 1 if c["checkable"] else 2)
-    merged.sort(key=rank)  # stable: page order kept within each rank
+    for _, _, c in allc:
+        k = _key(c)
+        if c["value"] is None or k in seen:
+            continue
+        seen.add(k)
+        merged.append(c)
+    merged = _drop_unlabeled_on_plan_pages(merged)
+    merged.sort(key=_rank)  # stable: page order kept within each rank
     out = []
     for n, c in enumerate(merged[:MAX_CLAIMS], 1):
         out.append({"id": f"c{n}", "kind": c["kind"], "value": c["value"], "unit": None,
@@ -546,8 +754,60 @@ def _finish(groups: list[list[dict]]) -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------- per-page cache of the final list
+
+def page_key(snapshot: dict) -> str:
+    """Hash of what the extractor reads: version, address, the page text (one space, no empty or volatile
+    lines) and the page metadata. Same page content -> same key; a changed page -> a new key."""
+    text = str(snapshot.get("text") or "")[:60000]
+    lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.splitlines()]
+    body = "\n".join(ln for ln in lines if ln and not volatile(ln))
+    meta = json.dumps(snapshot.get("jsonld") or [], sort_keys=True, ensure_ascii=False, default=str)
+    blob = "\x1f".join([EXTRACTOR_VERSION, re.sub(r"\s+", " ", str(snapshot.get("address_text") or "")).strip(),
+                        body, meta])
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
+
+
+def _page_cache_path(snapshot: dict) -> Path | None:
+    """<private>/rc_cache/claims/pages/<page_key>.json, or None when no private dir is set."""
+    if not os.environ.get("RC_PRIVATE_DIR"):
+        return None
+    try:
+        import rc_common
+        return rc_common.cache_dir("claims", "pages") / f"{page_key(snapshot)}.json"
+    except Exception:
+        return None
+
+
+def _page_cache_read(path: Path | None) -> list[dict] | None:
+    if path is None:
+        return None
+    try:
+        from tools import cachectl
+        if not cachectl.hit(path):  # RC_NO_CACHE=1: never read
+            return None
+        got = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, ImportError):
+        return None
+    if isinstance(got, dict) and got.get("version") == EXTRACTOR_VERSION and isinstance(got.get("claims"), list) \
+            and all(not validate_claim(c) for c in got["claims"]):
+        return got["claims"]
+    return None
+
+
+def _page_cache_write(path: Path | None, claims: list[dict]) -> None:
+    if path is None:
+        return
+    try:
+        path.write_text(json.dumps({"version": EXTRACTOR_VERSION, "claims": claims}, ensure_ascii=False),
+                        encoding="utf-8")
+    except OSError:
+        pass
+
+
 def extract_claims(snapshot: dict, use_model: bool = True) -> list[dict]:
-    """PageSnapshot -> list of Claim. Never raises on model failure: falls back to the deterministic layer."""
+    """PageSnapshot -> list of Claim. Never raises on model failure: falls back to the deterministic layer.
+    With the model: the same page content returns the cached list of the first reading (RC_NO_CACHE=1 rereads)."""
     text = str(snapshot.get("text") or "")[:60000]
     address = str(snapshot.get("address_text") or "")
     lines = text.splitlines()
@@ -557,16 +817,22 @@ def extract_claims(snapshot: dict, use_model: bool = True) -> list[dict]:
     jsonld = _jsonld_claims(snapshot.get("jsonld"), self_re)
     if not use_model:
         return _finish([regex, jsonld])
+    cache = _page_cache_path(snapshot)
+    hit = _page_cache_read(cache)
+    if hit is not None:
+        return [dict(c) for c in hit]
     try:
-        model = _model_claims(address, prefilter(lines, excluded, self_lines), _norm(text))
-    except Exception:  # model unavailable, timeout, bad JSON: deterministic claims still stand
+        model = _model_claims(address, candidates(lines, excluded, self_lines), _norm(text))
+    except Exception:  # model unavailable, timeout, bad JSON: deterministic claims still stand (not cached)
         return _finish([regex, jsonld])
     # Regex claims fill only (kind, label) slots the model left empty, so model judgement wins on conflicts.
     covered = {(c["kind"], _norm_label(c["label"])) for c in model}
     covered_kinds = {c["kind"] for c in model}
     fill = [c for c in regex if (c["kind"], _norm_label(c["label"])) not in covered
             and (c["kind"] in NUMERIC_KINDS or c["kind"] not in covered_kinds)]
-    return _finish([model, jsonld, fill])
+    out = _finish([model, jsonld, fill])
+    _page_cache_write(cache, out)
+    return out
 
 
 # ---------------------------------------------------------------- the page's own unit

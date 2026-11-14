@@ -152,19 +152,24 @@ def test_model_failure_falls_back(monkeypatch):
     check_b(claims)
 
 
-def test_post_check_drops_unquoted_and_coerces(monkeypatch):
+def test_reply_reading_coerces_and_drops_unknown_statements():
     import harness.claims.extract as ex
-    page = "Plan E\t2 Beds\t2 Baths\t1,100 sq ft\nA 5-story building\nLuxury living"
-    reply = [{"kind": "bedrooms", "value": "2 Beds", "scope": "unit", "label": "Plan E", "quote": "2  beds"},
-             {"kind": "area_sqft", "value": "1,100 sq ft", "scope": "unit", "label": "Plan E", "quote": "1,100 sq ft"},
-             {"kind": "stories", "value": "5-story", "scope": "building", "label": None, "quote": "5-story building"},
-             {"kind": "bedrooms", "value": 3, "scope": "unit", "label": None, "quote": "3 bedrooms invented"},
-             {"kind": "other", "value": "luxury", "scope": "building", "label": None, "quote": "Luxury living",
-              "checkable": False}]
-    got = ex._post_check(reply, ex._norm(page))
-    vals = {(c["kind"], c["value"]) for c in got}
-    assert vals == {("bedrooms", 2), ("area_sqft", 1100), ("stories", 5), ("other", "luxury")}
+    page = "Plan E\n2 Beds\n1,100-1,180 sq ft\nA 5-story building\nLuxury living"
+    lines = page.splitlines()
+    cands = ex.candidates(lines, [False] * len(lines), [])
+    n = {c["text"]: c["n"] for c in cands}
+    reply = [{"n": n["2 Beds"], "kind": "bedrooms", "value": "2 Beds", "label": "Plan E", "quote": "2  beds"},
+             {"n": n["1,100-1,180 sq ft"], "kind": "area_sqft", "value": 1180, "label": None},
+             {"n": n["A 5-story building"], "kind": "stories", "value": "5-story", "label": "Plan E"},
+             {"n": 999, "kind": "bedrooms", "value": 3, "quote": "3 bedrooms invented"},
+             {"n": n["Luxury living"], "kind": "other", "value": "luxury", "checkable": False}]
+    got = ex._read_reply(reply, cands, ex._norm(page))
+    vals = {(c["kind"], c["value"], c["label"]) for c in got}
+    # plan label from the page layout, the low end of a plan's size range, no label on a building number
+    assert vals == {("bedrooms", 2, "Plan E"), ("area_sqft", 1100, "Plan E"), ("stories", 5, None),
+                    ("other", "Luxury living", None)}, got
     assert [c for c in got if c["kind"] == "other"][0]["checkable"] is False
+    assert all(c["quote"] in page for c in got)  # quotes are the statements' own words
 
 
 # ------------------------------------------------------------------ live model (RC_LIVE=1)
@@ -179,9 +184,9 @@ def live_claims(name):
         snap = load(name)
         real, info = ex._model_claims, {}
 
-        def spy(address, excerpt, page_norm):
-            info["prompt_chars"] = len(ex.PROMPT.format(address=address, excerpt=excerpt))
-            got = real(address, excerpt, page_norm)
+        def spy(address, cands, page_norm):
+            info["prompt_chars"] = len(ex.PROMPT.format(address=address, candidates=ex._render(cands)))
+            got = real(address, cands, page_norm)
             info["model_claims"] = len(got)
             return got
         ex._model_claims = spy

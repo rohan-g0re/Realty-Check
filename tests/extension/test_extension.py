@@ -96,10 +96,10 @@ def test_sample_flow_marks_and_report(env):
     assert headline(page) == "3 things don't match."
     assert page.locator("#rc-host #topLine").inner_text().startswith("Biggest difference: the listing says “2 Beds”")
     meta = page.locator("#rc-host #counts").inner_text()
-    assert "Sample result" in meta and "2 true" in meta and "1 couldn't check" in meta and "close" not in meta, meta
+    assert "Sample result" in meta and "2 true" in meta and "1 close" in meta and "1 couldn't check" in meta, meta
     finds = page.locator("#rc-host .find")
     assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c3", "c2"]  # size before floors
-    assert page.locator("#rc-host #moreF").count() == 0
+    assert page.locator("#rc-host #moreF").inner_text() == "+1 more"  # the close one (c7) sits past the top three
     assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
     assert finds.first.locator(".by").inner_text() == "Matterport"
     # which home was checked, above the headline
@@ -150,8 +150,8 @@ def test_sample_flow_marks_and_report(env):
     assert " ".join(rep.locator("h1").inner_text().split()) == SAMPLE_HEADLINE
     assert rep.locator(".hero .where").inner_text().startswith("418 Linden Grove Ave")
     assert "Sample address" not in rep.locator("body").inner_text()
-    assert rep.locator("#cf-field .cf-cell").count() == 6 * 4  # six claims, four sources
-    assert rep.locator("[id^='claim-']").count() == 3
+    assert rep.locator("#cf-field .cf-cell").count() == 7 * 4  # seven claims, four sources
+    assert rep.locator("[id^='claim-']").count() == 4  # three mismatches and the close one
     rep.close()
     assert not rep_errors, rep_errors
     assert not errors, errors
@@ -192,7 +192,7 @@ def test_sample_report_page_anchors_and_panel(env):
     rep.locator("#cf-tip:not([hidden])").wait_for(timeout=3000)
     cell.click()
     rep.locator("#cf-panel:not([hidden])").wait_for(timeout=3000)
-    assert "claim 1 of 6" in rep.locator("#cf-panel .cf-where").inner_text()  # 2 Beds: Matterport contradicts it
+    assert "claim 1 of 7" in rep.locator("#cf-panel .cf-where").inner_text()  # 2 Beds: Matterport contradicts it
     rep.locator("#cf-panel .cf-x").click()
     # a claim with no finding block: #claim-<id> falls back to the claim field
     rep.goto(base + "#claim-c4")

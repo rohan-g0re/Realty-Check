@@ -13,7 +13,8 @@ globalThis.RC_SAMPLE = (() => {
       {"id": "c3", "kind": "area_sqft", "value": 1100, "unit": "sqft", "scope": "unit", "label": null, "quote": "1,100 sq ft", "checkable": true},
       {"id": "c4", "kind": "year_built", "value": 2016, "unit": null, "scope": "building", "label": null, "quote": "Built in 2016", "checkable": true},
       {"id": "c5", "kind": "amenity", "value": "resort-style pool", "unit": null, "scope": "building", "label": null, "quote": "Resort-style pool", "checkable": true},
-      {"id": "c6", "kind": "amenity", "value": "24-hour fitness studio", "unit": null, "scope": "building", "label": null, "quote": "24-hour fitness studio", "checkable": true}
+      {"id": "c6", "kind": "amenity", "value": "24-hour fitness studio", "unit": null, "scope": "building", "label": null, "quote": "24-hour fitness studio", "checkable": true},
+      {"id": "c7", "kind": "year_built", "value": 2015, "unit": null, "scope": "building", "label": null, "quote": "Built in 2015", "checkable": true}
     ]},
     {"type": "step", "agent": "matcher", "text": "Finding the building record…"},
     {"type": "match", "match": {"status": "matched", "confidence": 0.95, "address": "{{address}}", "how": "sample", "property_id": "900001"}},
@@ -34,6 +35,7 @@ globalThis.RC_SAMPLE = (() => {
     {"type": "step", "agent": "paper", "text": "Reading the county record…"},
     {"type": "evidence", "evidence": {"source": "county", "status": "ok", "summary": "The county record lists 2016 as the year built.", "observed": {"year_built": 2016, "building_sf": 112000, "unit_count": 100, "land_use": "Apartments", "owner_type": "company", "complaints_311": 4, "source_name": "Example County Appraisal District"}, "images": [], "detail": "sample"}},
     {"type": "verdict", "verdict": {"claim_id": "c4", "verdict": "confirmed", "claimed": "built in 2016", "found": "built in 2016", "source": "county", "reason": "The county record lists 2016 as the year built.", "image": null}},
+    {"type": "verdict", "verdict": {"claim_id": "c7", "verdict": "close", "claimed": "built in 2015", "found": "built in 2016", "source": "county", "reason": "County records say built in 2016, one year off.", "image": null, "confidence": {"score": 70, "band": "medium", "decided_by": "county", "sources": [{"source": "county", "says": "built in 2016", "agrees_with_listing": false}]}}},
     {"type": "step", "agent": "judge", "text": "Writing up the results…"},
     {"type": "verdict", "verdict": {"claim_id": "c6", "verdict": "cant_check", "claimed": "24-hour fitness studio", "found": "no source covers this", "source": "record", "reason": "Nothing in our data measures this.", "image": null}},
     {"type": "fill_in", "facts": [
@@ -44,7 +46,7 @@ globalThis.RC_SAMPLE = (() => {
       {"id": "aerial-features", "topic": "Around it", "label": "Seen from above", "value": "Sport court", "source": "aerial", "note": "From Vexcel's aerial survey of December 2025.", "image": null},
       {"id": "county-311", "topic": "Records", "label": "311 service requests on record", "value": "4", "source": "county", "note": "A count from the county; what they say is not shown.", "image": null}
     ]},
-    {"type": "done", "run_id": "sample", "counts": {"confirmed": 2, "contradicted": 3, "close": 0, "cant_check": 1}, "headline": "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den.", "report_url": "/report/sample", "top": {"headline": "3 things don't match.", "lines": ["3 things", "don't match."], "calm": false, "hard": 3, "claim_id": "c1", "line": "Biggest difference: the listing says “2 Beds”; the 3D scan of the same floor plan shows 1 bedroom and a den.", "order": ["c1", "c3", "c2"]}, "harness": {"single_unit": true, "unit": "1204"}}
+    {"type": "done", "run_id": "sample", "counts": {"confirmed": 2, "contradicted": 3, "close": 1, "cant_check": 1}, "headline": "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den.", "report_url": "/report/sample", "top": {"headline": "3 things don't match.", "lines": ["3 things", "don't match."], "calm": false, "hard": 3, "claim_id": "c1", "line": "Biggest difference: the listing says “2 Beds”; the 3D scan of the same floor plan shows 1 bedroom and a den.", "order": ["c1", "c3", "c2", "c7"]}, "harness": {"single_unit": true, "unit": "1204"}}
   ] /* /RC_SAMPLE_EVENTS */;
   const events = (address) => JSON.parse(JSON.stringify(EVENTS), (k, v) => (v === "{{address}}" ? address : v));
   return { events, delayMs: 500 };

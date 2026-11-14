@@ -64,7 +64,7 @@
   let run = null; // {seq, address, mode, locked, pick, cache, claims, verdicts, evidence, match, steps, t0, t1, fillIn, done, field, unreachable, error, token, pickOpen}
   let open = false, seq = 0, stepSeq = 0;
   const ORDER = { contradicted: 0, close: 1, confirmed: 2, cant_check: 9 };
-  let fiOpen = false; // "Not on the listing" expanded
+  let fiOpen = false; // "Not in the listing" expanded
   const FI_TOP = 4, FIND_TOP = 3;
   const LOW_PICK = 0.5; // below this the address pick is a guess: say so and open the picker
   const imgCache = new Map(); // /img/<token> -> data URL ("" = failed, null = in flight)
@@ -660,7 +660,7 @@
   function fillInHTML(facts) {
     // Extra things the listing doesn't mention. Not a fact-check: neutral ink, no verdict colours.
     const n = facts.length;
-    let h = `<button class="filine${fiOpen ? " open" : ""}" id="fiToggle" aria-expanded="${fiOpen}"><span class="fit">Not on the listing (${n})</span><span class="go">${CHEV}</span></button>`;
+    let h = `<button class="filine${fiOpen ? " open" : ""}" id="fiToggle" aria-expanded="${fiOpen}"><span class="fit">Not in the listing (${n})</span><span class="go">${CHEV}</span></button>`;
     if (!fiOpen) return h;
     h += `<ul class="facts" id="fiList">` + fiOrder(facts).slice(0, FI_TOP).map((f, i) => `<li class="fact" data-id="${esc(f.id)}" style="--i:${i}">
       <div class="fq"><span class="fl">${esc(f.label)}</span><span class="fs">${esc(SRC[f.source] || f.source || "")}</span></div>

@@ -155,3 +155,62 @@ def test_headline_follows_the_top_mismatch_pick():
     assert h.startswith("Listing says 184 apartments, but county records say 216 apartments")
     assert h.endswith("1 more claim did not match.")
     assert _headline(vs, claims, lead="c404").startswith("Listing says 5 floors")  # an unknown pick changes nothing
+
+
+# ---- (c) the records disagree with each other by a lot: never a high-confidence mismatch on the outlier -------
+
+def test_home_count_far_below_the_other_record_never_overrides_it():
+    # CoStar 300 and a county parcel of 100 for a listing of 317: the county parcel may cover only part of the
+    # community, so CoStar (nearest the listing) is credited and the claim is close, at low confidence
+    v = judge(claim("unit_count", 317, quote="317 units"), [COUNTY(unit_count=100), REC(unit_count=300)])
+    assert v["verdict"] == "close" and v["source"] == "record" and v["found"] == "300 apartments"
+    assert v["reason"].startswith("Listing says 317 apartments. CoStar lists 300 apartments, which is close; "
+                                  "County lists 100 — sources differ.")
+    c = v["confidence"]
+    assert c["decided_by"] == "record" and c["band"] == "low"
+    assert "County lists 100" in c["why"]
+    soft(v)
+
+
+def test_home_count_far_apart_either_way_round_credits_the_record_nearest_the_listing():
+    # the order of evidence, and which record is the lower one, do not matter
+    v = judge(claim("unit_count", 317), [REC(unit_count=300), COUNTY(unit_count=100, parcel_match="address")])
+    assert v["verdict"] == "close" and v["source"] == "record"
+    v = judge(claim("unit_count", 110), [REC(unit_count=300), COUNTY(unit_count=104)])
+    assert v["verdict"] == "close" and v["source"] == "county" and v["found"] == "104 apartments"
+    assert "CoStar lists 300 — sources differ." in v["reason"]
+    assert "parcel" not in v["reason"]  # the county is not the low one here
+    assert v["confidence"]["band"] == "low"
+
+
+def test_home_count_far_apart_and_neither_near_the_listing_is_couldnt_check():
+    v = judge(claim("unit_count", 400), [COUNTY(unit_count=100), REC(unit_count=300)])
+    assert v["verdict"] == "cant_check" and v["source"] is None and "confidence" not in v
+    assert v["found"] == "sources differ"
+    assert v["reason"].startswith("Listing says 400 apartments. CoStar lists 300; County lists 100 — sources differ.")
+    soft(v)
+
+
+def test_home_count_far_apart_with_a_matching_record_stays_couldnt_check():
+    v = judge(claim("unit_count", 300), [COUNTY(unit_count=100), REC(unit_count=300)])
+    assert v["verdict"] == "cant_check" and v["found"] == "sources differ"
+    assert "CoStar lists 300 apartments, the county record lists 100, so the sources differ." in v["reason"]
+
+
+def test_a_record_close_to_the_listing_backs_it_when_the_other_is_far_off():
+    # CoStar 312 is within a couple of percent of 317; County 250 differs from CoStar by a lot: sources differ
+    v = judge(claim("unit_count", 317), [COUNTY(unit_count=250), REC(unit_count=312)])
+    assert v["verdict"] == "cant_check" and v["found"] == "sources differ" and "confidence" not in v
+    assert "CoStar lists 312 apartments, the county record lists 250, so the sources differ." in v["reason"]
+
+
+def test_records_far_apart_with_neither_backing_cap_the_confidence():
+    # both records off the listing on the same side, but far from each other: the mismatch stands, medium at most
+    v = judge(claim("stories", 12), [COUNTY(stories=20), REC(stories=16)])
+    assert v["verdict"] == "contradicted"
+    c = v["confidence"]
+    assert c["band"] != "high" and c["score"] <= 60
+    assert "CoStar lists 16, so we are less sure" in c["why"]
+    # records only a year apart are not far apart: nothing is capped
+    v = judge(claim("year_built", 2010), [COUNTY(year_built=2019), REC(year_built=2020)])
+    assert v["verdict"] == "contradicted" and "less sure" not in v["confidence"]["why"]

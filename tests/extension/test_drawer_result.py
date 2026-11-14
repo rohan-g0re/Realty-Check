@@ -227,12 +227,12 @@ def test_reduced_motion_turns_animation_off(run):
     assert set(names) == {"none"}, names
 
 
-# ---------- not on the listing ----------
+# ---------- not in the listing ----------
 
 def test_fill_in_expands_in_place(run):
     r = run()
     tog = r.R("#fiToggle")
-    assert tog.inner_text().strip() == "Not on the listing (6)"
+    assert tog.inner_text().strip() == "Not in the listing (6)"
     assert tog.get_attribute("aria-expanded") == "false"
     assert r.R(".fact").count() == 0
     tog.click()

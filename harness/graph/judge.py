@@ -924,7 +924,12 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
     # the claim is not a mismatch ("couldn't check"). Neither backing it: the mismatch stands, and the reason gives
     # every record's value. A roof-height estimate never settles which record is right.
     rivals = _rival_records(claim, kind, winner, readings) if verdict in MISMATCH and src in RECORDS else []
-    backer = next(((e, v) for e, v, alone in rivals if alone == "confirmed"), None)
+    split = _far_apart_counts(claim, kind, claimed, readings) if verdict in MISMATCH and src in RECORDS else None
+    # a record that matches the listing, or comes close to it while the other record is far off, backs it
+    backer = next(((e, v) for e, v, alone in rivals
+                   if alone == "confirmed" or (alone == "close" and _material(kind, v, found))), None)
+    if split and not any(e is split[0][0] and alone == "confirmed" for e, _, alone in readings):
+        return _count_split(claim, base, kind, claimed, claimed_txt, split, readings, usable, evidences)
     if backer:
         image = _image(winner, usable, evidences) or (_image(first, usable, evidences) if winner is not first else None)
         return _sources_differ({**base, "image": image}, kind, claimed_txt, backer, (winner, found), usable)
@@ -968,6 +973,11 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
             c["score"] = min(c["score"], ESTIMATE_MAX_SCORE)
             c["band"] = trust.band(c["score"])
             c["why"] = c["why"][:-1] + "; the county count is an estimate added up over several parcels."
+        far = [(e, v) for e, v in differ if _material(kind, v, found)]
+        if far:  # the two records themselves disagree: never a high-confidence mismatch on one of them
+            trust.cap(out["confidence"], trust.SPLIT_MAX_SCORE,
+                      "; ".join(f"{NAME[e['source']]} lists {_lists(kind, v, False)}" for e, v in far)
+                      + ", so we are less sure")
     return out
 
 
@@ -1009,6 +1019,58 @@ def _sources_differ(base: dict, kind: str, claimed_txt: str, backer: tuple[dict,
         reason += (f" Vexcel roof height suggests about {phrase(kind, roofs[0])}, but that is an estimate, so it does "
                    "not settle it.")
     return {**base, "verdict": "cant_check", "found": "sources differ", "source": None, "reason": reason}
+
+
+def _material(kind: str, a: float, b: float) -> bool:
+    """The two records differ by more than records usually drift: read one against the other as if it were the
+    listing, it would be a mismatch, not a match or a close call."""
+    return _reading(kind, a, {"source": "record", "observed": {kind: b}})[1] == "contradicted"
+
+
+SPLIT_FACTOR = 2.0  # one record's home count at least this many times the other's: they cannot both be right
+SPLIT_NEAR = 0.10   # the record nearest the listing within this share of it: "close", crediting that record
+
+
+def _far_apart_counts(claim: dict, kind: str, claimed: float, readings: list[tuple[dict, float, str]]) \
+        -> tuple[tuple[dict, float], tuple[dict, float]] | None:
+    """For a home count: the written records (CoStar, County) differ by SPLIT_FACTOR or more. Returns ((record
+    nearest the listing, value), (the other record, value)), else None. A county parcel often covers only part of
+    a community of several buildings, so a far-off count is not taken over the record that is near the listing."""
+    if kind != "unit_count":
+        return None
+    recs = [(e, v) for e, v, _ in readings
+            if e["source"] in RECORDS and v is not None and v > 0
+            and trust.relevance(trust.kind_key(claim), e["source"])[0] >= RIVAL_MIN_RELEVANCE
+            and trust.weight(e, claim) > 0]
+    if len({e["source"] for e, _ in recs}) < 2:
+        return None
+    near = min(recs, key=lambda r: (abs(r[1] - claimed), RANK[r[0]["source"]]))
+    far = max((r for r in recs if r[0]["source"] != near[0]["source"]), key=lambda r: abs(r[1] - near[1]))
+    if max(near[1], far[1]) < SPLIT_FACTOR * min(near[1], far[1]):
+        return None
+    return near, far
+
+
+def _count_split(claim: dict, base: dict, kind: str, claimed: float, claimed_txt: str,
+                 split: tuple[tuple[dict, float], tuple[dict, float]], readings: list[tuple[dict, float, str]],
+                 usable: list[dict], evidences: list[dict]) -> dict:
+    """The records' home counts are far apart and neither matches the listing. The record nearest the listing is
+    credited: within SPLIT_NEAR of it the claim is "close" (low confidence at most); further off the sources
+    differ and we could not check it. Both values are always named."""
+    (ne, nv), (fe, fv) = split
+    both = f"{NAME[ne['source']]} lists {_lists(kind, nv, False)}; {NAME[fe['source']]} lists {_lists(kind, fv, False)}"
+    note = (" A county parcel often covers only part of a community, so its count can be lower."
+            if fe["source"] == "county" and fv < nv else "")
+    if abs(nv - claimed) > SPLIT_NEAR * claimed:
+        return {**base, "image": _image(ne, usable, evidences), "verdict": "cant_check", "found": "sources differ",
+                "source": None, "reason": f"Listing says {claimed_txt}. {both} — sources differ.{note}"}
+    found_txt = phrase(kind, nv)
+    reason = (f"Listing says {claimed_txt}. {NAME[ne['source']]} lists {found_txt}, which is close; "
+              f"{NAME[fe['source']]} lists {_lists(kind, fv, False)} — sources differ.{note}")
+    conf = _numeric_confidence(claim, kind, claimed, ne, nv, readings)
+    trust.cap(conf, ESTIMATE_MAX_SCORE, f"{NAME[fe['source']]} lists {_lists(kind, fv, False)}, so we are less sure")
+    return {**base, "image": _image(ne, usable, evidences), "verdict": "close", "found": found_txt,
+            "source": ne["source"], "reason": reason, "confidence": conf}
 
 
 ESTIMATE_MAX_SCORE = 40  # an estimated county unit count alone: low confidence at most

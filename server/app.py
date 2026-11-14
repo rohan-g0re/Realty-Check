@@ -440,7 +440,5 @@ def tour_page(request: Request, run_id: str, claim: str | None = None, embed: st
                                               embed=em),
                             status_code=404, headers=headers)
     key = tour.sdk_key()
-    spot = tour.spot_for(target) if key else None  # cached, or picked once in the background
-    if spot is not None and spot.get("status") == "pending":
-        return HTMLResponse(tour.finding_page(run_id, claim, em), headers=headers)
+    spot = tour.spot_for(target) if key else None  # cached, else start view now (picked in the background)
     return HTMLResponse(tour.render_tour(run, target, key, cache_dir(), spot, embed=em), headers=headers)

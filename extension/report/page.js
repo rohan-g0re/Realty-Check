@@ -37,7 +37,12 @@ var open=w.classList.toggle('open');m.setAttribute('aria-expanded',open?'true':'
 var l=m.getAttribute('data-less'),o=m.getAttribute('data-more');m.textContent=open?l:o;return;}
 var fs=t.closest('.walk .fs');if(fs){var wf=fs.closest('.walk');if(wf.requestFullscreen)wf.requestFullscreen();return;}
 var s3=t.closest('button.see3d');if(s3&&window.RC3D){var bx=window.RC3D.see(s3.getAttribute('data-claim'),s3.getAttribute('data-src'),
-s3.closest('.more-wrap')||s3.parentNode);if(bx)bx.scrollIntoView({behavior:still?'auto':'smooth',block:'nearest'});}});
+s3.closest('.lvr-r')||s3.closest('.more-wrap')||s3.parentNode);if(bx)bx.scrollIntoView({behavior:still?'auto':'smooth',block:'nearest'});}});
+
+/* a link into the collapsed "Everything we checked" opens it */
+function openTo(){var id=location.hash.slice(1);if(!id)return;var t=document.getElementById(id);if(!t)return;
+var dd=t.closest('details')||t.querySelector&&t.querySelector('details.allck');if(dd&&!dd.open){dd.open=true;t.scrollIntoView();}}
+openTo();window.addEventListener('hashchange',openTo);
 })();
 (function(){
 /* live 3D viewers: mount without a click, at most MAX live, still picture on top until the tour page says ready */
@@ -77,7 +82,7 @@ else if(d.state==='finding'){note(w,'Finding the spot that shows this…');clear
 w._to=setTimeout(function(){if(w._f&&!w.classList.contains('live')){w.classList.add('live');w.classList.remove('loading');}},60000);}
 else if(d.state==='error'){note(w,d.note);w.classList.add('live','nospot');w.classList.remove('loading');clearTimeout(w._to);}
 else if(d.state==='off'){unmount(w);w.classList.add('off');note(w,d.note||'The live 3D view is not available here.');}});
-R.see=function(cid,src,host){var a=cid&&document.getElementById('claim-'+cid),f=a&&a.closest('.find'),w=f&&f.querySelector('.walk[data-src]');
+R.see=function(cid,src,host){var a=cid&&document.getElementById('claim-'+cid),f=a&&a.closest('.lvr-row'),w=f&&f.querySelector('.walk[data-src]');
 if(w){mount(w);w.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});return w;}
 if(!src||!host)return null;var box=host.querySelector('.see3d-box');
 if(!box){box=document.createElement('div');box.className='see3d-box';box.innerHTML="<div class=walk><div class=stage>"+
@@ -96,7 +101,7 @@ inview=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isInter
    parents at once */
 all().forEach(function(w){var p=w.closest('.rv');if(p)p.classList.add('in');});
 var ws=all(),first=null,h=location.hash.match(/^#claim-([A-Za-z0-9_-]{1,32})$/);
-if(h){var a=document.getElementById('claim-'+h[1]),fd=a&&a.closest('.find');first=fd&&fd.querySelector('.walk[data-src]');}
+if(h){var a=document.getElementById('claim-'+h[1]),fd=a&&a.closest('.lvr-row');first=fd&&fd.querySelector('.walk[data-src]');}
 first=first||ws[0];if(first)mount(first);
 ws.forEach(function(w){if(near)watch(w);else if(w!==first&&live.length<MAX)mount(w);});
 })();

@@ -1,49 +1,45 @@
 """Full report page, design "Option A": one self-contained HTML document built from a saved run.
 
-Sections, top to bottom (each one adapts to the run; nothing is invented):
-  hero          headline from counts ("3 things don't match." / calm "Everything we could check matches."), the
-                address and the run meta; then the leading mismatch: the listing's words struck through in blue (the
-                strike draws itself in), what was found set huge beneath, one short reason, the credited sources.
-                With a lead, the headline is one modest line and the address/meta a compact block, so the struck-
-                through lead is the largest thing on the first screen and fits it whole (1440x900 and a 400x800
-                phone; its type is capped by the screen's width and height). The calm page keeps the big headline.
-                The lead is the run's own pick (done.harness.top_mismatch from harness.top_mismatch.pick_top: a
-                small model step with a rule fallback) when it has one, else the ranking below. A close one leads
-                only when nothing is contradicted (grey strike, calm type); nothing off: no strike at all
-  compare       "Listed vs. in reality": mismatches only (doesn't match, then close; the hero's lead first), one row
-                each, the listing's words on the left (struck through in blue when it doesn't match; plain grey, no
-                strike, when it is close) and what was found on the right, with one quiet line crediting the deciding
-                source and any other source whose own figure is the found value (never one that says something else),
-                and the confidence band; two columns, one on a phone; left out
-                when nothing is off (matches are listed lower down)
-  field         the claim field (server.claim_field, or a simple grid when it is missing)
-  findings      one module per hard mismatch item (contradicted; plan claims grouped as in server.report), ranked by
-                what costs the renter most (beds/baths/size, then rent and fees, then building facts, then
-                amenities; a bigger relative gap first): the listing's words struck through in blue, the truth set
-                huge beneath, one line, source marks, and a proof slot picked from the evidence the item actually
-                has (3D walk, pictures, a measured drawing, a record/county line, or nothing). "Close" verdicts follow
-                as a quiet list, never struck through ("Listing says 2015 · county records say 2014 — close")
-  sources       "Four sources. One address.": per source, how many claims it settled or weighed in on, and what
-                kind of thing it contributed in this run; a missing source says so
-  extra         "Not on the listing" facts (fill_in), floor plans drawn to scale, topic groups, long lists collapsed
-  matches       confirmed claims, a small proof picture where the evidence has one; long lists collapsed
-  cant-verify   claims nobody could check, grouped by reason
-  questions     simple neutral questions from the findings (deterministic template), each with a Copy button
-  footer        wordmark, listing link, run meta, how we checked
+Five sections, top to bottom, and nothing else (each one adapts to the run; nothing is invented). Every mismatch
+appears exactly once on the page, in section 2.
+  1 hero        the count as a huge two-line serif headline ("3 things / don't match.", the second line indented;
+                calm "Everything we could check matches." when nothing is off), then a narrow column at the right:
+                the address on two lines, one plain sentence naming the lead mismatch ("Biggest difference: the
+                listing says “2 Beds”; the 3D scan shows 1 bedroom and a den.", from the run's own pick
+                done.harness.top_mismatch, else the report's ranking), the claim count and sources, the small run
+                meta, and the button down. No strike-through here. Fits the first screen at 1440x900 and 390 wide.
+  2 mismatch    "Listed vs. in reality" (#mismatch): one row per mismatch, contradicted first, then close ones,
+                labelled softly. Left: the listing's words (struck through in blue only when it doesn't match;
+                plain grey for a close one). Right: what the sources show, one short reason, the credited sources
+                (the deciding one and any other whose own figure is the found value, never one that says something
+                else) with the confidence band, and the proof inline: a picture, "See it in 3D", or one record line.
+                The lead row (the run's pick, else the ranking: beds/baths/size, then rent and fees, then building
+                facts, then amenities; a bigger gap first) is set largest, its strike draws itself in, and it holds
+                the full proof (live 3D viewer, pictures, a measured drawing or a record card).
+  3 extra       "Not in the listing" (#extra): at most five things the listing does not say that matter to a renter
+                or buyer: label, value, one line on why it matters, source, a picture when there is one. Data:
+                done.harness.top_facts; else harness.top_facts.pick_top_facts(facts, llm=None); else a small local
+                rule (elevator / walk-up, homes available and vacancy, utility meters, 311 count, measured height).
+                Never parcel numbers, building class, lot size, ratings, owners, managers or contacts; 311 as a
+                count only; nothing that repeats a mismatch.
+  4 questions   "Ask before you tour." (#questions): neutral questions from the mismatches and couldn't-checks
+                (deterministic template), each with a Copy button, and Copy all.
+  5 sources     the claim field heatmap (server.claim_field, or a simple grid when it is missing) and "Four
+                sources. One address." (#sources): per source, how many claims it spoke to and what it gave.
+After them: one collapsed "Everything we checked" disclosure (#checked: #match confirmed claims, #cant-verify claims
+nobody could check; opened when a link points inside it), and the footer.
 
-The data logic and wording come from server.report (grouping, image ranking, walk links, fill-in, captions).
+The data logic and wording come from server.report (image ranking, walk links, fill-in, captions).
 Pictures only via /img/<token>; outside requests: the Newsreader font, and Matterport inside the 3D viewers.
 Pictures whose cached file is gone (older runs) are taken out before rendering (server.report.drop_dead_images), and
-any picture that still fails to load is hidden in the browser (no broken-image icon; a finding falls back to text).
+any picture that still fails to load is hidden in the browser (no broken-image icon).
 
-3D viewers (live_3d=True, the server's page): a finding whose proof is a 3D scan shows the live Matterport viewer
-inline (the same-origin /tour/<run_id>?claim=<id>&embed=1 page in an iframe), opened at the picked spot, with no
-click and no new tab. The viewer of the lead finding (or of the #claim-<id> the page was opened at) mounts at once;
-the others mount when they come near the screen (IntersectionObserver) and unmount when far away, never more than
-two live at a time. A still picture covers each viewer until the tour page reports "ready" (postMessage), so the
-reader sees the spot, not the scan's start. "See it in 3D" on matches and in the claim field panel opens a viewer
-in place (or scrolls to the finding's own one). live_3d=False (the extension's static sample, no server) keeps the
-still picture with a plain note and never makes a frame.
+3D viewers (live_3d=True, the server's page): when the lead row's proof is a 3D scan it shows the live Matterport
+viewer inline (the same-origin /tour/<run_id>?claim=<id>&embed=1 page in an iframe), opened at the picked spot, with
+no click and no new tab; it mounts at once, never more than two live at a time, and a still picture covers it until
+the tour page reports "ready" (postMessage). Other scan rows, confirmed rows and the claim field panel have "See it
+in 3D", which opens a viewer in place. live_3d=False (the extension's static sample, no server) keeps the still
+picture with a plain note and never makes a frame.
 """
 from __future__ import annotations
 
@@ -79,11 +75,11 @@ SRC_SHORT = {"record": "CoStar", "scan": "3D scan", "aerial": "Vexcel", "county"
 TIER_UNIT = {"bedrooms", "bathrooms", "area_sqft"}
 TIER_BUILDING = {"stories", "year_built", "unit_count"}
 MONEY_RE = re.compile(r"\$\s?\d|\brent\b|\bfees?\b|\bdeposit\b|\bprice\b|\bper month\b|/mo\b", re.I)
-FACT_MANY = 24     # more facts than this: each topic shows FACT_SHOW rows, the rest behind a button
-FACT_SHOW = 5
 LVR_SHOW = 8       # 'Listed vs. in reality' rows shown before the "show the other N" button
 LIST_SHOW = 12     # matches / couldn't-check entries shown before the "show the other N" button
 MAX_QUESTIONS = 5
+UNKIND = re.compile(r"(?i)\b(fake|faked|lie|lies|lied|lying|scam\w*|fraud\w*)\b")
+
 
 CSS = """
 :root{--ink:#111;--blue:#1a4be0;--mute:#6b6b6b;--ghost:#858585;--soft:#f4f4f4;--line:#d9d9d9;--bg:#fff;
@@ -105,25 +101,154 @@ transition:background-color .18s ease,transform .18s ease;white-space:nowrap}
 .btn.ghost{background:var(--soft);color:var(--ink);min-height:40px;font-size:15px;padding:0 16px}
 .btn.ghost:hover{background:#e6e6e6;color:var(--ink)}
 .dark .btn{background:#fff;color:var(--ink)}.dark .btn:hover{background:#ddd}
+.gone{display:none!important}
+.vh{position:absolute!important;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* header */
 .top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;min-height:96px;gap:8px 16px}
 .brand{font-size:19px;font-weight:500;letter-spacing:-.01em;white-space:nowrap;text-decoration:none}
 .top nav{display:flex;align-items:center;gap:4px 20px}
 .back{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:15px;text-decoration:none}
-/* hero */
-.hero{display:flex;flex-direction:column;gap:clamp(32px,4.4vw,64px);padding:clamp(12px,3vw,48px) 0 clamp(56px,7vw,112px)}
-.hero-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:36px 6%}
-h1{margin:0;flex:1 1 100%;font-weight:300;font-size:clamp(54px,10.5vw,156px);line-height:.92;letter-spacing:-.05em;
-display:flex;flex-direction:column}
+/* 1 hero: the count, huge, on two staggered lines; a narrow column at the right beneath it */
+.hero{display:flex;flex-direction:column;padding:clamp(4px,1.6vw,28px) 0 clamp(72px,9vw,150px)}
+.hero-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:clamp(24px,3.4vh,44px) 6%}
+h1{margin:0;flex:1 1 100%;font-weight:300;font-size:clamp(58px,min(11vw,18.5vh),172px);line-height:.92;
+letter-spacing:-.05em;display:flex;flex-direction:column}
 h1 .l2{padding-left:clamp(0px,24vw - 60px,300px)}
 h1 .tick{display:inline-block;width:.42em;height:.42em;margin-left:.12em;vertical-align:.05em}
-.addr{flex:0 1 400px;margin-left:auto;display:flex;flex-direction:column;gap:18px}
+.addr{flex:0 1 410px;margin-left:auto;display:flex;flex-direction:column;gap:clamp(10px,1.7vh,18px)}
 .addr .where{margin:0;font-size:24px;line-height:1.3;letter-spacing:-.01em}
 .addr p{margin:0}
+.addr .top-line{font-size:19px;line-height:1.4}
 .addr .meta{font-size:15px;color:var(--mute)}
 .addr .btn{align-self:flex-start}
-.field-wrap{min-width:0}
-/* fallback claim grid */
+/* section heads */
+.sh{margin:0 0 clamp(24px,3vw,44px);font-weight:300;font-size:clamp(40px,5.4vw,84px);line-height:.95;letter-spacing:-.045em}
+.sh-sub{margin:calc(-1 * clamp(10px,1.6vw,26px)) 0 clamp(24px,3vw,40px);font-size:17px;color:var(--mute);max-width:56ch}
+.empty{font-size:20px;color:var(--mute);margin:0}
+/* 2 listed vs. in reality: every mismatch once, two columns */
+.lvr{padding-bottom:clamp(80px,9vw,150px);scroll-margin-top:24px}
+.lvr-head,.lvr-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(24px,5vw,88px)}
+.lvr-head{font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);padding-bottom:12px;
+border-bottom:1px solid var(--ink)}
+.lvr-head span+span{color:var(--blue)}
+.lvr-rows{list-style:none;margin:0;padding:0}
+.lvr-row{row-gap:10px;padding:clamp(18px,2vw,30px) 0;border-bottom:1px solid #ececec;align-items:start;scroll-margin-top:24px}
+.lvr-k{grid-column:1/-1;margin:0;display:flex;align-items:baseline;gap:12px;font-size:15px;color:var(--mute)}
+.lvr-k b{font-weight:400;color:var(--blue);font-variant-numeric:tabular-nums}
+.lvr-k em{font-style:normal;color:var(--mute);border:1px solid var(--line);padding:0 8px;font-size:13px;letter-spacing:.02em}
+.lvr-close .lvr-k b{color:var(--mute)}
+.lvr-l,.lvr-r{display:flex;flex-direction:column;gap:10px;min-width:0}
+.lvr-said,.lvr-truth{font-weight:300;font-size:clamp(26px,2.8vw,42px);line-height:1.08;letter-spacing:-.03em;overflow-wrap:anywhere}
+.lvr-said{color:var(--ghost);align-self:flex-start}
+.lvr-truth{color:var(--blue)}
+.lvr-close .lvr-truth{color:var(--ink)}
+.lvr-why{margin:0;font-size:18px;line-height:1.4;max-width:46ch}
+.lvr-cred{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.lvr-src{font-size:15px;color:var(--mute)}
+.lvr-lab{display:none}
+.lvr-more{margin-top:20px}
+.lvr-proof{margin:4px 0 0;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 18px}
+.lvr-proof a.pic{width:168px}.lvr-proof a.pic img{aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
+.lvr-proof .rline{margin:0;font-size:15px;line-height:1.4;color:var(--ink);border-left:2px solid var(--blue);padding:2px 0 2px 12px}
+.lvr-proof .rline span{color:var(--mute)}
+.lvr-proof .see3d-box{flex:1 1 100%}
+/* the lead row: largest on the page, with the full proof */
+.lvr-lead{padding:clamp(26px,3vw,48px) 0 clamp(36px,4vw,64px)}
+.lvr-lead .lvr-said,.lvr-lead .lvr-truth{font-size:clamp(44px,6.2vw,100px);line-height:.98;letter-spacing:-.045em}
+.lvr-lead .lvr-why{font-size:clamp(19px,1.6vw,23px)}
+.lvr-lead .lvr-k{font-size:16px}
+figure.lvr-proof{display:flex;flex-direction:column;align-items:stretch;gap:12px;width:100%}
+figure.lvr-proof .pics{width:100%}
+.lvr-lead .walk{width:100%;aspect-ratio:16/9;min-height:360px}
+.lvr-lead .stage{aspect-ratio:4/3;min-height:0}
+.strike{background:linear-gradient(var(--blue),var(--blue)) no-repeat 0 46%/100% .075em;
+-webkit-box-decoration-break:clone;box-decoration-break:clone;padding:0 .03em}
+.js .rv .strike{background-size:0 .075em;transition:background-size 1s cubic-bezier(.7,0,.2,1) .35s}
+.js .rv.in .strike{background-size:100% .075em}
+.sq{display:inline-flex;gap:4px;flex:none}.sq i{width:10px;height:10px;background:var(--line);display:block}
+.sq i.on{background:var(--ink)}.sq i.hit{background:var(--blue)}
+.js .rv .sq i{transform:scale(0);transition:transform .4s cubic-bezier(.2,.7,.2,1)}
+.js .rv.in .sq i{transform:none}
+.js .rv.in .sq i:nth-child(2){transition-delay:.08s}.js .rv.in .sq i:nth-child(3){transition-delay:.16s}
+.js .rv.in .sq i:nth-child(4){transition-delay:.24s}
+@media (max-width:640px){.lvr-head{display:none}.lvr-row{grid-template-columns:minmax(0,1fr);row-gap:12px}
+.lvr-lab{display:block;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.lvr-r .lvr-lab{color:var(--blue)}.lvr-close .lvr-r .lvr-lab{color:var(--mute)}
+.lvr-l,.lvr-r{gap:6px}.lvr-proof a.pic{width:140px}}
+/* proof: 3D walk */
+.stage{position:relative;background:#ededeb;overflow:hidden;aspect-ratio:16/8;min-height:300px}
+.stage>img,.stage>svg.room{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.stage>img{animation:drift 16s ease-in-out infinite alternate;transform-origin:50% 60%}
+.stage .tag{position:absolute;left:clamp(12px,2vw,24px);top:clamp(12px,2vw,24px);background:#fff;padding:10px 16px;
+font-size:16px;line-height:1.35;max-width:calc(100% - 24px)}
+.stage .tag small{display:block;color:var(--mute);font-size:14px}
+.stage .pin{position:absolute;left:50%;top:55%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;
+background:var(--blue);box-shadow:0 0 0 3px #fff}
+.stage .pin::after{content:'';position:absolute;inset:0;border-radius:50%;background:var(--blue);animation:pulse 2.4s ease-out infinite}
+.walk{position:relative;background:#17181a;overflow:hidden;aspect-ratio:16/9;min-height:320px;max-height:82vh}
+.cf-panel .walk,.see3d-box .walk{aspect-ratio:4/3;min-height:0}
+.walk>iframe{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:1;background:#17181a}
+.walk>iframe.dock{position:fixed;inset:auto;left:0;top:0;opacity:0;pointer-events:none;z-index:-1}
+.walk>.stage{position:absolute;inset:0;z-index:2;aspect-ratio:auto;min-height:0;transition:opacity .6s ease,visibility 0s linear 0s}
+.walk.live>.stage{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .6s ease,visibility 0s linear .6s}
+.walk .spin{position:absolute;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);width:26px;height:26px;border-radius:50%;
+border:3px solid rgba(255,255,255,.55);border-top-color:var(--blue);animation:spin 1s linear infinite;display:none}
+.walk.loading .spin{display:block}
+.walk .fs{position:absolute;right:12px;top:12px;z-index:3;display:none;background:#fff;color:var(--ink);border:0;font:inherit;
+font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:9px 12px;cursor:pointer}
+.walk .fs:hover{color:var(--blue)}
+.walk.live .fs{display:block}
+.walk:fullscreen{max-height:none;aspect-ratio:auto}
+button.see3d{background:none;border:0;padding:0;min-height:32px;font:inherit;font-size:16px;color:var(--blue);
+text-decoration:underline;cursor:pointer}
+.see3d-box{margin:12px 0 4px;width:100%}
+/* proof: pictures, drawings, record cards */
+.pics{display:grid;gap:10px}
+.pics .lead img{width:100%;aspect-ratio:16/10;object-fit:cover;background:var(--soft)}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+.thumbs img{width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
+a.pic{display:block;overflow:hidden;transition:transform .25s ease,box-shadow .25s ease}
+a.pic:hover{transform:translateY(-4px);box-shadow:0 14px 30px -18px rgba(0,0,0,.45)}
+a.pic img{transition:transform .6s ease}
+a.pic.plan img{object-fit:contain;background:#fff;padding:6px}a.pic:hover img{transform:scale(1.03)}
+.proof figcaption,.cap{font-size:15px;color:var(--mute)}
+.draw{background:var(--soft);padding:clamp(20px,3vw,40px);display:flex;justify-content:center;align-items:center}
+.draw svg{width:100%;max-width:520px;height:auto;max-height:440px;overflow:visible}
+.card{background:var(--soft);padding:clamp(22px,2.6vw,38px);display:flex;flex-direction:column;gap:10px;
+transition:transform .25s ease,box-shadow .25s ease}
+.card:hover{transform:translateY(-4px);box-shadow:0 14px 30px -20px rgba(0,0,0,.4)}
+.card .eb{font-size:15px;color:var(--mute)}
+.card .row{display:flex;justify-content:space-between;align-items:baseline;gap:16px;font-size:clamp(26px,2.6vw,38px);line-height:1.15}
+.card .row b{font-weight:400;color:var(--blue);text-align:right}
+.card .also{font-size:16px;color:var(--mute)}
+.cards{display:flex;flex-direction:column;gap:10px}
+.nopic{background:var(--soft);min-height:160px;display:flex;align-items:center;justify-content:center;padding:24px;
+text-align:center;font-weight:300;font-size:clamp(34px,4vw,60px);line-height:1;letter-spacing:-.04em;color:var(--blue)}
+/* 3 not in the listing: at most five rows */
+.nil{padding-bottom:clamp(80px,9vw,150px);scroll-margin-top:24px}
+.nil-rows{list-style:none;margin:0;padding:0;border-top:1px solid var(--ink)}
+.nil-row{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,4fr) minmax(0,5fr);column-gap:clamp(20px,4vw,72px);
+row-gap:10px;padding:clamp(18px,2vw,30px) 0;border-bottom:1px solid #ececec;align-items:start}
+.nil-k{margin:0;display:flex;align-items:baseline;gap:12px;font-size:17px;line-height:1.35}
+.nil-k b{font-weight:400;color:var(--blue);font-variant-numeric:tabular-nums}
+.nil-v{margin:0;font-weight:300;font-size:clamp(26px,2.8vw,42px);line-height:1.08;letter-spacing:-.03em;overflow-wrap:anywhere}
+.nil-w{display:flex;flex-direction:column;gap:10px;min-width:0}
+.nil-w p{margin:0;font-size:18px;line-height:1.4;max-width:46ch}
+.nil-w .nil-src{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--mute)}
+.nil-w a.pic{width:min(100%,280px)}.nil-w a.pic img{aspect-ratio:16/10;object-fit:cover;background:var(--soft)}
+@media (max-width:820px){.nil-row{grid-template-columns:minmax(0,1fr)}}
+/* 4 questions */
+.ask{padding-bottom:clamp(80px,9vw,150px);scroll-margin-top:24px}
+.qlist{list-style:none;margin:0;padding:0;border-top:1px solid var(--ink)}
+.qlist li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px clamp(16px,3vw,40px);
+padding:clamp(16px,1.8vw,24px) 0;border-bottom:1px solid #ececec;font-size:22px;line-height:1.35}
+.qlist .qn{color:var(--blue);font-size:15px;font-variant-numeric:tabular-nums;align-self:baseline}
+.qlist li>span:not(.qn){max-width:62ch}
+.ask-all{margin:28px 0 0}
+@media (max-width:560px){.qlist li{grid-template-columns:auto minmax(0,1fr);font-size:19px}
+.qlist li .btn{grid-column:2;justify-self:start}}
+/* 5 heatmap + sources (the dark band) */
+.field-sec{padding-bottom:clamp(72px,8vw,130px);scroll-margin-top:24px}
 .fld{display:flex;gap:clamp(10px,1.6vw,24px);overflow-x:auto;padding-bottom:6px}
 .fld-names{flex:none;display:grid;grid-auto-rows:clamp(30px,4vw,56px);gap:6px;font-size:17px;width:clamp(100px,13%,180px)}
 .fld-names span{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -135,163 +260,6 @@ h1 .tick{display:inline-block;width:.42em;height:.42em;margin-left:.12em;vertica
 .legend{display:flex;flex-wrap:wrap;gap:6px 24px;font-size:15px;color:var(--mute);margin-top:16px}
 .legend i{display:inline-block;width:11px;height:11px;margin-right:8px;background:#ececec;vertical-align:-1px}
 .legend i.m{background:var(--ink)}.legend i.x{background:var(--blue)}.legend i.w{background:#bdbdbd}
-/* findings */
-.findings{display:flex;flex-direction:column;gap:clamp(96px,11vw,180px);padding-bottom:clamp(96px,11vw,180px)}
-.find{display:flex;flex-direction:column;gap:clamp(24px,3vw,44px);scroll-margin-top:24px}
-.find .plan{margin:0;font-size:17px;color:var(--mute);letter-spacing:.01em}
-.pair{margin:0;font-weight:300;line-height:.9;letter-spacing:-.05em;display:flex;flex-direction:column;gap:.06em}
-.pair .said{color:var(--ghost);align-self:flex-start;max-width:100%;overflow-wrap:anywhere}
-.pair .truth{color:var(--blue);overflow-wrap:anywhere}
-.pair .truth.calm{color:var(--ink)}
-.find.lead>.pair .truth{align-self:flex-end;text-align:right}
-.sz-xl{font-size:clamp(60px,13.5vw,204px)}.sz-l{font-size:clamp(48px,9vw,140px)}
-.sz-m{font-size:clamp(40px,6.4vw,100px)}.sz-s{font-size:clamp(34px,4.6vw,70px)}
-.sub .pair{font-size:clamp(30px,4vw,60px)}
-.strike{background:linear-gradient(var(--blue),var(--blue)) no-repeat 0 58%/100% .075em;
--webkit-box-decoration-break:clone;box-decoration-break:clone;padding:0 .03em}
-.js .rv .strike{background-size:0 .075em;transition:background-size 1s cubic-bezier(.7,0,.2,1) .35s}
-.js .rv.in .strike{background-size:100% .075em}
-.line{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px 6%}
-.why{margin:0;font-size:24px;line-height:1.3;letter-spacing:-.01em;max-width:44ch}
-.marks{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;font-size:17px}
-.marks .vw{font-weight:500}.marks .vw.off{color:var(--blue)}.marks .vw.cant{color:var(--mute);font-weight:400}
-.sq{display:inline-flex;gap:4px;flex:none}.sq i{width:10px;height:10px;background:var(--line);display:block}
-.sq i.on{background:var(--ink)}.sq i.hit{background:var(--blue)}
-.subs{display:flex;flex-direction:column;gap:clamp(28px,3vw,40px);padding-top:8px;border-top:1px solid #ececec}
-.sub{display:flex;flex-direction:column;gap:14px;padding-top:clamp(20px,2.4vw,32px)}
-.sub .why{font-size:20px}
-.two{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(28px,5vw,88px);align-items:center}
-.two.flip{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}.two.flip .proof{order:2}
-.two .text{display:flex;flex-direction:column;gap:clamp(20px,2.4vw,32px);min-width:0}
-.proof{margin:0;min-width:0;display:flex;flex-direction:column;gap:12px}
-.proof figcaption,.cap{font-size:15px;color:var(--mute)}
-.rooms{font-size:16px}.rooms summary{cursor:pointer;color:var(--mute)}
-.rooms ul{list-style:none;margin:10px 0 0;padding:0;columns:2 220px;column-gap:32px}
-.rooms li{display:flex;justify-content:space-between;gap:12px;break-inside:avoid;border-bottom:1px solid #eee;padding:4px 0}
-/* proof: 3D walk */
-.stage{position:relative;background:#ededeb;overflow:hidden;aspect-ratio:16/8;min-height:300px}
-.stage>img,.stage>svg.room{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.two .stage{aspect-ratio:4/3;min-height:0}
-.stage>img{animation:drift 16s ease-in-out infinite alternate;transform-origin:50% 60%}
-.stage .tag{position:absolute;left:clamp(12px,2vw,24px);top:clamp(12px,2vw,24px);background:#fff;padding:10px 16px;
-font-size:16px;line-height:1.35;max-width:calc(100% - 24px)}
-.stage .tag small{display:block;color:var(--mute);font-size:14px}
-.stage .pin{position:absolute;left:50%;top:55%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;
-background:var(--blue);box-shadow:0 0 0 3px #fff}
-.stage .pin::after{content:'';position:absolute;inset:0;border-radius:50%;background:var(--blue);animation:pulse 2.4s ease-out infinite}
-.stage .go{position:absolute;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px)}
-.walk{position:relative;background:#17181a;overflow:hidden;aspect-ratio:16/9;min-height:320px;max-height:82vh}
-.two .walk,.cf-panel .walk,.see3d-box .walk{aspect-ratio:4/3}
-.walk>iframe{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:1;background:#17181a}
-.walk>iframe.dock{position:fixed;inset:auto;left:0;top:0;opacity:0;pointer-events:none;z-index:-1}
-.walk>.stage{position:absolute;inset:0;z-index:2;aspect-ratio:auto;min-height:0;transition:opacity .6s ease,visibility 0s linear 0s}
-.walk.live>.stage{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .6s ease,visibility 0s linear .6s}
-.walk .spin{position:absolute;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);width:26px;height:26px;border-radius:50%;
-border:3px solid rgba(255,255,255,.55);border-top-color:var(--blue);animation:spin 1s linear infinite;display:none}
-.walk.loading .spin{display:block}
-.walk .fs{position:absolute;right:12px;top:12px;z-index:3;display:none;background:#fff;color:#17181a;border:0;font:inherit;
-font-size:14px;padding:7px 12px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.3)}
-.walk.live .fs{display:block}
-.walk:fullscreen{max-height:none;aspect-ratio:auto}
-button.see3d{background:none;border:0;padding:0;font:inherit;color:var(--blue);text-decoration:underline;cursor:pointer}
-.see3d-box{margin:12px 0 4px;width:100%}
-/* proof: pictures */
-.pics{display:grid;gap:10px}
-.pics .lead img{width:100%;aspect-ratio:16/10;object-fit:cover;background:var(--soft)}
-.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
-.thumbs img{width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
-a.pic{display:block;overflow:hidden;transition:transform .25s ease,box-shadow .25s ease}
-a.pic:hover{transform:translateY(-4px);box-shadow:0 14px 30px -18px rgba(0,0,0,.45)}
-a.pic img{transition:transform .6s ease}
-a.pic.plan img{object-fit:contain;background:#fff;padding:6px}a.pic:hover img{transform:scale(1.03)}
-/* proof: drawings, lines, none */
-.draw{background:var(--soft);padding:clamp(20px,3vw,40px);display:flex;justify-content:center;align-items:center}
-.draw svg{width:100%;max-width:520px;height:auto;max-height:440px;overflow:visible}
-.card{background:var(--soft);padding:clamp(22px,2.6vw,38px);display:flex;flex-direction:column;gap:10px;
-transition:transform .25s ease,box-shadow .25s ease}
-.card:hover{transform:translateY(-4px);box-shadow:0 14px 30px -20px rgba(0,0,0,.4)}
-.card .eb{font-size:15px;color:var(--mute)}
-.card .row{display:flex;justify-content:space-between;align-items:baseline;gap:16px;font-size:clamp(26px,2.6vw,38px);line-height:1.15}
-.card .row b{font-weight:400;color:var(--blue);text-align:right}
-.card .also{font-size:16px;color:var(--mute)}
-.cards{display:flex;flex-direction:column;gap:10px}.cards .card+.card{margin-left:clamp(0px,4%,44px)}
-.nopic{background:var(--soft);min-height:clamp(180px,18vw,260px);display:flex;align-items:center;justify-content:center;
-padding:24px;text-align:center;font-weight:300;font-size:clamp(40px,5vw,76px);line-height:1;letter-spacing:-.04em;color:var(--blue)}
-.nopic.q{color:var(--ghost)}
-/* close, not exact (findings list): quiet, no strike-through */
-.near{display:flex;flex-direction:column;gap:14px;padding-top:clamp(8px,1vw,16px);scroll-margin-top:24px}
-.near h3{margin:0;font-weight:400;font-size:clamp(26px,2.6vw,36px);letter-spacing:-.02em}
-.near ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.near li{display:flex;align-items:center;gap:14px 18px;padding:12px 0;border-top:1px solid #ececec;font-size:19px;
-line-height:1.35}
-.near li:last-child{border-bottom:1px solid #ececec}
-.near .nk{flex:0 0 clamp(110px,16%,200px);color:var(--mute);font-size:16px}
-.near .nv{flex:1;min-width:0}
-.near .nv b{font-weight:400;color:var(--mute)}
-.near a.pic{flex:none;width:72px}.near a.pic img{aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
-.top-line{margin:0;font-size:20px;line-height:1.35}
-.top-line q{quotes:'\201c' '\201d'}
-.gone{display:none!important}
-.vh{position:absolute!important;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-/* hero: the leading mismatch, struck through */
-.topx{display:flex;flex-direction:column;gap:clamp(18px,2.4vw,32px);padding-top:clamp(20px,2.4vw,36px);border-top:1px solid var(--ink)}
-.topx-eb{margin:0;font-size:17px;color:var(--blue);letter-spacing:.01em}
-.topx-eb span{color:var(--mute)}
-.near-lead .topx-eb{color:var(--mute)}
-.topx>.pair .truth{align-self:flex-end;text-align:right}
-.topx-end{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px}
-.topx .see{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:17px}
-.strike.soft{background-image:linear-gradient(var(--ghost),var(--ghost))}
-/* hero with a lead: a one-line headline and a compact address block, so the struck-through lead is the largest
-   thing on the first screen and fits it whole; its type is capped by the screen's width and height */
-.hero[data-lead]{gap:clamp(20px,2.4vw,36px);padding-top:clamp(0px,1vw,16px)}
-.hero[data-lead] .hero-top{flex-direction:column;align-items:stretch;gap:clamp(10px,1.3vw,18px)}
-.hero[data-lead] h1{flex:none;display:block;font-size:clamp(36px,min(5.6vw,9.5vh),88px);line-height:1;letter-spacing:-.04em}
-.hero[data-lead] h1 .l2{padding-left:0}
-.hero[data-lead] .addr{flex:none;margin:0;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px clamp(20px,3vw,48px)}
-.hero[data-lead] .addr .where{flex:none;font-size:18px;line-height:1.3}
-.hero[data-lead] .addr .sum{flex:1 1 320px;max-width:66ch;font-size:15px;line-height:1.45;color:var(--mute)}
-.hero[data-lead] .addr .sum p{margin:0}
-.hero[data-lead] .addr .meta{font-size:14px}
-.hero[data-lead] .addr .btn{align-self:center;min-height:46px;font-size:16px;padding:0 20px}
-.hero[data-lead] .topx{gap:clamp(12px,1.6vw,22px);padding-top:clamp(14px,1.6vw,24px)}
-.hero[data-lead] .topx .pair{line-height:.95;gap:.04em}
-.hero[data-lead] .topx .pair.sz-xl{font-size:clamp(52px,min(13vw,19vh),196px)}
-.hero[data-lead] .topx .pair.sz-l{font-size:clamp(44px,min(9vw,14vh),140px)}
-.hero[data-lead] .topx .pair.sz-m{font-size:clamp(34px,min(6.2vw,9.5vh),96px)}
-.hero[data-lead] .topx .pair.sz-s{font-size:clamp(28px,min(4.4vw,7vh),68px)}
-.hero[data-lead] .topx .why{font-size:20px;line-height:1.35}
-@media (max-width:560px){.hero[data-lead] .addr{gap:6px 16px}.hero[data-lead] .addr .where{font-size:17px}
-.hero[data-lead] .addr .sum{flex-basis:100%;font-size:14px}.hero[data-lead] .addr .btn{min-height:44px;font-size:15px;padding:0 18px}
-.hero[data-lead] .topx .why{font-size:18px}}
-.field-sec{padding-bottom:clamp(96px,11vw,180px)}
-/* listed vs. in reality: mismatches only, two columns */
-.lvr{padding-bottom:clamp(80px,9vw,150px);scroll-margin-top:24px}
-.lvr-h{margin:0 0 clamp(24px,3vw,44px);font-weight:300;font-size:clamp(40px,5.4vw,84px);line-height:.95;letter-spacing:-.045em}
-.lvr-head,.lvr-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(24px,5vw,88px)}
-.lvr-head{font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);padding-bottom:12px;
-border-bottom:1px solid var(--ink)}
-.lvr-head span+span{color:var(--blue)}
-.lvr-rows{list-style:none;margin:0;padding:0}
-.lvr-row{row-gap:8px;padding:clamp(16px,1.8vw,26px) 0;border-bottom:1px solid #ececec;align-items:start}
-.lvr-k{grid-column:1/-1;display:flex;align-items:baseline;gap:12px;font-size:15px;color:var(--mute);text-decoration:none;
-justify-self:start}
-.lvr-k b{font-weight:400;color:var(--blue);font-variant-numeric:tabular-nums}
-.lvr-close .lvr-k b{color:var(--mute)}
-.lvr-l,.lvr-r{display:flex;flex-direction:column;gap:8px;min-width:0}
-.lvr-said,.lvr-truth{font-weight:300;font-size:clamp(26px,2.8vw,42px);line-height:1.08;letter-spacing:-.03em;overflow-wrap:anywhere}
-.lvr-said{color:var(--ghost);align-self:flex-start}
-.lvr-truth{color:var(--blue)}
-.lvr-close .lvr-truth{color:var(--ink)}
-.lvr-src{font-size:15px;color:var(--mute)}
-.lvr-lab{display:none}
-.lvr-more{margin-top:20px}
-.lvr-r a.pic{width:120px;margin-top:4px}.lvr-r a.pic img{aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
-@media (max-width:640px){.lvr-head{display:none}.lvr-row{grid-template-columns:minmax(0,1fr);row-gap:12px}
-.lvr-lab{display:block;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
-.lvr-r .lvr-lab{color:var(--blue)}.lvr-close .lvr-r .lvr-lab{color:var(--mute)}
-.lvr-l,.lvr-r{gap:4px}.topx>.pair .truth{align-self:flex-start;text-align:left}}
-/* sources (the one dark band) */
 .dark{background:#111;color:#f2f2f2}.dark a{color:#fff}.dark .mute{color:#a9a9a9}
 .srcs{padding-top:clamp(96px,10vw,170px);padding-bottom:clamp(80px,8vw,140px)}
 .h2{margin:0;font-weight:300;font-size:clamp(48px,8vw,124px);line-height:.92;letter-spacing:-.05em;display:flex;flex-direction:column}
@@ -308,50 +276,24 @@ font-size:15px;line-height:1.45;color:#cfcfcf;overflow:hidden;transition:transfo
 .src h3{margin:0;font-weight:400;font-size:24px}
 .src p{margin:0;font-size:16px;color:#bdbdbd}
 .src.off .tile,.src.off .n{opacity:.38}
-/* extra (not on the listing) */
-.extra{padding-top:clamp(96px,10vw,170px);padding-bottom:clamp(60px,6vw,100px);scroll-margin-top:12px}
-.plans{display:flex;flex-wrap:wrap;align-items:flex-end;gap:clamp(24px,3.4vw,56px);margin:clamp(48px,6vw,96px) 0 0}
-.plans h3,.topics h3{margin:0 0 20px;font-weight:400;font-size:24px;flex:1 1 100%}
-.plans h3 span{color:var(--ghost)}
-.fp{display:flex;flex-direction:column;gap:6px;max-width:100%}
-.fp svg{display:block;max-width:100%;height:auto;transition:transform .3s ease}.fp:hover svg{transform:translateY(-6px)}
-.fp .nm{font-size:22px;line-height:1.2}.fp.this .nm{color:var(--blue)}
-.fp .vl{font-size:16px;line-height:1.4;max-width:30ch}
-.topics{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:clamp(32px,4vw,64px) clamp(28px,4vw,72px);
-margin-top:clamp(56px,7vw,110px)}
-.topic h3{margin-bottom:12px}
-.fact{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) auto;gap:6px 14px;align-items:baseline;padding:6px 0;font-size:17px}
-.fact .k{color:var(--mute)}.fact .v{text-align:right;overflow-wrap:anywhere}
-.fact .fs{font-size:13px;color:var(--mute);min-width:52px;text-align:right;white-space:nowrap}
-.fact .sq i{width:6px;height:6px}.fact .sq{gap:2px}
-.fact a.pic{grid-column:1/-1;max-width:220px}.fact a.pic img{aspect-ratio:16/10;object-fit:cover}
-.topic .note{margin:8px 0 0;font-size:14px;color:var(--mute)}
-.js .more-wrap:not(.open) .more{display:none}
-.factfoot{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;margin-top:clamp(28px,3vw,48px);font-size:15px;color:var(--mute)}
-.empty{font-size:20px;color:var(--mute);margin:24px 0 0}
-/* matches + couldn't check */
-.split{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:clamp(32px,5vw,88px);align-items:start}
-.matches{padding-top:clamp(80px,8vw,140px);padding-bottom:clamp(80px,8vw,140px)}
-.h3{margin:0;font-weight:300;font-size:clamp(46px,6vw,96px);line-height:.95;letter-spacing:-.045em}
-.split .note{margin:16px 0 0;font-size:17px}
-.mlist{list-style:none;margin:0;padding:0;columns:3 220px;column-gap:clamp(24px,3vw,56px);font-size:22px;line-height:1.35}
-.mlist li{break-inside:avoid;padding:0 0 12px;display:flex;gap:12px;align-items:flex-start}
-.mlist .mt{flex:1;min-width:0}
-.mlist a.pic{flex:none;width:64px;margin-top:4px;margin-left:0}.mlist a.pic img{aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
+/* everything we checked: one collapsed disclosure */
+.checked{padding-top:clamp(40px,5vw,80px);padding-bottom:clamp(40px,5vw,80px);scroll-margin-top:24px}
+.allck>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:14px;min-height:48px;font-size:22px}
+.allck>summary::-webkit-details-marker{display:none}
+.allck>summary::before{content:'+';display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;
+border:1px solid var(--ink);font-size:20px;line-height:1;flex:none}
+.allck[open]>summary::before{content:'\\2212'}
+.allck>summary span{color:var(--mute);font-size:16px}
+.ck-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:clamp(32px,4vw,72px);margin-top:28px}
+.ck h3{margin:0 0 14px;font-weight:400;font-size:24px}
+.mlist{list-style:none;margin:0;padding:0;font-size:19px;line-height:1.35}
+.mlist li{padding:0 0 12px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
 .mlist small{display:block;font-size:14px;color:var(--mute)}
-.mlist a{font-size:14px;margin-left:6px}
-.cant{background:var(--soft);padding-top:clamp(72px,8vw,130px);padding-bottom:clamp(72px,8vw,130px)}
-.reasons{display:flex;flex-direction:column;gap:22px}
+.reasons{display:flex;flex-direction:column;gap:18px}
 .reasons p{margin:0 0 4px;font-size:15px;color:var(--mute)}
-.reasons .qs{font-size:22px;line-height:1.4}
+.reasons .qs{font-size:19px;line-height:1.4}
 .toggle{margin-top:18px}
-/* questions */
-.ask{padding-top:clamp(96px,10vw,170px);padding-bottom:clamp(96px,10vw,170px)}
-.ask .split{grid-template-columns:minmax(0,6fr) minmax(0,6fr)}
-.ask.solo .split{grid-template-columns:minmax(0,1fr)}
-.qlist{list-style:none;margin:clamp(28px,3vw,48px) 0 0;padding:0;display:flex;flex-direction:column;gap:22px}
-.qlist li{display:flex;flex-direction:column;align-items:flex-start;gap:10px;font-size:22px;line-height:1.35;max-width:36ch}
-.ask .pics .lead img{aspect-ratio:4/5}
+.js .more-wrap:not(.open) .more{display:none}
 /* footer */
 .foot{padding-top:clamp(80px,8vw,130px);padding-bottom:40px}
 .mark{margin:0;font-weight:300;font-size:clamp(52px,15.5vw,224px);line-height:.95;letter-spacing:-.05em;white-space:nowrap}
@@ -378,33 +320,26 @@ justify-content:center;gap:12px;padding:56px 16px 24px}
 @keyframes drift{from{transform:scale(1)}to{transform:scale(1.07) translateX(-1%)}}
 @keyframes tick{from{stroke-dashoffset:40}to{stroke-dashoffset:0}}
 h1 .tick path{stroke-dasharray:40;animation:tick .9s ease .5s backwards}
-@media (max-width:900px){
-.two,.two.flip,.split,.ask .split{grid-template-columns:minmax(0,1fr)}.two.flip .proof{order:0}
-.src-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-.find.lead .pair .truth{align-self:flex-start;text-align:left}
-}
+@media (max-width:900px){.src-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:560px){
 body{font-size:18px}
+.top{min-height:72px}
+.addr .where{font-size:21px}.addr .top-line{font-size:18px}
 .src-grid{grid-template-columns:minmax(0,1fr)}
 .src .tile{aspect-ratio:auto;min-height:150px}
-.why{font-size:21px}
-.stage{aspect-ratio:auto;min-height:340px}
-.stage .go{left:12px;right:12px}
-.mlist,.reasons .qs,.qlist li{font-size:19px}
-.near li{flex-wrap:wrap;font-size:17px}.near .nk{flex-basis:100%}
-.fact{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto;font-size:16px}
-.cards .card+.card{margin-left:0}
-.top{min-height:72px}
+.stage{aspect-ratio:auto;min-height:300px}
+.walk,.lvr-lead .walk{min-height:280px}
 }
 @media (prefers-reduced-motion: reduce){
 html{scroll-behavior:auto}
 .js .rv,.js .rv.in{opacity:1;transform:none;transition:none}
 .js .rv .strike{background-size:100% .075em;transition:none}
+.js .rv .sq i{transform:none;transition:none}
 .js .fld-col i{transform:none;opacity:1;transition:none}
 .stage>img,.stage .pin::after,h1 .tick path{animation:none}
 .stage .pin::after{opacity:0}
-a.pic,a.pic img,.card,.fp svg,.src .tile,.btn{transition:none}
-a.pic:hover,.card:hover,.fp:hover svg,.src:hover .tile{transform:none}
+a.pic,a.pic img,.card,.src .tile,.btn{transition:none}
+a.pic:hover,.card:hover,.src:hover .tile{transform:none}
 }
 """
 
@@ -447,7 +382,12 @@ var open=w.classList.toggle('open');m.setAttribute('aria-expanded',open?'true':'
 var l=m.getAttribute('data-less'),o=m.getAttribute('data-more');m.textContent=open?l:o;return;}
 var fs=t.closest('.walk .fs');if(fs){var wf=fs.closest('.walk');if(wf.requestFullscreen)wf.requestFullscreen();return;}
 var s3=t.closest('button.see3d');if(s3&&window.RC3D){var bx=window.RC3D.see(s3.getAttribute('data-claim'),s3.getAttribute('data-src'),
-s3.closest('.more-wrap')||s3.parentNode);if(bx)bx.scrollIntoView({behavior:still?'auto':'smooth',block:'nearest'});}});
+s3.closest('.lvr-r')||s3.closest('.more-wrap')||s3.parentNode);if(bx)bx.scrollIntoView({behavior:still?'auto':'smooth',block:'nearest'});}});
+
+/* a link into the collapsed "Everything we checked" opens it */
+function openTo(){var id=location.hash.slice(1);if(!id)return;var t=document.getElementById(id);if(!t)return;
+var dd=t.closest('details')||t.querySelector&&t.querySelector('details.allck');if(dd&&!dd.open){dd.open=true;t.scrollIntoView();}}
+openTo();window.addEventListener('hashchange',openTo);
 })();
 (function(){
 /* live 3D viewers: mount without a click, at most MAX live, still picture on top until the tour page says ready */
@@ -487,7 +427,7 @@ else if(d.state==='finding'){note(w,'Finding the spot that shows this…');clear
 w._to=setTimeout(function(){if(w._f&&!w.classList.contains('live')){w.classList.add('live');w.classList.remove('loading');}},60000);}
 else if(d.state==='error'){note(w,d.note);w.classList.add('live','nospot');w.classList.remove('loading');clearTimeout(w._to);}
 else if(d.state==='off'){unmount(w);w.classList.add('off');note(w,d.note||'The live 3D view is not available here.');}});
-R.see=function(cid,src,host){var a=cid&&document.getElementById('claim-'+cid),f=a&&a.closest('.find'),w=f&&f.querySelector('.walk[data-src]');
+R.see=function(cid,src,host){var a=cid&&document.getElementById('claim-'+cid),f=a&&a.closest('.lvr-row'),w=f&&f.querySelector('.walk[data-src]');
 if(w){mount(w);w.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});return w;}
 if(!src||!host)return null;var box=host.querySelector('.see3d-box');
 if(!box){box=document.createElement('div');box.className='see3d-box';box.innerHTML="<div class=walk><div class=stage>"+
@@ -506,7 +446,7 @@ inview=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isInter
    parents at once */
 all().forEach(function(w){var p=w.closest('.rv');if(p)p.classList.add('in');});
 var ws=all(),first=null,h=location.hash.match(/^#claim-([A-Za-z0-9_-]{1,32})$/);
-if(h){var a=document.getElementById('claim-'+h[1]),fd=a&&a.closest('.find');first=fd&&fd.querySelector('.walk[data-src]');}
+if(h){var a=document.getElementById('claim-'+h[1]),fd=a&&a.closest('.lvr-row');first=fd&&fd.querySelector('.walk[data-src]');}
 first=first||ws[0];if(first)mount(first);
 ws.forEach(function(w){if(near)watch(w);else if(w!==first&&live.length<MAX)mount(w);});
 })();
@@ -903,9 +843,11 @@ def _field(run: Run, live_3d: bool = True) -> str:
     return _fallback_field(run)
 
 
-def _hero(run: Run, n: dict, first_find: str | None, top=None, lead=None) -> str:
-    """Headline, address and run meta, then the leading mismatch struck through (_top_strike). `top`: the lead
-    hard mismatch (or None); `lead`: what the strike shows (top, else the leading close one, else None)."""
+
+def _hero(run: Run, n: dict, top=None, has_facts: bool = False) -> str:
+    """1: the count as a huge two-line headline, then a narrow column at the right: the address on two lines, one
+    plain sentence naming the lead mismatch (`top`, no strike-through: that lives in section 2), the claim count and
+    sources, the run meta and the button down."""
     l1, l2, calm = _headline(n)
     address = run.snap.get("address_text") or run.match.get("address") or "Unknown address"
     parts = [p.strip() for p in str(address).split(",") if p.strip()]
@@ -931,64 +873,22 @@ def _hero(run: Run, n: dict, first_find: str | None, top=None, lead=None) -> str
     else:
         sub = "The listing made no claims we could read."
     btn = ""
-    if first_find:
-        btn = f"<a class='btn big' href='#{first_find}'>Show me what's off{ARROW_DOWN}</a>"
+    if n["contradicted"]:
+        btn = f"<a class='btn big' href='#mismatch'>Show me what's off{ARROW_DOWN}</a>"
     elif n["close"]:
-        btn = f"<a class='btn big' href='#near'>See what's close{ARROW_DOWN}</a>"
+        btn = f"<a class='btn big' href='#mismatch'>See what's close{ARROW_DOWN}</a>"
     elif n["confirmed"]:
-        btn = f"<a class='btn big' href='#match'>See what we checked{ARROW_DOWN}</a>"
-    elif _fill_in(run):
-        btn = f"<a class='btn big' href='#extra'>See what the records know{ARROW_DOWN}</a>"
+        btn = f"<a class='btn big' href='#checked'>See what we checked{ARROW_DOWN}</a>"
+    elif has_facts:
+        btn = f"<a class='btn big' href='#extra'>See what the listing left out{ARROW_DOWN}</a>"
     meta = _meta(run)
     tick = TICK if calm and n["confirmed"] and not n["close"] else ""
-    lines = f"<p>{_e(sub)}"
+    lines = (f"<p class=top-line>{_e(lead_line)}</p>" if lead_line else "") + f"<p>{_e(sub)}"
     lines += (f" {_e(near)}" if near else "") + "</p>"
-    if lead:
-        # compact: one-line headline, address + summary + meta as a small block, the button beside them; the
-        # struck-through lead beneath is the dominant element and fits the first screen
-        sub_line = _e(sub) + (f" {_e(near)}" if near else "")
-        return ("<section class=hero data-lead aria-label='Verdict'><div class=hero-top>"
-                f"<h1><span>{_e(l1)}</span> <span class=l2>{_e(l2)}{tick}</span></h1>"
-                f"<div class='addr rv' style='--d:150ms'><p class=where>{where}</p><div class=sum><p>{sub_line}</p>"
-                + (f"<p class=meta>{_e(meta)}</p>" if meta else "") + "</div>" + btn + "</div></div>"
-                + _top_strike(run, lead, lead_line) + "</section>")
     return ("<section class=hero aria-label='Verdict'><div class=hero-top>"
             f"<h1><span>{_e(l1)}</span><span class=l2>{_e(l2)}{tick}</span></h1>"
             f"<div class='addr rv' style='--d:150ms'><p class=where>{where}</p>{lines}"
-            + (f"<p class=meta>{_e(meta)}</p>" if meta else "") + btn + "</div></div>"
-            + _top_strike(run, lead, lead_line) + "</section>")
-
-
-def _top_strike(run: Run, v: dict | None, line: str) -> str:
-    """The hero's lead mismatch: the listing's words struck through (the strike draws itself in), what was found set
-    large beneath, the pick's short reason (or the verdict's own first sentence) and the deciding sources. A close
-    one (only when nothing is hard off) gets a grey strike and calm type; a photo check that saw nothing, no strike.
-    `line`: the plain sentence for screen readers (and the drawer's done.top.line); '' for a close one."""
-    if not v:
-        return ""
-    c = run.claim(v)
-    kind = _kind(v, c)
-    hard = v.get("verdict") == "contradicted"
-    soft = not hard and kind in SOFT_KINDS
-    said, is_q = _strike_text(run, v, c)
-    said_html = f"“{_e(said)}”" if is_q else _e(_cap(said))
-    truth = "Not seen in the photos." if soft else _truth_text(v)
-    eb = "The biggest difference" if hard else "Close, not exact"
-    plan = " · ".join(x for x in (c.get("label"), KIND_LABEL.get(kind)) if x)
-    strike = "strike" if hard else "" if soft else "strike soft"
-    why = _pick_why(run, v) or _first_sentence(v.get("reason") or "")
-    cid = str(v.get("claim_id") or "")
-    see = f"<a class=see href='#claim-{_e(cid)}'>See the proof{ARROW_DOWN}</a>" if cid else ""
-    sr = f"<div class=vh><p class=top-line>{_e(line)}</p></div>" if line else ""
-    hide = " aria-hidden=true" if line else ""
-    return (f"<div class='topx rv{'' if hard else ' near-lead'}' id=top-mismatch data-claim='{_e(cid)}' "
-            f"data-by='{_pick_by(run, v)}' style='--d:250ms'>"
-            f"<p class=topx-eb>{_e(eb)}{f' <span>· {_e(plan)}</span>' if plan else ''}</p>{sr}"
-            f"<h2 class='pair {_size(max(said, truth, key=len), True)}'{hide}><span class=said><span class='{strike}'>"
-            f"{said_html}</span></span><span class='truth{'' if hard else ' calm'}'>{_e(truth)}</span></h2>"
-            f"<div class=line>{f'<p class=why>{_e(why)}</p>' if why else ''}"
-            f"<div class=topx-end>{_marks(run, v, 'Not seen in photos' if soft else '', credit=True)}{see}</div></div></div>")
-
+            + (f"<p class=meta>{_e(meta)}</p>" if meta else "") + btn + "</div></div></section>")
 
 def _short_found(run: Run, v: dict) -> str:
     """'1 bedroom and a den' -> '1 bed + den': the found value in a few words (server.claim_field.compact), else the
@@ -1041,47 +941,151 @@ def _deciders(v: dict) -> tuple[list, str]:
     return [SRC_NAME[k] for k in keys], band
 
 
-def _mismatch_view(run: Run, off: list) -> str:
-    """'Listed vs. in reality': one row per mismatch (doesn't match, then close; never a match or a couldn't check),
-    in the report's order (the hero's lead first): the listing's words on the left (struck through in blue when it
-    doesn't match; a close one in plain grey, no strike), what was found on the right, one quiet line of the credited
-    sources (_credit) and confidence, a small picture when the verdict has one. Two
-    columns; one column on a phone. '' when nothing is off."""
-    if not off:
+
+def _kind_text(s) -> str:
+    """One short line fit to show: whitespace folded, '' when it is long or uses unkind words or markup."""
+    s = re.sub(r"\s+", " ", str(s or "")).strip()
+    if not s or len(s) > 160 or UNKIND.search(s) or "<" in s:
         return ""
+    return s
+
+
+def _squares(keys: list) -> str:
+    """One square per source, in source order: the deciding one blue, any other credited one black."""
+    if not keys:
+        return ""
+    sq = "".join(f"<i class='{'hit' if keys and s == keys[0] else 'on' if s in keys else ''}'></i>" for s in SRC_ORDER)
+    return f"<span class=sq aria-hidden=true>{sq}</span>"
+
+
+def _record_line(run: Run, v: dict) -> str:
+    """One plain line of what the deciding source holds: 'CoStar building record · Floors: 4', 'Matterport scan
+    titled “Plan E - 1 Bed + Den - 850 SF”', 'Vexcel roof height · 23.1 m'; '' when there is none."""
+    c = run.claim(v)
+    kind = _kind(v, c)
+    src = v.get("source")
+    found = _bare(kind, v.get("found"))
+    lab = KIND_LABEL.get(kind) or _cap(str(kind or "").replace("_", " "))
+    if src in ("record", "county") and found and kind not in SOFT_KINDS:
+        return f"<p class=rline>{_e(SRC_LONG[src])} <span>· {_e(lab)}: {_e(found)}</span></p>"
+    if src == "scan":
+        title = _scan_title(run, c.get("label")) if c.get("label") else ""
+        if not title:
+            title = next((str((e.get("observed") or {}).get("model_name") or "") for e in run.evidence
+                          if e.get("source") == "scan" and (e.get("observed") or {}).get("model_name")
+                          and not (e.get("observed") or {}).get("example_for")), "")
+        if title:
+            return f"<p class=rline>Matterport 3D scan <span>· titled “{_e(title)}”</span></p>"
+    if src == "aerial" and kind == "stories":
+        hm = next((_num((e.get("observed") or {}).get("height_m")) for e in run.evidence
+                   if e.get("source") == "aerial" and _num((e.get("observed") or {}).get("height_m"))), None)
+        if hm:
+            return f"<p class=rline>Vexcel roof height <span>· {_e(_fmt_n(round(hm, 1)))} m</span></p>"
+    return ""
+
+
+def _row_proof(run: Run, v: dict, lead: bool, live_3d: bool, used_imgs: set, used_walk: list) -> str:
+    """The proof inside a mismatch row, picked from what the verdict has. The lead row: the full slot (live 3D
+    viewer, pictures, a measured drawing, or a record card). Any other row: 'See it in 3D', one small picture, or
+    one record line. '' when there is nothing to show."""
+    c = run.claim(v)
+    label = c.get("label")
+    walk = _walk_hrefs(run, v)
+    imgs = [x for x in run.images_for([v], label) if x[0] not in used_imgs]
+    if lead:
+        measured = _measured(run, v)
+        if walk:
+            used_walk.append("#f1")
+            view = next(((p, cap) for p, cap in imgs if "floor plan" not in cap.lower()), None)
+            if view:
+                used_imgs.add(view[0])
+            bg = f"<img src='{_e(view[0])}' alt='' loading=lazy>" if view else (
+                "<svg class=room viewBox='0 0 160 80' preserveAspectRatio='none' aria-hidden=true>"
+                "<path d='M0 0h160v80H0z' fill='#e4e4e1'/><path d='M0 0l55 22h50L160 0z' fill='#f5f5f3'/>"
+                "<path d='M0 80l55-22h50l55 22z' fill='#d6d5d1'/><path d='M55 22h50v36H55z' fill='#efefed'/></svg>")
+            scan_name = _scan_title(run, label) if label else ""
+            small = (f"{scan_name} · " if scan_name else "") + "Opening at the spot that shows this…"
+            proof, kind_word = _walk_box(walk[1], walk[2], bg, small, live_3d) + measured, "walk"
+        elif imgs:
+            imgs = imgs[:3]
+            used_imgs.update(p for p, _ in imgs)
+            proof, kind_word = _pics(imgs), "pictures"
+        elif measured:
+            proof, kind_word = measured, "measured"
+        else:
+            proof, kind_word = _line_cards(run, v), "record"
+        if not proof:
+            return ""
+        alt = _truth_text(v).rstrip(".")[:40]
+        return f"<figure class='proof lvr-proof' id=f1 data-proof='{kind_word}' data-alt='{_e(alt)}'>{proof}</figure>"
+    bits, kind_word = [], ""
+    if walk and live_3d:
+        bits.append(f"<button type=button class=see3d data-src='{_e(walk[1])}' data-claim='{_e(walk[2])}'>"
+                    "See it in 3D</button>")
+        kind_word = "3d"
+    if imgs:
+        used_imgs.add(imgs[0][0])
+        bits.append(_fig(*imgs[0]))
+        kind_word = kind_word or "pictures"
+    elif not bits:
+        line = _record_line(run, v)
+        if line:
+            bits.append(line)
+            kind_word = "record"
+    return f"<div class=lvr-proof data-proof='{kind_word}'>{''.join(bits)}</div>" if bits else ""
+
+
+def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | None = None) -> str:
+    """2 'Listed vs. in reality': every mismatch once (doesn't match, then close; never a match or a couldn't
+    check), in the report's order (the run's pick first). Each row: the listing's words on the left (struck through
+    in blue when it doesn't match; a close one plain grey, never struck), what the sources show on the right, one
+    short reason, the credited sources (_credit) with the confidence band, and the proof inline (_row_proof). The
+    first row is set largest and holds the full proof. Two columns; one on a phone. Only an anchor when nothing is
+    off."""
+    if not off:
+        return "<span id=mismatch></span>"
+    used_walk = used_walk if used_walk is not None else []
+    used_imgs: set = set()
     rows = []
     for i, v in enumerate(off):
+        lead = i == 0
         c = run.claim(v)
         kind = _kind(v, c)
         hard = v.get("verdict") == "contradicted"
         soft = not hard and kind in SOFT_KINDS
         said, is_q = _strike_text(run, v, c)
         said_html = f"“{_e(said)}”" if is_q else _e(_cap(said))
+        if lead:
+            truth = "Not seen in the photos" if soft else _truth_text(v).rstrip(".")
+        else:
+            truth = _short_found(run, v)
         what = KIND_LABEL.get(kind) or _cap(str(kind or "").replace("_", " ")) or "Claim"
         name = " · ".join(x for x in (what, c.get("label")) if x)
-        names, band = _deciders(v)
-        src = " · ".join(x for x in (" + ".join(names), f"{band} confidence" if band else "",
-                                     "" if hard else "close, not exact") if x)
-        imgs = run.images_for([v], c.get("label"))[:1] if v.get("image") else []
-        pic = _fig(*imgs[0]) if imgs else ""
+        why = _kind_text((_pick_why(run, v) if lead else "") or _first_sentence(v.get("reason") or ""))
+        keys, band = _credit(v)
+        src = " · ".join(x for x in (" + ".join(SRC_NAME[k] for k in keys), f"{band} confidence" if band else "") if x)
+        proof = _row_proof(run, v, lead, live_3d, used_imgs, used_walk)
         strike = "strike" if hard else ""  # a close one: the listing's words in plain grey, never struck
         cid = str(v.get("claim_id") or "")
+        anchor = f"<span class=cl-a id='claim-{_e(cid)}'></span>" if cid else ""
+        tag = "" if hard else " <em>close, not exact</em>"
+        cls = "lvr-row rv" + (" lvr-lead" if lead else "") + ("" if hard else " lvr-close") + (" more" if i >= LVR_SHOW else "")
         rows.append(
-            f"<li class='lvr-row rv{'' if hard else ' lvr-close'}{' more' if i >= LVR_SHOW else ''}' "
-            f"style='--d:{min(i, 6) * 70}ms' data-claim='{_e(cid)}'>"
-            f"<a class=lvr-k href='#claim-{_e(cid)}'><b>{i + 1}</b>{_e(name)}</a>"
+            f"<li class='{cls}' style='--d:{min(i, 6) * 70}ms' data-claim='{_e(cid)}'>{anchor}"
+            f"<p class=lvr-k><b>{i + 1}</b><span>{_e(name)}</span>{tag}</p>"
             f"<div class=lvr-l><span class=lvr-lab>Listed</span><span class=lvr-said><span class='{strike}'>"
             f"{said_html}</span></span></div>"
-            f"<div class=lvr-r><span class=lvr-lab>In reality</span><span class=lvr-truth>{_e(_short_found(run, v))}</span>"
-            + (f"<span class=lvr-src>{_e(src)}</span>" if src else "") + pic + "</div></li>")
+            f"<div class=lvr-r><span class=lvr-lab>In reality</span><span class=lvr-truth>{_e(truth)}</span>"
+            + (f"<p class=lvr-why>{_e(why)}</p>" if why else "")
+            + (f"<p class=lvr-cred>{_squares(keys)}<span class=lvr-src>{_e(src)}</span></p>" if src else "")
+            + proof + "</div></li>")
     rest = len(off) - LVR_SHOW
     btn = (f"<button type=button class='btn ghost morebtn toggle lvr-more' aria-controls=lvr-more aria-expanded=false "
            f"data-more='Show the other {rest}' data-less='Show fewer'>Show the other {rest}</button>") if rest > 0 else ""
-    return ("<section class='wrap lvr' id=compare aria-labelledby=lvr-h>"
-            "<h2 class=lvr-h id=lvr-h>Listed vs. in reality</h2>"
+    return ("<section class='wrap lvr' id=mismatch aria-labelledby=lvr-h><span id=compare></span>"
+            "<h2 class='sh rv' id=lvr-h>Listed vs. in reality</h2>"
             "<div class=lvr-head aria-hidden=true><span>Listed</span><span>In reality</span></div>"
             f"<div class=more-wrap id=lvr-more><ol class=lvr-rows>{''.join(rows)}</ol>{btn}</div></section>")
-
 
 def _walk_box(src: str | None, cid: str, bg: str, small: str, live_3d: bool) -> str:
     """The inline 3D viewer: a still picture (bg) the page's script covers with the live viewer once it stands at
@@ -1095,95 +1099,6 @@ def _walk_box(src: str | None, cid: str, bg: str, small: str, live_3d: bool) -> 
             "<button type=button class=fs>Full screen</button></div>")
 
 
-def _finding_group(run: Run, label, vs: list, idx: int, used_walk: list, live_3d: bool = True) -> str:
-    lead = idx == 0
-    v0 = vs[0]
-    walk = None
-    for v in vs:
-        walk = _walk_hrefs(run, v)
-        if walk:
-            break
-    imgs = run.images_for(vs, label)
-    measured = _measured(run, v0)
-    lines = _line_cards(run, v0)
-
-    # proof slot, picked from what this item actually has
-    if walk:
-        used_walk.append(f"#f{idx + 1}")
-        view = next(((p, c) for p, c in imgs if "floor plan" not in c.lower()), None)
-        if view:
-            imgs = [view] + [x for x in imgs if x != view]
-        bg = f"<img src='{_e(view[0])}' alt='' loading=lazy>" if view else (
-            "<svg class=room viewBox='0 0 160 80' preserveAspectRatio='none' aria-hidden=true>"
-            "<path d='M0 0h160v80H0z' fill='#e4e4e1'/><path d='M0 0l55 22h50L160 0z' fill='#f5f5f3'/>"
-            "<path d='M0 80l55-22h50l55 22z' fill='#d6d5d1'/><path d='M55 22h50v36H55z' fill='#efefed'/></svg>")
-        scan_name = _scan_title(run, label) if label else ""
-        small = (f"{scan_name} · " if scan_name else "") + "Opening at the spot that shows this…"
-        proof = _walk_box(walk[1], walk[2], bg, small, live_3d)
-        rest = imgs[1:] if view else imgs
-        if rest:
-            proof += "<div class=thumbs>" + "".join(_fig(p, c) for p, c in rest) + "</div>"
-        kind_word = "walk"
-    elif imgs:
-        proof = _pics(imgs)
-        kind_word = "pictures"
-    elif measured:
-        proof = measured
-        kind_word = "measured"
-    elif lines:
-        proof = lines
-        kind_word = "record"
-    else:
-        txt = _truth_text(v0).rstrip(".")
-        proof = f"<div class=nopic aria-hidden=true>{_e(txt[:40])}</div>"
-        kind_word = "none"
-    if walk and measured:
-        proof += measured  # a 3D walk and a measured drawing can both be shown
-    elif imgs and lines:
-        proof += lines
-
-    def pair(v, big: bool) -> str:
-        c = run.claim(v)
-        said, is_q = _strike_text(run, v, c)
-        soft = v.get("verdict") == "close" and _kind(v, c) in SOFT_KINDS
-        said_html = f"“{_e(said)}”" if is_q else _e(_cap(said))
-        truth = _truth_text(v)
-        if v.get("verdict") == "close" and not soft and truth:
-            truth = "≈ " + truth
-        size = _size(max(said, truth, key=len), False)  # the hero shows the lead one at full size
-        strike = "" if soft else " strike"
-        return (f"<h2 class='pair {size}'><span class=said><span class='{strike.strip()}'>{said_html}</span></span>"
-                f"<span class=truth>{_e(truth)}</span></h2>")
-
-    def line(v) -> str:
-        c = run.claim(v)
-        why = _first_sentence(v.get("reason") or "")
-        soft = v.get("verdict") == "close" and _kind(v, c) in SOFT_KINDS
-        return (f"<div class=line>{f'<p class=why>{_e(why)}</p>' if why else ''}"
-                f"{_marks(run, v, 'Not seen in photos' if soft else '')}</div>")
-
-    plan = ""
-    if label:
-        st = _scan_title(run, label)
-        plan = f"<p class=plan>{_e(label)}" + (f" · scan titled “{_e(st)}”" if st and not walk else "") + "</p>"
-    subs = ""
-    if len(vs) > 1:
-        subs = "<div class=subs>" + "".join(
-            f"<div class='sub rv' style='--d:{i * 90}ms'>{pair(v, False)}{line(v)}</div>" for i, v in enumerate(vs[1:])) + "</div>"
-    rooms = _rooms(run, label) if label else ""
-    rooms = rooms.replace("<details class=rooms>", "<details class=rooms>")
-    anchor = f"f{idx + 1}"
-    # the drawer links a finding as #claim-<id>; one empty target per claim in this group
-    marks = "".join(f"<span class=cl-a id='claim-{_e(v.get('claim_id'))}'></span>" for v in vs if v.get("claim_id"))
-    text = f"{marks}{plan}{pair(v0, True)}{line(v0)}"
-    alt = _truth_text(v0).rstrip(".")[:40]  # the text the proof slot shows if its pictures fail to load
-    if lead:
-        return (f"<article class='find lead rv' id='{anchor}' data-proof='{kind_word}'>{text}"
-                f"<figure class=proof data-alt='{_e(alt)}'>{proof}</figure>{subs}{rooms}</article>")
-    flip = " flip" if idx % 2 == 0 else ""
-    return (f"<article class='find rv' id='{anchor}' data-proof='{kind_word}'><div class='two{flip}'>"
-            f"<figure class=proof data-alt='{_e(alt)}'>{proof}</figure><div class=text>{text}</div></div>{subs}{rooms}</article>")
-
 
 def _bare(kind: str, s) -> str:
     """'built in 2015' -> '2015'; '815 sq ft (scan title)' -> '815 sq ft'."""
@@ -1193,44 +1108,6 @@ def _bare(kind: str, s) -> str:
     return s
 
 
-def _near_row(run: Run, v: dict) -> str:
-    """One quiet line for a 'close' verdict: no strike-through, no big type."""
-    c = run.claim(v)
-    kind = _kind(v, c)
-    said, is_q = _strike_text(run, v, c)
-    name = KIND_LABEL.get(kind) if kind in KIND_LABEL else (f"“{said}”" if is_q else _cap(said))
-    if c.get("label"):
-        name = f"{c['label']} · {name}"
-    if kind in SOFT_KINDS:
-        why = _first_sentence(v.get("reason") or "") or "Not visible in the photos"
-        body = f"{_e(why.rstrip('.'))} <b>— a photo can't show it's missing</b>"
-    else:
-        claimed = _bare(kind, v.get("claimed") or c.get("quote"))
-        found = _bare(kind, v.get("found"))
-        who = SRC_SAYS.get(v.get("source"), "our sources say")
-        body = f"Listing says {_e(claimed)} · {_e(who)} {_e(found)} <b>— close</b>"
-    imgs = run.images_for([v], c.get("label"))[:1] if v.get("image") else []
-    pic = _fig(*imgs[0]) if imgs else ""
-    anchor = f"<span class=cl-a id='claim-{_e(v.get('claim_id'))}'></span>" if v.get("claim_id") else ""
-    return f"<li>{anchor}<span class=nk>{_e(name)}</span><span class=nv>{body}</span>{pic}</li>"
-
-
-def _findings(run: Run, verdicts: list, used_walk: list, live_3d: bool = True) -> str:
-    """Hard mismatches as big modules, ranked by renter impact; then the 'close' ones as one quiet list."""
-    if not verdicts:
-        return "<span id=mismatch></span>"
-    hard = [v for v in verdicts if v.get("verdict") == "contradicted"]
-    near = sorted((v for v in verdicts if v.get("verdict") != "contradicted"), key=lambda v: _rank(run, v))
-    groups = _groups(run, hard)
-    for _, vs in groups:
-        vs.sort(key=lambda v: _rank(run, v))
-    lead_id = verdicts[0].get("claim_id") if verdicts[0].get("verdict") == "contradicted" else None
-    groups.sort(key=lambda g: (0 if any(v.get("claim_id") == lead_id for v in g[1]) else 1, _rank(run, g[1][0])))
-    h = [_finding_group(run, label, vs, i, used_walk, live_3d) for i, (label, vs) in enumerate(groups)]
-    if near:
-        rows = "".join(_near_row(run, v) for v in near)
-        h.append(f"<div class='near rv' id=near><h3>Close, not exact</h3><ul>{rows}</ul></div>")
-    return f"<section class='wrap findings' id=mismatch aria-label='What does not match'>{''.join(h)}</section>"
 
 
 def _pick(run: Run) -> dict | None:
@@ -1375,179 +1252,196 @@ def _sources(run: Run, facts: list) -> str:
             f"<div class=src-grid>{''.join(cells)}</div></div></section>")
 
 
-_PLAN_RE = re.compile(r"(\d+|studio)\s*(?:bed|br\b)", re.I)
-_SQFT_RE = re.compile(r"([\d,]{3,})(?:\s*[–-]\s*[\d,]+)?\s*sq\s*ft", re.I)
+
+TOPF_MAX = 5
+TOPF_BANNED_IDS = {"class", "rating", "lot", "county-parcel", "owner", "county-owner", "manager", "leed",
+                   "county-land-use", "building-size", "county-size"}
+TOPF_BANNED = re.compile(r"(?i)parcel|building class|lot size|rating|owner|manag|contact|phone|e-?mail|\bagent\b")
+TOPF_COUNT_ONLY = re.compile(r"(?i)311|complaint|service request")
+# a top fact that names one of these is left out when a claim of that kind is already a mismatch (shown once)
+TOPF_KIND_RX = {"stories": r"(?i)\b(floors?|stor(?:y|ies)|roof height|height)\b", "year_built": r"(?i)\byear built\b",
+                "unit_count": r"(?i)\bnumber of homes\b|\bhomes \(county\)", "bedrooms": r"(?i)\bbedrooms?\b",
+                "bathrooms": r"(?i)\bbathrooms?\b", "area_sqft": r"(?i)\bfloor area\b"}
+TOPF_WHY = {
+    "elevators": "Whether there is a lift, or every move-in and grocery run is by the stairs.",
+    "available": "How many homes are open now: more choice, and maybe room to talk about rent.",
+    "metering": "Decides whether utilities are billed to you or shared across the building.",
+    "county-311": "Service requests logged with the city near the address. A count only.",
+    "county-complaints": "Complaints on record for the address. A count only.",
+    "roof-height": "Measured from the air: a check on how tall the building really is.",
+}
+TOPF_FILL = ["rent-range", "short-term", "lease", "pets", "parking", "parking-types", "aerial-features",
+             "renovated", "units-on-record"]
+TOPIC_WHY = {"Rent": "Helps you weigh the asking rent.", "Rules": "A day-to-day rule you would live with.",
+             "Around it": "What sits right around the building.", "Building": "How the building is set up.",
+             "Homes & floor plans": "What the homes here are like.", "Records": "From the public record."}
 
 
-def _plan_fact(f: dict):
-    if f.get("topic") != "Homes & floor plans":
-        return None
-    val = str(f.get("value") or "")
-    m, s = _PLAN_RE.search(val), _SQFT_RE.search(val)
-    if not m or not s:
-        return None
-    beds = 0 if m.group(1).lower() == "studio" else int(m.group(1))
-    sq = _num(s.group(1))
-    if not sq or sq < 100 or sq > 10000 or beds > 8:
-        return None
-    return beds, sq
-
-
-def _plan_svg(beds: int, sq: float, biggest: float, this: bool) -> str:
-    side = 90 + 170 * math.sqrt(sq / biggest)
-    w, h = side, side * 1.08
-    col = "#1a4be0" if this else "#111"
-    sw = 7
-    p = [f"<rect x='{sw / 2}' y='{sw / 2}' width='{w - sw:.1f}' height='{h - sw:.1f}' fill='#f4f4f4' stroke='{col}' stroke-width='{sw}'/>"]
-    split = h * .52
-    if beds == 0:
-        p.append(f"<path d='M{sw / 2} {split:.1f}h{w * .45:.1f}V{sw / 2}' fill='none' stroke='{col}' stroke-width='{sw * .6}'/>")
-    else:
-        p.append(f"<path d='M{sw / 2} {split:.1f}H{w - sw / 2:.1f}' stroke='{col}' stroke-width='{sw * .7}'/>")
-        for i in range(1, beds):
-            x = w * i / beds
-            p.append(f"<path d='M{x:.1f} {sw / 2}V{split:.1f}' stroke='{col}' stroke-width='{sw * .7}'/>")
-        if this:
-            p.append(f"<rect x='{sw}' y='{sw}' width='{w / beds - sw * 1.5:.1f}' height='{split - sw * 1.5:.1f}' fill='#e2e8fb'/>")
-    return f"<svg width='{w:.0f}' height='{h:.0f}' viewBox='0 0 {w:.1f} {h:.1f}' aria-hidden=true>{''.join(p)}</svg>"
-
-
-def _fact_row(f: dict, more: bool) -> str:
-    src = f.get("source")
-    img = f.get("image")
-    pic = _fig(img, str(f.get("label") or "")) if isinstance(img, str) and IMG_RE.match(img) else ""
-    return (f"<div class='fact{' more' if more else ''}'><span class=k>{_e(f['label'])}</span>"
-            f"<span class=v>{_e(f['value'])}</span><span class=fs title='{_e(FACT_FROM.get(src, ''))}'>"
-            f"{_e(SRC_SHORT.get(src, ''))}</span>{pic}</div>")
-
-
-def _extra(run: Run, facts: list) -> str:
-    if not facts:
-        return ("<section class='wrap extra' id=extra aria-label='Not on the listing'>"
-                "<h2 class='h2 rv'><span>Not on the listing.</span></h2>"
-                "<p class=empty>Our sources have nothing to add beyond the listing.</p></section>")
-    srcs = [SRC_NAME[s] for s in SRC_ORDER if any(f.get("source") == s for f in facts)]
-    l1 = f"What {srcs[0]} knows" if len(srcs) == 1 else "What the records know"
-    topics: dict = {}
+def _rule_top_facts(facts: list, off_kinds: set) -> list:
+    """The local rule when the run recorded no pick: elevator / walk-up, homes available with the vacancy, utility
+    meters, the 311 count, the measured height (only when floors are not already a mismatch), then a few plain
+    rent / rules / around-it facts; at most TOPF_MAX."""
+    by: dict = {}
     for f in facts:
-        topics.setdefault(str(f.get("topic") or "Other"), []).append(f)
-    order = sorted(topics, key=lambda t: TOPICS.index(t) if t in TOPICS else len(TOPICS))
-    # floor plans drawn to scale
-    labels = [c.get("label") for c in run.claims.values() if c.get("label")]
-    plans = [(f, _plan_fact(f)) for f in facts]
-    plans = [(f, p) for f, p in plans if p][:10]
-    drawn = {id(f) for f, _ in plans}
-    plan_html = ""
-    if len(plans) >= 2:
-        big = max(p[1] for _, p in plans)
-        items = []
-        psrc = list(dict.fromkeys(SRC_NAME.get(f.get("source"), "") for f, _ in plans))
-        for i, (f, (beds, sq)) in enumerate(plans):
-            this = any(_same_plan(f.get("label"), lb) for lb in labels)
-            items.append(f"<div class='fp rv{' this' if this else ''}' style='--d:{i * 70}ms'>{_plan_svg(beds, sq, big, this)}"
-                         f"<span class=nm>{_e(f['label'])}{', on the listing' if this else ''}</span>"
-                         f"<span class=vl>{_e(f['value'])}</span></div>")
-        plan_html = (f"<div class=plans><h3>Homes &amp; floor plans <span>· {_e(', '.join(p for p in psrc if p))}</span></h3>"
-                     + "".join(items) + "</div>")
+        by.setdefault(str(f.get("id") or ""), f)
+    out = []
+
+    def add(f, label=None, value=None, why=None, image=None):
+        if not f or f.get("id") in TOPF_BANNED_IDS:
+            return
+        img = image if image is not None else f.get("image")
+        out.append({"label": label or f.get("label"), "value": value or f.get("value"),
+                    "why": why or TOPF_WHY.get(f.get("id")) or TOPIC_WHY.get(f.get("topic"), ""),
+                    "sources": [f.get("source")], "image": img, "topic": f.get("topic")})
+
+    add(by.get("elevators"))
+    av, vac = by.get("available"), by.get("vacancy")
+    if av and vac:
+        add(av, "Homes available", f"{av.get('value')} · {vac.get('value')}", TOPF_WHY["available"])
     else:
-        drawn = set()
-    many = len(facts) > FACT_MANY
+        add(av or vac, why=TOPF_WHY["available"])
+    add(by.get("metering"))
+    add(by.get("county-311") or by.get("county-complaints"))
+    if "stories" not in off_kinds:
+        view = by.get("aerial-view")
+        add(by.get("roof-height"), image=(view or {}).get("image"))
+    for fid in TOPF_FILL:
+        if len(out) >= TOPF_MAX:
+            break
+        add(by.get(fid))
+    return out
+
+
+def _top_facts(run: Run, facts: list, off: list) -> list:
+    """3's rows: done.harness.top_facts when the run recorded them, else harness.top_facts.pick_top_facts (no
+    model), else the local rule; each checked (_clean_top_fact) and at most TOPF_MAX."""
+    off_kinds = {_kind(v, run.claim(v)) for v in off}
+    d = run.done or {}
+    h = d.get("harness") if isinstance(d.get("harness"), dict) else {}
+    raw = h.get("top_facts") if isinstance(h.get("top_facts"), list) else None
+    if not raw and facts:
+        def rule_only(*_a, **_k):  # rendering a report never calls a model: pick_top_facts falls back to its rule
+            raise RuntimeError("rule only")
+        try:
+            from harness.top_facts import pick_top_facts
+            raw = pick_top_facts(facts, verdicts=run.verdicts, claims=list(run.claims.values()), llm=rule_only,
+                                 cache=False)
+        except Exception:  # noqa: BLE001  (not there, or it failed: the local rule)
+            raw = None
+        if not isinstance(raw, list) or not raw:
+            raw = _rule_top_facts(facts, off_kinds)
+    # a picture only from the fill_in facts an item rests on (those carry /img/<token>); never the item's own path
+    by_id = {str(f.get("id")): f for f in facts}
+    fixed = []
+    for it in raw or []:
+        if isinstance(it, dict) and isinstance(it.get("fact_ids"), list):
+            img = next((by_id[i]["image"] for i in it["fact_ids"] if i in by_id and by_id[i].get("image")), None)
+            if img is None and "Vexcel" in (it.get("sources") or []) and by_id.get("aerial-view"):
+                img = by_id["aerial-view"].get("image")
+            it = {**it, "image": img}
+        fixed.append(it)
+    out = []
+    for it in fixed:
+        f = _clean_top_fact(it, off_kinds)
+        if f and all(f["label"] != o["label"] for o in out):
+            out.append(f)
+        if len(out) >= TOPF_MAX:
+            break
+    return out
+
+
+def _clean_top_fact(it, off_kinds: set) -> dict | None:
+    """A top fact fit to show, or None: label and value present; never a parcel number, building class, lot size,
+    rating, owner, manager or contact; a 311 / complaint row only as a count; never one that repeats a mismatch."""
+    if not isinstance(it, dict):
+        return None
+    label = re.sub(r"\s+", " ", str(it.get("label") or "")).strip()
+    value = re.sub(r"\s+", " ", str(it.get("value") if it.get("value") is not None else "")).strip()
+    if not label or not value or len(label) > 80 or len(value) > 120 or "<" in label + value:
+        return None
+    if it.get("id") in TOPF_BANNED_IDS or TOPF_BANNED.search(f"{label} {it.get('id') or ''}"):
+        return None
+    if TOPF_COUNT_ONLY.search(label) and not re.fullmatch(r"\d[\d,]*", value):
+        return None
+    if UNKIND.search(label + " " + value):
+        return None
+    if any(k in off_kinds and re.search(rx, label) for k, rx in TOPF_KIND_RX.items()):
+        return None
+    srcs = it.get("sources") if isinstance(it.get("sources"), list) else [it.get("source")]
+    keys = []
+    for s in srcs:
+        k = s if s in SRC_NAME else next((x for x, nm in SRC_NAME.items() if nm == s), None)
+        if k and k not in keys:
+            keys.append(k)
+    img = it.get("image")
+    return {"label": label, "value": value, "why": _kind_text(it.get("why")), "keys": keys,
+            "image": img if isinstance(img, str) and IMG_RE.match(img) else None}
+
+
+def _not_listed(run: Run, facts: list, off: list) -> str:
+    """3 'Not in the listing': at most five rows, each a label, the value, one line on why it matters, the source
+    and a picture when there is one."""
+    items = _top_facts(run, facts, off)
+    head = "<h2 class='sh rv' id=nil-h>Not in the listing.</h2>"
+    if not items:
+        return (f"<section class='wrap nil' id=extra aria-labelledby=nil-h>{head}"
+                "<p class=empty>Our sources have nothing to add beyond the listing.</p></section>")
+    rows = []
+    for i, f in enumerate(items):
+        names = " + ".join(SRC_NAME[k] for k in f["keys"])
+        pic = _fig(f["image"], f["label"]) if f["image"] else ""
+        rows.append(f"<li class='nil-row rv' style='--d:{i * 70}ms'><p class=nil-k><b>{i + 1}</b>{_e(f['label'])}</p>"
+                    f"<p class=nil-v>{_e(f['value'])}</p><div class=nil-w>"
+                    + (f"<p>{_e(f['why'])}</p>" if f["why"] else "")
+                    + (f"<span class=nil-src>{_squares(f['keys'])}{_e(names)}</span>" if names else "")
+                    + pic + "</div></li>")
+    sub = "What our sources know that the listing doesn't say, picked for someone about to rent or buy."
+    return (f"<section class='wrap nil' id=extra aria-labelledby=nil-h>{head}<p class='sh-sub rv'>{_e(sub)}</p>"
+            f"<ol class=nil-rows>{''.join(rows)}</ol></section>")
+
+
+def _checked(run: Run, ok: list, cant: list, live_3d: bool = True) -> str:
+    """After the five sections: one collapsed 'Everything we checked' (#checked) with what matches (#match, 'See
+    it in 3D' where a scan shows it) and what nobody could check (#cant-verify, grouped by reason)."""
+    if not ok and not cant:
+        return "<span id=checked></span><span id=match></span><span id=cant-verify></span>"
     blocks = []
-    hidden = 0
-    for t in order:
-        rows = [f for f in topics[t] if id(f) not in drawn]
-        if not rows:
-            continue
-        h = [f"<div class='topic rv'><h3>{_e(t)}</h3>"]
-        for j, f in enumerate(rows):
-            more = many and j >= FACT_SHOW
-            hidden += more
-            h.append(_fact_row(f, more))
-        notes = list(dict.fromkeys(str(f.get("note") or "").strip() for f in rows if str(f.get("note") or "").strip()))
-        if notes:
-            h.append(f"<p class=note>{_e(' '.join(notes[:2]))}</p>")
-        h.append("</div>")
-        blocks.append("".join(h))
-    btn = ""
-    if hidden:
-        btn = (f"<button type=button class='btn ghost morebtn' aria-controls=extra-more aria-expanded=false "
-               f"data-more='Show all {len(facts)} facts' data-less='Show fewer'>Show all {len(facts)} facts</button>")
-    present = [SRC_LONG[s] for s in SRC_ORDER if any(f.get("source") == s for f in facts)]
-    foot = f"<div class=factfoot><span>Sources: {_e(', '.join(present))}.</span>{btn}</div>"
-    count = f"{_plural(len(facts), 'fact', 'facts')}, in {_plural(len(order), 'topic', 'topics')}, each marked with its source. Not a fact-check."
-    return ("<section class='wrap extra' id=extra aria-label='Not on the listing'>"
-            f"<h2 class='h2 rv'><span>{_e(l1)}</span><span class=l2>the listing left out.</span></h2>"
-            f"<p class='lede rv'>{_e(count)}</p>{plan_html}"
-            f"<div class=more-wrap id=extra-more><div class=topics>{''.join(blocks)}</div></div>{foot}</section>")
-
-
-def _matches(run: Run, verdicts: list, used_walk: list, live_3d: bool = True) -> str:
-    if not verdicts:
-        return "<span id=match></span>"
-    items = []
-    multi = 0
-    for label, vs in _groups(run, verdicts):
-        for v in vs:
-            c = run.claim(v)
-            said, is_q = _strike_text(run, v, c)
-            if len(_relevant(run, v)) >= 2:
-                multi += 1
-            walk = _walk_hrefs(run, v)
-            link = (f"<button type=button class=see3d data-src='{_e(walk[1])}' data-claim='{_e(walk[2])}'>"
-                    "See it in 3D</button>" if walk and live_3d else "")
-            text = f"“{_e(said)}”" if is_q else _e(_cap(said))
-            small = f"<small>{_e(label)}</small>" if label else ""
-            imgs = run.images_for([v], c.get("label"))[:1]  # a small proof picture where the evidence has one
-            pic = _fig(*imgs[0]) if imgs else ""
-            items.append(f"{pic}<span class=mt>{small}{text}{link}</span>")
-    n = len(items)
-    lis = "".join(f"<li class='{'more' if i >= LIST_SHOW else ''}'>{x}</li>" for i, x in enumerate(items))
-    btn = ""
-    if n > LIST_SHOW:
-        btn = (f"<button type=button class='btn ghost morebtn toggle' aria-controls=match-more aria-expanded=false "
-               f"data-more='Show the other {n - LIST_SHOW}' data-less='Show fewer'>Show the other {n - LIST_SHOW}</button>")
-    note = f"{multi} by two sources or more." if multi else ""
-    return ("<section class='wrap matches' id=match aria-label='What matches'><div class=split>"
-            f"<div class=rv><h2 class=h3>{_e(_plural(n, 'thing matches.', 'things match.'))}</h2>"
-            + (f"<p class=note>{_e(note)}</p>" if note else "") + "</div>"
-            f"<div class='more-wrap rv' id=match-more><ul class=mlist>{lis}</ul>{btn}</div></div></section>")
-
-
-def _cant(run: Run, verdicts: list) -> str:
-    if not verdicts:
-        return "<span id=cant-verify></span>"
-    by_reason: dict = {}
-    for label, vs in _groups(run, verdicts):
-        for v in vs:
-            c = dict(run.claim(v))
-            c["_claimed"] = _claimed_words(v, c)
-            said, is_q = _strike_text(run, v, c)
-            txt = (f"“{said}”" if is_q else _cap(said))
-            if label:
-                txt = f"{label}: {txt}"
-            by_reason.setdefault(_cant_reason(run, v, c), []).append(txt)
-    n = len(verdicts)
-    blocks, shown = [], 0
-    for reason, texts in by_reason.items():
-        texts = list(dict.fromkeys(texts))
-        vis, rest = [], []
-        for t in texts:
-            (vis if shown < LIST_SHOW else rest).append(t)
-            shown += 1
-        body = _e(" · ".join(vis))
-        if rest:
-            body += f"<span class=more> · {_e(' · '.join(rest))}</span>"
-        cls = "" if vis else " class=more"
-        blocks.append(f"<div{cls}><p>{_e(reason)}</p><div class=qs>{body}</div></div>")
-    btn = ""
-    if shown > LIST_SHOW:
-        btn = (f"<button type=button class='btn ghost morebtn toggle' aria-controls=cant-more aria-expanded=false "
-               f"data-more='Show the other {shown - LIST_SHOW}' data-less='Show fewer'>Show the other {shown - LIST_SHOW}</button>")
-    word = "nobody could check." if n != 1 else "nobody could check."
-    return ("<section class=cant id=cant-verify aria-label=\"Couldn't check\"><div class='wrap split'>"
-            f"<h2 class='h3 rv'>{n} {word}</h2>"
-            f"<div class='more-wrap rv' id=cant-more><div class=reasons>{''.join(blocks)}</div>{btn}</div></div></section>")
-
+    if ok:
+        items = []
+        for label, vs in _groups(run, ok):
+            for v in vs:
+                c = run.claim(v)
+                said, is_q = _strike_text(run, v, c)
+                walk = _walk_hrefs(run, v)
+                link = (f"<button type=button class=see3d data-src='{_e(walk[1])}' data-claim='{_e(walk[2])}'>"
+                        "See it in 3D</button>" if walk and live_3d else "")
+                small = f"<small>{_e(label)}</small>" if label else ""
+                text = f"“{_e(said)}”" if is_q else _e(_cap(said))
+                items.append(f"<li><span>{small}{text}</span>{link}</li>")
+        blocks.append(f"<div class='ck more-wrap' id=match><h3>{_e(_plural(len(items), 'thing matches', 'things match'))}"
+                      f"</h3><ul class=mlist>{''.join(items)}</ul></div>")
+    else:
+        blocks.append("<span id=match></span>")
+    if cant:
+        by_reason: dict = {}
+        for label, vs in _groups(run, cant):
+            for v in vs:
+                c = dict(run.claim(v))
+                c["_claimed"] = _claimed_words(v, c)
+                said, is_q = _strike_text(run, v, c)
+                txt = f"“{said}”" if is_q else _cap(said)
+                by_reason.setdefault(_cant_reason(run, v, c), []).append(f"{label}: {txt}" if label else txt)
+        rs = "".join(f"<div><p>{_e(r)}</p><div class=qs>{_e(' · '.join(dict.fromkeys(t)))}</div></div>"
+                     for r, t in by_reason.items())
+        blocks.append(f"<div class=ck id=cant-verify><h3>{_e(_plural(len(cant), 'thing', 'things'))} nobody could check"
+                      f"</h3><div class=reasons>{rs}</div></div>")
+    else:
+        blocks.append("<span id=cant-verify></span>")
+    n = len(ok) + len(cant)
+    return ("<section class='wrap checked' id=checked aria-label='Everything we checked'><details class=allck>"
+            f"<summary>Everything we checked <span>{_e(_plural(len(ok), 'match', 'matches'))} · "
+            f"{_e(str(len(cant)))} couldn't check · {_e(_plural(n, 'claim', 'claims'))}</span></summary>"
+            f"<div class=ck-grid>{''.join(blocks)}</div></details></section>")
 
 def _question(run: Run, v: dict) -> str:
     c = run.claim(v)
@@ -1568,7 +1462,10 @@ def _question(run: Run, v: dict) -> str:
     return f"Can you confirm {said}{plan} in writing?"
 
 
-def _questions(run: Run, off: list, cant: list, pic) -> str:
+
+def _questions(run: Run, off: list, cant: list) -> str:
+    """4 'Ask before you tour.': a draft of neutral questions (deterministic template), each with Copy, and Copy
+    all."""
     qs = []
     for v in off + cant:
         q = _question(run, v)
@@ -1577,20 +1474,17 @@ def _questions(run: Run, off: list, cant: list, pic) -> str:
         if len(qs) >= MAX_QUESTIONS:
             break
     if not qs:
-        return ""
-    lis = "".join(f"<li class=rv style='--d:{i * 80}ms'><span>{_e(q)}</span>"
-                  f"<button type=button class='btn ghost copy' data-text='{_e(q)}'>Copy</button></li>" for i, q in enumerate(qs))
+        return "<span id=questions></span>"
+    lis = "".join(f"<li class=rv style='--d:{i * 80}ms'><span class=qn>{i + 1}</span><span>{_e(q)}</span>"
+                  f"<button type=button class='btn ghost copy' data-text='{_e(q)}'>Copy</button></li>"
+                  for i, q in enumerate(qs))
     every = "\n".join(qs)
-    all_btn = (f"<p style='margin-top:28px'><button type=button class='btn copy' data-text='{_e(every)}'>"
+    all_btn = (f"<p class=ask-all><button type=button class='btn copy' data-text='{_e(every)}'>"
                f"Copy all {len(qs)}</button></p>" if len(qs) > 1 else "")
-    side = ""
-    if pic:
-        side = f"<figure class='proof rv'>{_pics([pic], caption=False)}<figcaption>{_e(_short_caption(pic[1]))}</figcaption></figure>"
-    solo = "" if side else " solo"
-    return (f"<section class='wrap ask{solo}' id=questions aria-label='Questions to ask'><div class=split><div>"
-            "<h2 class='h3 rv'>Ask before you tour.</h2>"
-            f"<ul class=qlist>{lis}</ul>{all_btn}</div>{side}</div></section>")
-
+    return ("<section class='wrap ask' id=questions aria-labelledby=ask-h>"
+            "<h2 class='sh rv' id=ask-h>Ask before you tour.</h2>"
+            "<p class='sh-sub rv'>A draft to send the landlord or agent. Copy one, or all of them.</p>"
+            f"<ol class=qlist>{lis}</ol>{all_btn}</section>")
 
 def _footer(run: Run) -> str:
     url = run.snap.get("url") or ""
@@ -1616,37 +1510,34 @@ def _footer(run: Run) -> str:
             f"<div class=foot-end><span>Report {_e(rid)}</span><a href='#top'>Back to the top</a></div></div></footer>")
 
 
+
 def render_report(run_dict: dict, live_3d: bool = True) -> str:
     run_dict = drop_dead_images(run_dict)  # older runs: pictures whose cached file is gone are left out
     run = Run(run_dict)
     address = run.snap.get("address_text") or "Unknown address"
     n = _counts(run)
-    off = _ranked_off(run, run.verdicts)  # hard mismatches first, by renter impact; then the close ones
+    off = _ranked_off(run, run.verdicts)  # hard mismatches first (the run's pick leads), then the close ones
     ok = [v for v in run.verdicts if v.get("verdict") == "confirmed"]
     cant = [v for v in run.verdicts if v.get("verdict") not in ("contradicted", "close", "confirmed")]
     facts = _fill_in(run)
     used_walk: list = []
 
-    findings = _findings(run, off, used_walk, live_3d)  # claims images first, as the old report does
-    lead_pic = None
-    for m in re.finditer(r"<a class='pic[^']*' href='(/img/[a-f0-9]{16})' data-cap='([^']*)'", findings):
-        if not m.group(2).lower().startswith("floor plan"):
-            lead_pic = (m.group(1), m.group(2))
-            break
-    top = _lead(off)
-    lead = top or (off[0] if off else None)  # a close one leads the strike only when nothing is hard off
-    hero = _hero(run, n, "compare" if top else None, top, lead)
+    mismatch = _mismatch_view(run, off, live_3d, used_walk)  # 2
+    extra = _not_listed(run, facts, off)  # 3
+    hero = _hero(run, n, _lead(off), has_facts="class=nil-row" in extra)  # 1
     url = run.snap.get("url") or ""
     nav = []
     if url.startswith(("http://", "https://")):
         nav.append(f"<a class=back href='{_e(url)}' target=_blank rel=noopener>{ARROW_LEFT}<span>Listing</span></a>")
     if used_walk:
-        nav.append(f"<a class=btn href='{_e(used_walk[0])}'>3D walk</a>")  # the finding's own inline viewer
+        nav.append(f"<a class=btn href='{_e(used_walk[0])}'>3D walk</a>")  # the lead row's own viewer
     else:
         nav.append("<button type=button class='btn share'>Share</button>")
     err = ""
     if not run.done and run.err:
         err = f"<p class='wrap empty'>{_e(run.err.get('message') or 'This check did not finish.')}</p>"
+    field = (f"<div class='wrap field-sec' id=heatmap><h2 class='sh rv'>Every claim, every source.</h2>"
+             f"{_field(run, live_3d)}</div>")
 
     h = ["<!doctype html><html lang=en><head><meta charset=utf-8>",
          "<meta name=viewport content='width=device-width,initial-scale=1'>",
@@ -1656,8 +1547,8 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
          PRECONNECT if used_walk and live_3d else "",
          f"<style>{CSS}</style></head><body id=top>",
          f"<div class=wrap><header class=top><a class=brand href='#top'>{BRAND}</a><nav aria-label=Report>{''.join(nav)}</nav></header>",
-         hero, "</div>", _mismatch_view(run, off), f"<div class='wrap field-sec'>{_field(run, live_3d)}</div>", err, findings, _sources(run, facts), _extra(run, facts), _matches(run, ok, used_walk, live_3d),
-         _cant(run, cant), _questions(run, off, cant, lead_pic), _footer(run),
+         hero, "</div>", err, mismatch, extra, _questions(run, off, cant), field, _sources(run, facts),
+         _checked(run, ok, cant, live_3d), _footer(run),
          "<div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"
          "<button type=button class=btn>Close</button><p></p></div>",
          f"<script>{SCRIPT}</script></body></html>"]

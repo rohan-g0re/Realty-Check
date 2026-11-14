@@ -34,9 +34,18 @@ def test_sample_events_has_fill_in_before_done():
     i_last_verdict = len(kinds) - 1 - kinds[::-1].index("verdict")
     assert 0 < i_last_verdict < i_fill < i_done
     facts = load_events()[i_fill]["facts"]
-    assert 3 <= len(facts) <= 6
+    assert 3 <= len(facts) <= 12  # the drawer lists them all; the report keeps only done.harness.top_facts
     assert any(f["id"] == "aerial-features" and f["topic"] == "Around it" for f in facts)
     assert any(f["value"] == "Example Property Management" for f in facts)
+    top = load_events()[i_done]["harness"]["top_facts"]
+    ids = {f["id"] for f in facts}
+    assert 1 <= len(top) <= 5 and all(t["fact_ids"] and set(t["fact_ids"]) <= ids for t in top)
+
+
+def load_events_facts():
+    from server.sample_report import load_events
+
+    return next(e for e in load_events() if e["type"] == "fill_in")["facts"]
 
 
 def test_ui_handles_fill_in_neutrally():
@@ -91,7 +100,7 @@ def test_sample_flow_shows_fill_in(env):
     page.locator("#rc-host #headline").wait_for(timeout=15000)
     tog = page.locator("#rc-host #fiToggle")
     tog.wait_for(timeout=3000)
-    assert tog.inner_text().strip() == "Not on the listing (6)"
+    assert tog.inner_text().strip() == f"Not in the listing ({len(load_events_facts())})"
     assert tog.get_attribute("aria-expanded") == "false"
     assert page.locator("#rc-host .fact").count() == 0  # collapsed by default
     tog.click()
@@ -108,8 +117,9 @@ def test_sample_flow_shows_fill_in(env):
         page.locator("#rc-host #fiAll").click()
     rep = newp.value
     rep.wait_for_selector("#extra")
-    assert rep.url.endswith("#extra")  # the sample report (design A) opens at its "Not on the listing" section
-    assert "Example Property Management" in rep.locator("#extra").inner_text()
+    assert rep.url.endswith("#extra")  # the sample report (design A) opens at its "Not in the listing" section
+    extra = rep.locator("#extra").inner_text()  # the report lists the sample's top picks, not every fact
+    assert "Seen from above" in extra and "Sport court" in extra
     rep.close()
     page.locator("#rc-host #fiToggle").click()
     assert page.locator("#rc-host .fact").count() == 0
@@ -170,7 +180,7 @@ def test_no_fill_in_event_shows_nothing(env, monkeypatch):
 def test_one_fact_singular(env, monkeypatch):
     stub, page, errors = _run_stub(env, monkeypatch, json.loads(json.dumps(FACTS[:1])))
     try:
-        assert page.locator("#rc-host #fiToggle").inner_text().strip() == "Not on the listing (1)"
+        assert page.locator("#rc-host #fiToggle").inner_text().strip() == "Not in the listing (1)"
         assert not errors, errors
     finally:
         page.close()

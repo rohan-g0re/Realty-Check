@@ -55,6 +55,7 @@ MAX_EXAMPLE_UNITS = 3   # example unit rows shown on a building known only from 
 TOP_MISMATCH_LLM = None  # harness.top_mismatch's model call (None: its default, the CLI login); tests stub it
 TOP_MISMATCH_RESERVE_S = 1.0  # kept after the top-mismatch model call, for done
 TOP_MISMATCH_MIN_S = 2.0      # less time than this left: the rule picks the top mismatch, no model call
+TOP_FACTS_LLM = None  # harness.top_facts's model call (None: its default, the CLI login); tests stub it
 
 
 class Run:
@@ -1241,6 +1242,7 @@ class Run:
                 except Exception as e:  # extra information only: never turn the check into an error
                     facts = []
                     self.agent_stats["fill_in_error"] = f"{type(e).__name__}: {str(e)[:200]}"
+            self.facts = facts
             self.emit({"type": "fill_in", "facts": facts})
             self.fill_in_by = by
             return len(facts)
@@ -1316,7 +1318,9 @@ class Run:
         self.send_fill_in(by)
         counts = {k: sum(v["verdict"] == k for v in verdicts) for k in ("confirmed", "contradicted", "close", "cant_check")}
         stopped = (self.agent_stats or {}).get("stopped")
+        top_facts = self.top_facts_soon(verdicts)  # runs alongside the top-mismatch pick: no added wait
         top = self.top_mismatch(verdicts)
+        top_facts = top_facts()
         try:  # the headline leads with the same mismatch the report leads with (top_mismatch's pick)
             headline = _headline(verdicts, {c["id"]: c for c in self.claims}, lead=(top or {}).get("claim_id"))
         except Exception:
@@ -1327,7 +1331,7 @@ class Run:
                             "fill_in_by": getattr(self, "fill_in_by", None), "stopped": stopped,
                             "helpers": sorted(self.helpers_used), "needed": sorted(self.needed),
                             "direct": list(self.direct), "single_unit": self.single_unit, "unit": self.unit,
-                            "top_mismatch": top},
+                            "top_mismatch": top, "top_facts": top_facts},
                 "timing": self.timing()}
         LAST_AGENT_STATS.clear()
         LAST_AGENT_STATS.update(self.agent_stats)
@@ -1350,6 +1354,44 @@ class Run:
             return pick_top(verdicts, claims=self.claims, llm=TOP_MISMATCH_LLM, timeout=min(TIMEOUT_S, left))
         except Exception:
             return None
+
+    def top_facts_soon(self, verdicts: list[dict]) -> Callable[[], list[dict]]:
+        """Start harness.top_facts.pick_top_facts (at most 5 things the listing did not say) in a thread; the returned
+        call waits for it (no longer than its own timeout) and gives the list. The model is asked only on the agent
+        path with time left, like top_mismatch; a failure or a late answer gives the rule's pick, never an error."""
+        facts = list(getattr(self, "facts", None) or [])
+        box: dict = {}
+        try:
+            from harness.top_facts import TIMEOUT_S, pick_top_facts
+        except Exception:
+            return lambda: []
+
+        def rule() -> list[dict]:
+            try:
+                return pick_top_facts(facts, verdicts=verdicts, claims=self.claims, llm=_no_model, timeout=0.1,
+                                      cache=False)
+            except Exception:
+                return []
+        left = self.time_left() - TOP_MISMATCH_RESERVE_S
+        if not facts or not AGENT_ENABLED or left < TOP_MISMATCH_MIN_S:
+            out = rule()
+            return lambda: out
+        budget = min(TIMEOUT_S, left)
+
+        def go():
+            try:
+                box["out"] = pick_top_facts(facts, verdicts=verdicts, claims=self.claims, llm=TOP_FACTS_LLM,
+                                            timeout=budget)
+            except Exception:
+                pass
+        t = threading.Thread(target=contextvars.copy_context().run, args=(go,), daemon=True, name="rc-top-facts")
+        t.start()
+
+        def wait() -> list[dict]:
+            t.join(budget + 0.5)
+            out = box.get("out")
+            return out if isinstance(out, list) else rule()
+        return wait
 
     # ---- picture checks: amenities from the air, in-unit features in scan photos (soft, presence only) ----
     def start_pictures(self) -> None:

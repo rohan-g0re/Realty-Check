@@ -119,6 +119,14 @@ def client():
     return TestClient(srv.app)
 
 
+def _warm(client, url):
+    """The viewer never waits for a pick: ask once (starts it), let it finish, ask again (as a later visit would)."""
+    client.get(url)
+    for th in list(tour._JOBS.values()):
+        th.join(5)
+    return client.get(url).text
+
+
 def _cfg(html):
     start = html.index("window.TOUR_CFG=") + len("window.TOUR_CFG=")
     return json.loads(html[start:html.index(";</script>", start)])
@@ -130,16 +138,16 @@ def test_tour_served_with_key(client, monkeypatch):
     assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
     html = r.text
     assert "Back to the report" in html and f"/report/{RUN_ID}" in html
-    assert "<s>2 bedrooms</s>" in html and "1 bedroom + den" in html and "Plan Z" in html
+    assert "<span class=strike>2 bedrooms</span>" in html and "1 bedroom + den" in html and "Plan Z" in html
     cfg = _cfg(html)
     assert cfg["model"] == MODEL and cfg["key"] == FAKE_KEY
-    assert "1 bedroom + den" in cfg["tag"]["label"]
+    assert cfg["tag"]["label"] == "2 bedrooms"
     assert "other-secret-value-xyz" not in html
 
 
 def test_tour_key_from_private_env(client, tmp_path):
     (tmp_path / ".env").write_text(f"MATTERPORT_SDK_KEY={FAKE_KEY}\n", encoding="utf-8")
-    assert _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["key"] == FAKE_KEY
+    assert _cfg(_warm(client, f"/tour/{RUN_ID}?claim=c1"))["key"] == FAKE_KEY
 
 
 def test_tour_key_absent(client):
@@ -162,7 +170,7 @@ def test_tour_not_found(client, monkeypatch):
 
 def test_tour_default_claim_is_first_scan_mismatch(client, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
-    assert "<s>2 bedrooms</s>" in client.get(f"/tour/{RUN_ID}").text
+    assert "<span class=strike>2 bedrooms</span>" in client.get(f"/tour/{RUN_ID}").text
 
 
 def test_room_picked_only_when_one_room_carries_the_word(client, tmp_path, monkeypatch):
@@ -170,7 +178,7 @@ def test_room_picked_only_when_one_room_carries_the_word(client, tmp_path, monke
     _summary(tmp_path, [{"id": "roomA", "label": None, "tags": ["bathroom"], "classifications": []},
                         {"id": "roomB", "label": None, "tags": ["unfurnished"], "classifications": []},
                         {"id": "roomC", "label": None, "tags": ["bedroom"], "classifications": []}])
-    html = client.get(f"/tour/{RUN_ID}?claim=c2").text
+    html = _warm(client, f"/tour/{RUN_ID}?claim=c2")
     bath = _cfg(html)["spot"]
     assert bath["status"] == "found" and bath["sweeps"] == ["pano0000abcd"] and bath["sweep"] is None
     assert "only room the scan tags as a bathroom" in html
@@ -181,7 +189,7 @@ def test_room_not_picked_when_ambiguous_or_shared(client, tmp_path, monkeypatch)
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     FAKE_LOOK.answer = {"spot": "none", "view": None, "seen": None}
     _summary(tmp_path, [{"id": "roomA", "tags": ["bathroom"]}, {"id": "roomB", "tags": ["bathroom"]}])
-    spot = _cfg(client.get(f"/tour/{RUN_ID}?claim=c2").text)["spot"]
+    spot = _cfg(_warm(client, f"/tour/{RUN_ID}?claim=c2"))["spot"]
     assert spot["sweep"] is None and spot["sweeps"] == []  # two bathrooms: picture check said none
     assert FAKE_LOOK.calls == 1
 
@@ -191,12 +199,14 @@ def test_room_not_picked_when_ambiguous_or_shared(client, tmp_path, monkeypatch)
 def test_den_spot_chosen_by_picture_check(client, tmp_path, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     FAKE_LOOK.answer = {"spot": "3", "view": "B", "seen": "Small room off the living room, no closet, no door"}
-    html = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    html = _warm(client, f"/tour/{RUN_ID}?claim=c1")
     spot = _cfg(html)["spot"]
     assert spot["status"] == "found" and spot["sweep"] == FAKE_CLIENT.spot_ids[2] and spot["face"] == 1
-    assert "At this spot: Small room off the living room, no closet, no door." in html
+    # the callout at the marker says what is there; the card says how the spot was picked
+    assert "<p class=meta>This spot</p>Small room off the living room, no closet, no door.</div>" in html
+    assert "Picked by a picture check of 6 spots in the scan." in html
     cfg = _cfg(html)
-    assert cfg["tag"]["description"].startswith("Here: Small room") and cfg["pull"] < 1
+    assert cfg["tag"]["callout"].startswith("Small room") and cfg["pull"] < 1
     assert FAKE_LOOK.calls == 1 and len(FAKE_LOOK.images) <= 5  # two spots per sheet, at most 10 spots
     assert "spots are numbered 1 to" in FAKE_LOOK.question and "den" in FAKE_LOOK.question
 
@@ -204,7 +214,7 @@ def test_den_spot_chosen_by_picture_check(client, tmp_path, monkeypatch):
 def test_none_keeps_start_view_and_says_so(client, tmp_path, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     FAKE_LOOK.answer = {"spot": "none", "view": None, "seen": None}
-    html = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    html = _warm(client, f"/tour/{RUN_ID}?claim=c1")
     spot = _cfg(html)["spot"]
     assert spot["status"] == "none" and spot["sweep"] is None and spot["sweeps"] == []
     assert "none clearly shows a den" in html and "start position" in html
@@ -213,21 +223,21 @@ def test_none_keeps_start_view_and_says_so(client, tmp_path, monkeypatch):
 def test_low_confidence_or_bad_spot_is_none(client, tmp_path, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     FAKE_LOOK.answer = {"spot": "99", "view": "A", "seen": "a room"}
-    assert _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["spot"]["sweep"] is None
+    assert _cfg(_warm(client, f"/tour/{RUN_ID}?claim=c1"))["spot"]["sweep"] is None
     (tmp_path / "rc_cache" / "spots" / MODEL / "bedrooms_2.json").unlink()
     tour.reset_spots()
     FAKE_LOOK.answer, FAKE_LOOK.confidence = {"spot": "2", "view": "A", "seen": "maybe a den"}, 0.3
-    assert _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["spot"]["sweep"] is None
+    assert _cfg(_warm(client, f"/tour/{RUN_ID}?claim=c1"))["spot"]["sweep"] is None
 
 
 def test_pick_cached_and_reused(client, tmp_path, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     FAKE_LOOK.answer = {"spot": "1", "view": "C", "seen": "Small nook by the kitchen"}
-    first = _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["spot"]
+    first = _cfg(_warm(client, f"/tour/{RUN_ID}?claim=c1"))["spot"]
     assert (tmp_path / "rc_cache" / "spots" / MODEL / "bedrooms_2.json").is_file()
     q, d = FAKE_CLIENT.queries, FAKE_CLIENT.downloads
     tour.reset_spots()  # as after a server restart: only the disk cache is left
-    again = _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["spot"]
+    again = _cfg(_warm(client, f"/tour/{RUN_ID}?claim=c1"))["spot"]
     assert again == first and FAKE_LOOK.calls == 1
     assert (FAKE_CLIENT.queries, FAKE_CLIENT.downloads) == (q, d)
 
@@ -235,7 +245,7 @@ def test_pick_cached_and_reused(client, tmp_path, monkeypatch):
 def test_no_signed_url_written_to_cache(client, tmp_path, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     FAKE_LOOK.answer = {"spot": "2", "view": "D", "seen": "Small room with a window"}
-    html = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    html = _warm(client, f"/tour/{RUN_ID}?claim=c1")
     assert _cfg(html)["spot"]["status"] == "found"
     files = [f for f in (tmp_path / "rc_cache" / "spots").rglob("*") if f.is_file()]
     assert any(f.suffix == ".json" for f in files) and any(f.suffix == ".jpg" for f in files)
@@ -245,22 +255,26 @@ def test_no_signed_url_written_to_cache(client, tmp_path, monkeypatch):
     assert "signed.invalid" not in html and "Signature=" not in html
 
 
-def test_finding_page_while_picking(client, monkeypatch):
+def test_viewer_never_waits_for_a_pick(client, monkeypatch):
+    """A pick still running (or never started) opens the scan's start view at once, no waiting page, no reload."""
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     gate = threading.Event()
 
     def slow(model_id, claim, verdict):
         gate.wait(5)
-        return {"status": "none", "why": "Nothing found."}
+        return {"status": "found", "how": "geometry", "sweep": None, "sweeps": ["pano0000abcd"], "why": "Only one."}
     monkeypatch.setattr(tour, "PICKER", slow)
-    monkeypatch.setattr(tour, "WAIT_S", 0.05)
-    r = client.get(f"/tour/{RUN_ID}?claim=c1")
-    assert r.status_code == 200 and "Finding the spot" in r.text and "http-equiv=refresh" in r.text
-    assert "TOUR_CFG" not in r.text and FAKE_KEY not in r.text
+    for url in (f"/tour/{RUN_ID}?claim=c1", f"/tour/{RUN_ID}?claim=c1&embed=1"):
+        r = client.get(url)
+        assert r.status_code == 200 and "TOUR_CFG" in r.text and "http-equiv=refresh" not in r.text
+        assert "Finding the spot" not in r.text
+        cfg = _cfg(r.text)
+        assert cfg["spot"]["status"] == "pending" and cfg["spot"]["sweeps"] == [] and cfg["ss"] is None
+        assert "start position" in cfg["note"]
     gate.set()
     for th in list(tour._JOBS.values()):
         th.join(5)
-    assert "TOUR_CFG" in client.get(f"/tour/{RUN_ID}?claim=c1").text
+    assert _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["spot"]["sweeps"] == ["pano0000abcd"]  # next visit
 
 
 def test_whole_unit_claim_is_not_picked(client, monkeypatch):
@@ -323,25 +337,6 @@ def test_tour_embed_mode(client, monkeypatch):
     assert "Back to the report" not in client.get(f"/tour/{RUN_ID}?claim=c3&embed=1").text  # 404 page too
 
 
-def test_finding_page_reload_keeps_embed_and_claim(client, monkeypatch):
-    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
-    gate = threading.Event()
-
-    def slow(model_id, claim, verdict):
-        gate.wait(5)
-        return {"status": "none", "why": "Nothing found."}
-    monkeypatch.setattr(tour, "PICKER", slow)
-    monkeypatch.setattr(tour, "WAIT_S", 0.05)
-    html = client.get(f"/tour/{RUN_ID}?claim=c1&embed=1").text
-    assert "Finding the spot" in html and "Back to the report" not in html
-    assert f"<meta http-equiv=refresh content='3;url=/tour/{RUN_ID}?claim=c1&amp;embed=1'>" in html
-    plain = client.get(f"/tour/{RUN_ID}?claim=c1").text
-    assert f"content='3;url=/tour/{RUN_ID}?claim=c1'>" in plain and "Back to the report" in plain
-    gate.set()
-    for th in list(tour._JOBS.values()):
-        th.join(5)
-
-
 def test_match_row_gets_3d_viewer_and_checks_out_wording(client, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     _add_claim({"id": "c5", "kind": "bathrooms", "value": 1, "unit": None, "scope": "unit", "label": "Plan Z",
@@ -353,9 +348,9 @@ def test_match_row_gets_3d_viewer_and_checks_out_wording(client, monkeypatch):
     assert "See it in 3D" in match and f"data-src='/tour/{RUN_ID}?claim=c5&amp;embed=1'" in match
     assert "Walk into this room" in report  # the mismatch item keeps its own button
     html = client.get(f"/tour/{RUN_ID}?claim=c5&embed=1").text
-    assert "Listing says 1 bathroom — checks out" in html and "<s>" not in html
-    assert _cfg(html)["tag"]["label"] == "Listing says: 1 bathroom. The 3D scan agrees: 1 bathroom"
-    assert "<s>2 bedrooms</s>" in client.get(f"/tour/{RUN_ID}?claim=c1").text  # mismatch wording unchanged
+    assert "Listing says 1 bathroom" in html and "Checks out in the 3D scan" in html and "class=strike" not in html
+    assert _cfg(html)["tag"]["label"] == "1 bathroom"
+    assert "<span class=strike>2 bedrooms</span>" in client.get(f"/tour/{RUN_ID}?claim=c1").text  # mismatch unchanged
 
 
 # ---------- report design A: the live viewer is embedded inline, opens at the spot, never a new tab ----------
@@ -407,12 +402,12 @@ def test_claim_field_panel_shows_viewer_not_a_tab():
 def test_embed_page_reports_progress_and_opens_at_spot_label(client, tmp_path, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     _summary(tmp_path, [{"id": "roomA", "tags": ["bathroom"]}, {"id": "roomB", "tags": ["living"]}])
-    html = client.get(f"/tour/{RUN_ID}?claim=c2&embed=1").text
+    html = _warm(client, f"/tour/{RUN_ID}?claim=c2&embed=1")
     cfg = _cfg(html)
     assert cfg["embed"] is True and cfg["spot"]["sweeps"] == ["pano0000abcd"]
     assert cfg["ss"] == "1"  # label 0 = the first sweep; ss counts from 1: the showcase opens there, not at the start
     assert "postMessage" in html and "tell('ready'" in html and "Transition.INSTANT" in html
-    assert "&ss=" in html and "location.origin" in html
+    assert "&amp;ss=1&amp;" in html and "location.origin" in html  # in the showcase URL itself
     assert "rel=preconnect href='https://my.matterport.com'" in html
     plain = _cfg(client.get(f"/tour/{RUN_ID}?claim=c2").text)
     assert plain["embed"] is False
@@ -423,20 +418,9 @@ def test_embed_message_pages_tell_the_report(client, monkeypatch):
     off = client.get(f"/tour/{RUN_ID}?claim=c3&embed=1").text  # aerial claim: no scan
     assert '"state": "off"' in off and "postMessage" in off
     assert "postMessage" not in client.get(f"/tour/{RUN_ID}?claim=c3").text  # standalone page: nobody to tell
-    gate = threading.Event()
-
-    def slow(model_id, claim, verdict):
-        gate.wait(5)
-        return {"status": "none", "why": "Nothing found."}
-    monkeypatch.setattr(tour, "PICKER", slow)
-    monkeypatch.setattr(tour, "WAIT_S", 0.05)
-    assert '"state": "finding"' in client.get(f"/tour/{RUN_ID}?claim=c1&embed=1").text
-    gate.set()
-    for th in list(tour._JOBS.values()):
-        th.join(5)
 
 
-def test_prewarm_starts_mismatch_picks_only(client, monkeypatch):
+def test_prewarm_starts_every_viewer_pick_mismatches_first(client, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     seen = []
 
@@ -447,9 +431,19 @@ def test_prewarm_starts_mismatch_picks_only(client, monkeypatch):
     monkeypatch.setattr(tour, "PREWARM", True)
     assert tour.prewarm(_run()) == 0  # the fake runner's scan ids are invented
     run = {**_run(), "harness": "real"}
-    assert tour.prewarm(run) == 2  # c1, c2 (scan); c3 is an aerial finding
+    run["events"][1]["claims"] += [
+        {"id": "c6", "kind": "laundry", "value": "in-unit", "label": "Plan Z", "quote": "In-unit washer and dryer"},
+        {"id": "c7", "kind": "area_sqft", "value": 700, "label": "Plan Z", "quote": "700 sq ft"}]
+    run["events"].insert(4, {"type": "verdict", "verdict": {"claim_id": "c6", "verdict": "cant_check",
+                                                            "claimed": "In-unit washer and dryer", "found": "unclear",
+                                                            "source": "scan", "reason": "x", "image": None}})
+    run["events"].insert(4, {"type": "verdict", "verdict": {"claim_id": "c7", "verdict": "confirmed",
+                                                            "claimed": "700 sq ft", "found": "700 sq ft",
+                                                            "source": "scan", "reason": "x", "image": None}})
+    # c1, c2 (mismatches) first, then the couldn't-check c6; c3 is aerial, c7 a whole-unit claim (nothing to pick)
+    assert tour.prewarm(run) == 3
     tour._WARMERS[-1].join(5)
-    assert sorted(seen) == ["c1", "c2"]
+    assert seen == ["c1", "c2", "c6"]
     monkeypatch.delenv("MATTERPORT_SDK_KEY")
     tour.reset_spots()
     assert tour.prewarm(run) == 0  # no viewer key: nothing to warm
@@ -459,3 +453,60 @@ def test_report_route_prewarms(client, monkeypatch):
     calls = []
     monkeypatch.setattr(tour, "prewarm", lambda run: calls.append(run.get("run_id")) or 0)
     assert client.get(f"/report/{RUN_ID}").status_code == 200 and calls == [RUN_ID]
+
+
+# ---------- wording and look: report design, strike-through only for a contradicted claim ----------
+
+def _cant_claim():
+    _add_claim({"id": "c6", "kind": "laundry", "value": "in-unit", "unit": None, "scope": "unit", "label": "Plan Z",
+                "quote": "In-unit washer and dryer", "checkable": True},
+               {"claim_id": "c6", "verdict": "cant_check", "claimed": "In-unit washer and dryer", "found": "unclear",
+                "source": "scan", "reason": "The photos don't show this clearly.", "image": None})
+
+
+def test_couldnt_check_is_not_struck_and_says_so_softly(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    _cant_claim()
+    FAKE_LOOK.answer = {"spot": "none", "view": None, "seen": None}
+    html = _warm(client, f"/tour/{RUN_ID}?claim=c6")
+    card = html[html.index("<aside class=card"):html.index("</aside>")]
+    assert "Couldn’t see it in this scan" in card and "In-unit washer and dryer" in card
+    assert "We looked at 6 spots and none clearly shows it." in card
+    assert "strike" not in card and "<s>" not in card and "unclear" not in card.lower() and "Really" not in html
+    for bad in ("fake", "lie", "scam", "fraud"):
+        assert not re.search(rf"\b{bad}\b", card.lower())
+
+
+def test_close_is_not_struck(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    _add_claim({"id": "c8", "kind": "bathrooms", "value": 1, "label": "Plan Z", "quote": "1 Bath"},
+               {"claim_id": "c8", "verdict": "close", "claimed": "1 bathroom", "found": "1 bathroom + powder room",
+                "source": "scan", "reason": "x", "image": None})
+    card = client.get(f"/tour/{RUN_ID}?claim=c8").text
+    card = card[card.index("<aside class=card"):card.index("</aside>")]
+    assert "strike" not in card and "Close: the 3D scan shows 1 bathroom + powder room" in card
+
+
+def test_page_uses_report_look_and_no_matterport_popup(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    html = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    style = html[html.index("<style>"):html.index("</style>")]
+    assert "Newsreader" in style and "--blue:#1a4be0" in style
+    assert "#B3261E" not in html and "box-shadow:0 1px" not in style and "border-radius:12px" not in style
+    assert "border-radius:999px" not in style and "class=pill" not in html  # no dark title pill
+    assert "Tag.allowAction" in html and "Tag.open" not in html  # our callout, never Matterport's popup
+    assert "26 / 255" in html  # marker in the report's blue
+    # the showcase loads while the page parses: quick start, no intro / help / title; SDK preloaded
+    frame = html[html.index("<iframe"):html.index("</iframe>")]
+    assert "&amp;qs=1" in frame and "play=1" in frame and "help=0" in frame and "title=0" in frame
+    assert "rel=modulepreload" in html
+
+
+def test_still_picture_covers_standalone_page_only(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    run = _run()
+    run["events"][2]["evidence"]["images"] = [{"path": "/img/0123456789abcdef", "caption": "c"}]
+    srv.save_run(run)
+    html = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    assert "class=still id=still style='background-image:url(/img/0123456789abcdef)'" in html
+    assert "class=still" not in client.get(f"/tour/{RUN_ID}?claim=c1&embed=1").text  # the report covers its frame

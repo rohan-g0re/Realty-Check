@@ -219,7 +219,11 @@ def test_fill_in_event_saved_and_replayed(client, monkeypatch):
     assert saved["fill_in"] == facts
     assert [e for e in saved["events"] if e["type"] == "fill_in"][0]["facts"] == facts
     html = client.get(f"/report/{run_id}").text
-    assert "Not on the listing" in html and facts[0]["label"].split()[0] in html
+    # design A shows at most five picked facts under "Not in the listing", not every fill_in fact
+    nil = re.search(r"<section class='wrap nil' id=extra.*?</section>", html, re.S).group(0)
+    assert "Not in the listing" in nil and 1 <= nil.count("class='nil-row") <= 5
+    labels = {f["label"] for f in facts}
+    assert any(lab in labels for lab in re.findall(r"<p class=nil-k><b>\d</b>(.*?)</p>", nil))
     monkeypatch.setenv("RC_REPLAY", "1")
     _, again = post(client)
     assert [e for e in again if e["type"] == "fill_in"][0]["facts"] == facts

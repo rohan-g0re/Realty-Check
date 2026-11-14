@@ -366,6 +366,18 @@ def score(win_weight: float, gap: float, support: float, against: list[float]) -
     return int(round(max(0.0, min(100.0, s))))
 
 
+SPLIT_MAX_SCORE = 60  # the two written records disagree with each other: medium confidence at most
+
+
+def cap(conf: dict, max_score: int, note: str) -> dict:
+    """Lower a confidence block to at most max_score (its band follows) and add why we are less sure."""
+    conf["score"] = min(conf["score"], max_score)
+    conf["band"] = band(conf["score"])
+    if note and note not in conf["why"]:
+        conf["why"] = conf["why"][:-1] + "; " + note + "."
+    return conf
+
+
 def _join(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 

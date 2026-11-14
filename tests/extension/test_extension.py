@@ -89,15 +89,15 @@ def test_sample_flow_marks_and_report(env):
     page.locator("#rc-host .claim").nth(3).wait_for(timeout=10000)
     page.locator('#rc-host .claim[data-verdict="contradicted"]').first.wait_for(timeout=10000)
     page.locator("#rc-host #headline").wait_for(timeout=15000)
-    # contradicted first, then confirmed; the one "can't check" row folds under a single line
+    # mismatches first, then matches; the one "can't verify" row folds under a single line
     order = page.locator("#rc-host .claim").evaluate_all("els => els.map(e => e.dataset.verdict)")
     assert order == ["contradicted", "contradicted", "contradicted", "confirmed"], order
-    assert page.locator("#rc-host #ccToggle").inner_text().strip() == "1 couldn't be checked"
+    assert page.locator("#rc-host #ccToggle").inner_text().strip() == "Can't verify (1)"
     page.locator("#rc-host #ccToggle").click()
     assert page.locator("#rc-host .claim").count() == 5
     assert page.locator("#rc-host #headline").inner_text() == HEADLINE
     counts = page.locator("#rc-host .cnt b").all_inner_texts()
-    assert counts == ["3", "0", "1", "1"]
+    assert counts == ["3", "1", "1"]  # Mismatch, Match, Can't verify
     verdicts = page.locator("#rc-host .claim").evaluate_all("els => els.map(e => e.dataset.verdict)")
     assert sorted(verdicts) == ["cant_check", "confirmed", "contradicted", "contradicted", "contradicted"]
 

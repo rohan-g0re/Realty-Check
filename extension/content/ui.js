@@ -5,7 +5,7 @@
   const W = 380;
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const VC = { contradicted: "#dc2626", close: "#d97706", confirmed: "#16a34a", cant_check: "#a3a3a3" };
-  const VL = { contradicted: "Contradicted", close: "Close", confirmed: "Confirmed", cant_check: "Can't check" };
+  const VL = { contradicted: "Mismatch", close: "Mismatch", confirmed: "Match", cant_check: "Can't verify" };
   const SRC = { scan: "3D scan", aerial: "Aerial measurement", county: "County record", record: "Building record" };
   const AG = { orchestrator: "Lead", claims: "Claims", matcher: "Match", inside: "Inside", outside: "Outside", paper: "Records", judge: "Judge" };
   const LOGO = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="#2563eb" stroke-width="2"/><path d="M7.8 12.4l2.9 2.9 5.6-5.9" fill="none" stroke="#2563eb" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -82,7 +82,7 @@
       const v = run.verdicts[c.id];
       if (!v || !c.quote) continue;
       const tip = v.verdict === "cant_check"
-        ? `Listing says ${v.claimed}. We couldn't check this.`
+        ? `Listing says ${v.claimed}. We can't verify this.`
         : `Listing says ${v.claimed}. ${SRC[v.source] || "We"} ${SRC[v.source] ? "shows" : "found"} ${v.found}.`;
       const g = groups.get(c.quote);
       if (!g) groups.set(c.quote, { claimId: c.id, verdict: v.verdict, tips: [tip] });
@@ -293,7 +293,8 @@
     } else if (r.done) {
       const c = r.done.counts || {};
       h += `<p class="headline" id="headline">${esc(r.done.headline)}</p><div class="counts">` +
-        ["contradicted", "close", "confirmed", "cant_check"].map((k) => `<div class="cnt"><b>${c[k] || 0}</b><span><i class="d" style="background:${VC[k]}"></i>${VL[k]}</span></div>`).join("") + `</div>`;
+        [["contradicted", (c.contradicted || 0) + (c.close || 0)], ["confirmed", c.confirmed || 0], ["cant_check", c.cant_check || 0]]
+          .map(([k, n]) => `<div class="cnt"><b>${n}</b><span><i class="d" style="background:${VC[k]}"></i>${VL[k]}</span></div>`).join("") + `</div>`;
     } else {
       h += `<div class="prog"><div class="bar"><i id="barFill" style="width:${pct(r)}%"></i></div>` +
         `<div class="pmeta"><span>${r.steps.length ? "Working" : esc(r.step)}</span><span class="el" id="elapsed">${elapsed(r)}</span></div>` +
@@ -302,13 +303,13 @@
         `</div>`;
     }
     if (n) {
-      // Contradicted first, then close, confirmed, still waiting; "can't check" rows fold under one line.
+      // Mismatch first (contradicted, then close), match, still waiting; "can't verify" rows fold under one line.
       const rank = (c) => { const v = r.verdicts[c.id]; return v ? ORDER[v.verdict] ?? 2 : 3; };
       const shown = r.claims.filter((c) => rank(c) < 9).map((c, i) => [rank(c), i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
       const cc = r.claims.filter((c) => rank(c) === 9);
       h += `<div class="sec">What the listing says</div><ul class="claims">` + shown.map((c) => claimHTML(c, r.verdicts[c.id])).join("") + `</ul>`;
       if (cc.length) {
-        h += `<button class="ccline${ccOpen ? " open" : ""}" id="ccToggle" aria-expanded="${ccOpen}"><span class="d"></span><span class="cct">${cc.length} couldn't be checked</span><span class="go">${CHEV}</span></button>`;
+        h += `<button class="ccline${ccOpen ? " open" : ""}" id="ccToggle" aria-expanded="${ccOpen}"><span class="d"></span><span class="cct">Can't verify (${cc.length})</span><span class="go">${CHEV}</span></button>`;
         if (ccOpen) h += `<ul class="claims cc">` + cc.map((c) => claimHTML(c, r.verdicts[c.id])).join("") + `</ul>`;
       }
     }
@@ -330,7 +331,7 @@
     const title = shared ? said(c) : c.quote;
     const color = v ? VC[v.verdict] || VC.cant_check : "#d4d4d4";
     const sub = !v ? `<div class="sub wait">Waiting…</div>`
-      : v.verdict === "cant_check" ? `<div class="sub">We couldn't check this</div>` : `<div class="sub">We found ${esc(v.found)}</div>`;
+      : v.verdict === "cant_check" ? `<div class="sub">We can't verify this</div>` : `<div class="sub">We found ${esc(v.found)}</div>`;
     const more = v ? `<div class="more"><dl class="kv"><dt>Listing says</dt><dd>${esc(v.claimed)}</dd><dt>We found</dt><dd>${esc(v.found)}</dd><dt>Source</dt><dd>${esc(SRC[v.source] || v.source)}</dd></dl>
       ${v.reason ? `<p class="reason">${esc(v.reason)}</p>` : ""}${v.image && imgCache.get(v.image) ? `<img class="proof" alt="Proof image" src="${imgCache.get(v.image)}">` : ""}</div>` : "";
     return `<li class="claim${expanded.has(c.id) && v ? " open" : ""}" data-id="${esc(c.id)}" data-verdict="${v ? v.verdict : "waiting"}">
@@ -425,7 +426,7 @@
   .steps li.now .d{background:#2563eb;animation:rcpulse 1.2s ease-in-out infinite}
   @keyframes rcpulse{50%{opacity:.25}}
   .headline{margin:16px 0 0;font-size:15px;line-height:1.45;font-weight:500;color:#111}
-  .counts{display:grid;grid-template-columns:repeat(4,1fr);margin-top:16px;border:1px solid #e6e6e6;border-radius:10px}
+  .counts{display:grid;grid-template-columns:repeat(3,1fr);margin-top:16px;border:1px solid #e6e6e6;border-radius:10px}
   .cnt{padding:10px 10px 9px;border-left:1px solid #e6e6e6}
   .cnt:first-child{border-left:0}
   .cnt b{display:block;font-size:16px;font-weight:600;line-height:1.2}

@@ -144,3 +144,43 @@ def test_incremental(tmp_path, monkeypatch):
     finally:
         server.should_exit = True
         t.join(5)
+
+
+def test_report_tabs(client):
+    import re
+
+    _, events = post(client)
+    html = client.get(f"/report/{events[0]['run_id']}").text
+    # exactly three tabs with counts; every verdict lands in one tab
+    assert re.findall(r"<a href='#([a-z-]+)'", html) == ["mismatch", "match", "cant-verify"]
+    for word, n in (("Mismatch", 3), ("Match", 1), ("Can't verify", 1)):
+        assert f"{word} ({n})" in html.replace("&#x27;", "'")
+    for pid in ("mismatch", "match", "cant-verify"):
+        assert f"<section class=panel id='{pid}'>" in html
+    # pictures only through /img/<token>, never repeated across items
+    srcs = re.findall(r"<img src='([^']+)'", html)
+    assert srcs and all(re.fullmatch(r"/img/[a-f0-9]{16}", s) for s in srcs)
+    assert len(srcs) == len(set(srcs))
+    # plan claims grouped under one item, headline claim first, visuals for area and floors
+    assert html.count("<h3>Plan E</h3>") == 1
+    assert html.index("<h3>Plan E</h3>") < html.index("<h3>5-story building</h3>")
+    assert "class='viz bars'" in html and "class='viz floors'" in html
+    assert "County records: 6 floors." in html and "Building record: 5 floors." in html
+    assert "How we checked" in html and "<span class=ag>Lead</span>" in html
+    for bad in ("C:/", "C:\\", "rc_cache", "Users", "token=", "key=", "Signature", "Contradicted", "Source:"):
+        assert bad not in html, bad
+
+
+def test_report_empty_tab():
+    from server.report import render_report
+
+    run = {"snapshot": {"address_text": "1 Main St"}, "events": [
+        {"type": "claims", "claims": [{"id": "c1", "kind": "amenity", "value": "pool", "scope": "building",
+                                       "label": None, "quote": "Pool"}]},
+        {"type": "verdict", "verdict": {"claim_id": "c1", "verdict": "cant_check", "claimed": "pool",
+                                        "found": "no data", "source": None, "reason": "None of our sources measured this.",
+                                        "image": None}},
+        {"type": "done", "counts": {}, "headline": "Nothing to compare."}]}
+    html = render_report(run)
+    assert html.count("Nothing here.") == 2
+    assert "Nothing in our data measures this" in html and "Pool" in html

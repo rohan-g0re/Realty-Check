@@ -22,12 +22,13 @@ var pics=t.closest('.pics');if(pics&&!pics.querySelector('a.pic:not(.gone)'))pic
 var fig=t.closest('figure.proof');if(fig&&!fig.querySelector('a.pic:not(.gone),.walk,.draw,.cards,.nopic')){
 [].forEach.call(fig.querySelectorAll('figcaption'),function(c){c.classList.add('gone');});
 var alt=fig.getAttribute('data-alt');if(alt){var d=document.createElement('div');d.className='nopic';d.textContent=alt;fig.appendChild(d);}}},true);
-var lb=document.getElementById('lb'),li=lb.querySelector('img'),lc=lb.querySelector('p');
-function shut(){lb.hidden=true;li.removeAttribute('src');}
+/* the lightbox picture is made when a picture opens and removed on close: never an empty image tag */
+var lb=document.getElementById('lb'),li=null,lc=lb.querySelector('p');
+function shut(){lb.hidden=true;if(li){li.remove();li=null;}}
 lb.addEventListener('click',shut);
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!lb.hidden)shut();});
 document.addEventListener('click',function(e){var t=e.target.closest?e.target:null;if(!t)return;
-var a=t.closest('a.pic');if(a){e.preventDefault();li.src=a.getAttribute('href');var c=a.getAttribute('data-cap')||'';
+var a=t.closest('a.pic');if(a){e.preventDefault();if(!li){li=document.createElement('img');lb.insertBefore(li,lc);}li.src=a.getAttribute('href');var c=a.getAttribute('data-cap')||'';
 li.alt=c||'Proof picture';lc.textContent=c;lb.hidden=false;lb.querySelector('button').focus();return;}
 var c2=t.closest('button.copy');if(c2){copy(c2.getAttribute('data-text')||'',c2);return;}
 var sh=t.closest('button.share');if(sh){copy(location.href,sh);return;}

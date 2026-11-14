@@ -81,7 +81,7 @@ def build() -> dict[str, str]:
     html = _SCRIPT.sub(externalise, html)
 
     # the sample note sits under the hero's summary line
-    html, n = re.subn(r"(<div class='addr rv'[^>]*><p class=where>.*?</p>(?:<p class=top-line>.*?</p>)?<p>.*?</p>)",
+    html, n = re.subn(r"(<div class='addr rv'[^>]*><p class=where>.*?</p>(?:<p class=top-line>.*?</p>)?(?:<div class=sum>)?<p>.*?</p>)",
                       lambda m: m.group(1) + f"<p class='meta sample-note'>{NOTE}</p>", html, count=1, flags=re.S)
     if n != 1:
         raise ValueError("hero summary not found: update the sample note anchor in server/sample_report.py")

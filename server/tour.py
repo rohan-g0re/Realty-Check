@@ -4,7 +4,10 @@ GET /tour/<run_id>?claim=<claim id>. The page embeds the scan the claim's scan e
 panorama spot that shows the mismatch (picked by tools/scan/spots.py from the scan's room tags, else by a picture
 check; cached; "Finding the spot…" page while the first pick runs), turns toward it, and pins one client-side label
 (Tag.add, never saved to the model) there with what the listing says and what the scan shows. No spot found: the
-scan's start view, and the card says so.
+scan's start view, and the card says so. Confirmed claims get the same view, worded as "checks out".
+
+?embed=1 is the report's inline viewer (an iframe on /report/<run_id>): no "Back to the report" link, the page fills
+the frame, and the "Finding the spot…" reload keeps embed=1 and the claim.
 
 The Showcase SDK key is read at request time from the environment or the private .env and only ever written into
 the served page. No key: the page says the 3D view is not available.
@@ -206,7 +209,9 @@ max-width:380px;box-shadow:0 1px 3px rgba(0,0,0,.25)}
 .card .is{font-size:17px;font-weight:600;margin-top:2px}.card .note{font-size:12px;color:#5f6368;margin-top:8px}
 .msg{max-width:520px;margin:18vh auto 0;padding:0 24px}.msg h1{font-size:20px;font-weight:600;margin:0 0 6px}
 .msg p{color:#5f6368;margin:0}
-@media (max-width:640px){.pill{top:64px;max-width:calc(100% - 32px)}.card{right:16px;max-width:none}}
+body.embed{overflow:hidden}.embed .pill{max-width:calc(100% - 32px)}
+@media (max-width:640px){.pill{top:64px;max-width:calc(100% - 32px)}.card{right:16px;max-width:none}
+.embed .pill{top:16px}}
 """
 
 # Runs in the page. CFG comes from the server; nothing here is saved to the model (Tag.add is client-side only).
@@ -303,46 +308,65 @@ def _first_sentence_after_listing(reason: str) -> str:
     return parts[0] if parts else ""
 
 
-def _page(title: str, body: str, script: str = "", refresh_s: int | None = None) -> str:
-    meta = f"<meta http-equiv=refresh content={int(refresh_s)}>" if refresh_s else ""
+def _page(title: str, body: str, script: str = "", refresh_s: int | None = None, embed: bool = False,
+          refresh_url: str | None = None) -> str:
+    meta = ""
+    if refresh_s:
+        to = f";url={refresh_url}" if refresh_url else ""
+        meta = f"<meta http-equiv=refresh content='{escape(f'{int(refresh_s)}{to}', True)}'>"
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<meta name=referrer content=no-referrer>{meta}"
-            f"<title>{escape(title)}</title><style>{CSS}</style></head><body>{body}{script}</body></html>")
+            f"<title>{escape(title)}</title><style>{CSS}</style></head>"
+            f"<body{' class=embed' if embed else ''}>{body}{script}</body></html>")
 
 
-def message_page(run_id: str | None, text: str, sub: str = "", refresh_s: int | None = None) -> str:
-    back = f"<a class=back href='/report/{escape(run_id, True)}'>Back to the report</a>" if run_id else ""
-    return _page("3D view", f"{back}<div class=msg><h1>{escape(text)}</h1><p>{escape(sub)}</p></div>",
-                 refresh_s=refresh_s)
+def _back(run_id: str | None, embed: bool) -> str:
+    """"Back to the report": standalone pages only (inside the report's own frame it makes no sense)."""
+    if not run_id or embed:
+        return ""
+    return f"<a class=back href='/report/{escape(run_id, True)}'>Back to the report</a>"
 
 
-def finding_page(run_id: str) -> str:
-    """Shown while the spot is being picked; reloads itself until the pick is ready."""
+def message_page(run_id: str | None, text: str, sub: str = "", refresh_s: int | None = None,
+                 embed: bool = False, refresh_url: str | None = None) -> str:
+    return _page("3D view", f"{_back(run_id, embed)}<div class=msg><h1>{escape(text)}</h1><p>{escape(sub)}</p></div>",
+                 refresh_s=refresh_s, embed=embed, refresh_url=refresh_url)
+
+
+def finding_page(run_id: str, claim_id: str | None = None, embed: bool = False) -> str:
+    """Shown while the spot is being picked; reloads itself (same claim, same embed mode) until the pick is ready."""
     return message_page(run_id, "Finding the spot…",
                         "Looking through the scan's photos for the spot that shows this. "
                         "The first look takes about half a minute; after that it opens straight away.",
-                        refresh_s=3)
+                        refresh_s=3, embed=embed, refresh_url=tour_url(run_id, claim_id, embed))
 
 
 def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | None = None,
-                spot: dict | None = None) -> str:
+                spot: dict | None = None, embed: bool = False) -> str:
     run_id = str(run.get("run_id") or "")
     c, v = target["claim"], target["verdict"]
     claimed, found = _claimed_text(c, v), str(v.get("found") or "").strip()
     plan = c.get("label") or target.get("scan_title") or "This unit"
     what = KIND_WORDS.get(c.get("kind"), "Claim")
-    back = f"<a class=back href='/report/{escape(run_id, True)}'>Back to the report</a>"
+    back = _back(run_id, embed)
     pill = f"<div class=pill>{escape(str(plan))} <span>· {escape(what)}: {escape(claimed)}</span></div>"
     if not key:
         body = back + ("<div class=msg><h1>3D view not available</h1>"
                        "<p>The 3D viewer is not set up on this computer. The report still has the scan pictures.</p></div>")
-        return _page("3D view not available", body)
+        return _page("3D view not available", body, embed=embed)
     spot = spot or {"status": "skip", "why": spots.WHOLE_UNIT}
     found_spot = spot.get("status") == "found"
     note = _spot_note(spot)
+    confirmed = v.get("verdict") == "confirmed"
+    if confirmed:  # a Match row's viewer: same view, no strike-through
+        was = f"Listing says {escape(claimed)} — checks out"
+        tag_label = f"Listing says: {claimed}. The 3D scan agrees: {found}"
+    else:
+        was = f"Listing says <s>{escape(claimed)}</s>"
+        tag_label = f"Listing says: {_strike(claimed)}. Really: {found}"
     card = ("<div class=card>"
-            f"<p class=was>Listing says <s>{escape(claimed)}</s></p>"
+            f"<p class=was>{was}</p>"
             f"<p class=is>The 3D scan shows {escape(found)}</p>"
             f"<p class=note id=note>{escape(note)}</p></div>")
     why = _first_sentence_after_listing(v.get("reason") or "")
@@ -357,13 +381,20 @@ def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | Non
            "spot": {"status": spot.get("status"), "sweep": sweep, "sweeps": room_sweeps, "face": face},
            "faceBase": spots.FACE_YAW_BASE, "faceStep": spots.FACE_YAW_STEP,
            "pull": 0.5 if sweep else 1.6,
-           "tag": {"label": f"Listing says: {_strike(claimed)}. Really: {found}", "description": why}}
+           "tag": {"label": tag_label, "description": why}}
     cfg_js = json.dumps(cfg).replace("</", "<\\/")
     script = (f"<script>window.TOUR_CFG={cfg_js};</script>"
               f"<script type=module>{SCRIPT}</script>")
     body = "<iframe id=mp allow='fullscreen; xr-spatial-tracking' title='3D walkthrough'></iframe>" + back + pill + card
-    return _page(f"3D view: {plan}", body, script)
+    return _page(f"3D view: {plan}", body, script, embed=embed)
 
 
-def tour_href(run: dict, claim_id: str) -> str:
-    return f"/tour/{run.get('run_id')}?claim={claim_id}"
+def tour_url(run_id: str, claim_id: str | None = None, embed: bool = False) -> str:
+    q = [f"claim={claim_id}"] if claim_id else []
+    if embed:
+        q.append("embed=1")
+    return f"/tour/{run_id}" + ("?" + "&".join(q) if q else "")
+
+
+def tour_href(run: dict, claim_id: str, embed: bool = False) -> str:
+    return tour_url(str(run.get("run_id")), claim_id, embed)

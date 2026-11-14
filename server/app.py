@@ -292,21 +292,25 @@ def report(run_id: str):
 
 
 @app.get("/tour/{run_id}", response_class=HTMLResponse)
-def tour_page(run_id: str, claim: str | None = None):
-    """The real 3D walkthrough for one claim, with one client-side label (server/tour.py)."""
+def tour_page(run_id: str, claim: str | None = None, embed: str | None = None):
+    """The real 3D walkthrough for one claim, with one client-side label (server/tour.py).
+    embed=1: the report's inline viewer (same-origin iframe); no back link, fills the frame. No X-Frame-Options or
+    frame-ancestors header is set here, so the report can frame it."""
     headers = {"Cache-Control": "no-store"}
+    em = embed == "1"
     run = load_run(run_id)
     if run is None:
-        return HTMLResponse(tour.message_page(None, "No such check."), status_code=404, headers=headers)
+        return HTMLResponse(tour.message_page(None, "No such check.", embed=em), status_code=404, headers=headers)
     if claim is not None and not tour.CLAIM_RE.match(claim):
         claim = ""
     target = tour.tour_target(run, claim)
     if target is None:
         return HTMLResponse(tour.message_page(run_id, "No 3D scan for this claim.",
-                                              "Only claims checked against a 3D scan can be walked through."),
+                                              "Only claims checked against a 3D scan can be walked through.",
+                                              embed=em),
                             status_code=404, headers=headers)
     key = tour.sdk_key()
     spot = tour.spot_for(target) if key else None  # cached, or picked once in the background
     if spot is not None and spot.get("status") == "pending":
-        return HTMLResponse(tour.finding_page(run_id), headers=headers)
-    return HTMLResponse(tour.render_tour(run, target, key, cache_dir(), spot), headers=headers)
+        return HTMLResponse(tour.finding_page(run_id, claim, em), headers=headers)
+    return HTMLResponse(tour.render_tour(run, target, key, cache_dir(), spot, embed=em), headers=headers)

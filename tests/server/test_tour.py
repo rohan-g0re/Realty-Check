@@ -296,9 +296,60 @@ def test_spread_spots_one_per_room_then_far_apart():
     assert len(ids) == 4 and "lone" in ids and "p0" in ids  # r2's only spot, and the far end of r1
 
 
-def test_report_links_scan_mismatch_only(client, monkeypatch):
+def test_report_embeds_scan_mismatch_only(client, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
     html = client.get(f"/report/{RUN_ID}").text
     assert html.count("Walk into this room") == 1  # Plan Z item; the aerial floors item has none
-    assert f"/tour/{RUN_ID}?claim=c1" in html
+    # inline viewer: lazy iframe (no src until clicked) fed by the embed URL; the plain link stays as fallback
+    assert f"<div class=walk data-src='/tour/{RUN_ID}?claim=c1&amp;embed=1'>" in html
+    assert f"href='/tour/{RUN_ID}?claim=c1'" in html and "Open in new tab" in html and ">Close</button>" in html
+    frame = html[html.index("<iframe"):html.index("</iframe>")]
+    assert " src=" not in frame and "allow='fullscreen; xr-spatial-tracking'" in frame
+    assert html.count("<iframe") == 1
     assert FAKE_KEY not in html
+
+
+def test_tour_embed_mode(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    r = client.get(f"/tour/{RUN_ID}?claim=c1&embed=1")
+    assert r.status_code == 200 and "TOUR_CFG" in r.text
+    assert "Back to the report" not in r.text and "<body class=embed>" in r.text
+    assert "x-frame-options" not in r.headers and "frame-ancestors" not in r.headers.get("content-security-policy", "")
+    plain = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    assert "Back to the report" in plain and "<body class=embed>" not in plain
+    assert "Back to the report" not in client.get(f"/tour/{RUN_ID}?claim=c3&embed=1").text  # 404 page too
+
+
+def test_finding_page_reload_keeps_embed_and_claim(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    gate = threading.Event()
+
+    def slow(model_id, claim, verdict):
+        gate.wait(5)
+        return {"status": "none", "why": "Nothing found."}
+    monkeypatch.setattr(tour, "PICKER", slow)
+    monkeypatch.setattr(tour, "WAIT_S", 0.05)
+    html = client.get(f"/tour/{RUN_ID}?claim=c1&embed=1").text
+    assert "Finding the spot" in html and "Back to the report" not in html
+    assert f"<meta http-equiv=refresh content='3;url=/tour/{RUN_ID}?claim=c1&amp;embed=1'>" in html
+    plain = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    assert f"content='3;url=/tour/{RUN_ID}?claim=c1'>" in plain and "Back to the report" in plain
+    gate.set()
+    for th in list(tour._JOBS.values()):
+        th.join(5)
+
+
+def test_match_row_gets_3d_viewer_and_checks_out_wording(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    _add_claim({"id": "c5", "kind": "bathrooms", "value": 1, "unit": None, "scope": "unit", "label": "Plan Z",
+                "quote": "1 Bath", "checkable": True},
+               {"claim_id": "c5", "verdict": "confirmed", "claimed": "1 bathroom", "found": "1 bathroom",
+                "source": "scan", "reason": "The 3D scan shows 1 bathroom.", "image": None})
+    report = client.get(f"/report/{RUN_ID}").text
+    match = report[report.index("<section class=panel id='match'>"):report.index("<section class=panel id='cant-verify'>")]
+    assert "See it in 3D" in match and f"data-src='/tour/{RUN_ID}?claim=c5&amp;embed=1'" in match
+    assert "Walk into this room" in report  # the mismatch item keeps its own button
+    html = client.get(f"/tour/{RUN_ID}?claim=c5&embed=1").text
+    assert "Listing says 1 bathroom — checks out" in html and "<s>" not in html
+    assert _cfg(html)["tag"]["label"] == "Listing says: 1 bathroom. The 3D scan agrees: 1 bathroom"
+    assert "<s>2 bedrooms</s>" in client.get(f"/tour/{RUN_ID}?claim=c1").text  # mismatch wording unchanged

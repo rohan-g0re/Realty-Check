@@ -171,6 +171,20 @@ def test_report_tabs(client):
         assert bad not in html, bad
 
 
+def test_report_pictures_open_in_page_lightbox(client):
+    import re
+
+    _, events = post(client)
+    html = client.get(f"/report/{events[0]['run_id']}").text
+    links = re.findall(r"<a class=pic href='(/img/[a-f0-9]{16})'[^>]*>", html)
+    imgs = re.findall(r"<img src='(/img/[a-f0-9]{16})'", html)
+    assert links and sorted(links) == sorted(imgs)  # every picture is a same-tab link (no-JS fallback)
+    for a in re.findall(r"<a class=pic [^>]*>", html):
+        assert "target=" not in a
+    assert "<div class=lb id=lb hidden role=dialog" in html and "<button type=button>Close</button>" in html
+    assert "closest('a.pic')" in html and "Escape" in html
+
+
 def test_report_empty_tab():
     from server.report import render_report
 

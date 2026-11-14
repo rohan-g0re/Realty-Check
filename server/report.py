@@ -47,8 +47,15 @@ h1{font-size:22px;font-weight:600;margin:0 0 4px}
 .item>h3{font-size:20px;font-weight:600;margin:0 0 2px}
 .quiet{font-size:13px;color:var(--muted);margin:0}
 .item>.quiet{margin-bottom:20px}
-.walk{margin:-8px 0 18px}.walk a{display:inline-block;background:#17181A;color:#fff;font-size:14px;font-weight:600;
-padding:8px 14px;border-radius:10px}.walk a:hover{text-decoration:none;opacity:.9}
+.walk{margin:-8px 0 18px}.walk .go{display:inline-block;background:#17181A;color:#fff;font-size:14px;font-weight:600;
+padding:8px 14px;border-radius:10px}.walk .go:hover{text-decoration:none;opacity:.9}
+.walk .go[hidden],.walk .view[hidden]{display:none}
+.walk .view{margin-top:10px}
+.walk .bar3d{display:flex;justify-content:flex-end;align-items:center;gap:16px;margin:0 0 8px;font-size:13px}
+.walk .bar3d a{color:var(--muted)}
+.walk .shut{background:none;border:0;padding:0;font:inherit;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer}
+.walk iframe{display:block;width:100%;aspect-ratio:16/9;min-height:420px;border:0;border-radius:10px;background:#17181A}
+.row .walk{grid-column:2/-1;margin:6px 0 0}.row .walk .go{font-size:13px;padding:5px 11px}
 .pics{display:grid;grid-template-columns:3fr 2fr;gap:8px;margin:0 0 28px}
 .pics.one{grid-template-columns:1fr}
 .pics figure{margin:0}.pics a{display:block}
@@ -83,7 +90,16 @@ figcaption,.tcap{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.
 .rowlabels{font-size:13px;color:var(--muted);padding-top:0}
 .row .found{color:var(--ink)}
 .row .found small{display:block;color:var(--muted);font-size:13px}
-.row img{grid-column:2/-1;width:180px;max-width:100%;border:1px solid var(--line);border-radius:4px;margin-top:6px}
+.row .pic{grid-column:2/-1;justify-self:start;max-width:100%}
+.row img{display:block;width:180px;max-width:100%;border:1px solid var(--line);border-radius:4px;margin-top:6px}
+.pic{cursor:zoom-in}
+.lb{position:fixed;inset:0;z-index:50;background:rgba(14,15,16,.92);display:flex;flex-direction:column;
+align-items:center;justify-content:center;padding:56px 16px 24px;cursor:zoom-out}
+.lb[hidden]{display:none}
+.lb img{display:block;max-width:100%;max-height:calc(100vh - 120px);object-fit:contain;border-radius:4px;background:#fff}
+.lb p{color:#e6e6e3;font-size:13px;margin:10px 0 0;text-align:center;max-width:720px}.lb p:empty{display:none}
+.lb button{position:fixed;top:14px;right:16px;background:#fff;color:#17181A;border:0;border-radius:10px;
+font:inherit;font-size:14px;font-weight:600;padding:7px 13px;cursor:pointer}
 .cv{list-style:none;margin:0;padding:0}
 .cv li{display:flex;gap:10px;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line);font-size:15px}
 .cv .dot{margin:0}
@@ -116,7 +132,18 @@ document.querySelectorAll('.tabs a').forEach(function(a){a.addEventListener('cli
 e.preventDefault();var id=a.getAttribute('href').slice(1);show(id);
 if(history.replaceState)history.replaceState(null,'','#'+id);});});
 window.addEventListener('hashchange',function(){show(location.hash.slice(1));});
-show(location.hash.slice(1));window.scrollTo(0,0);})();
+show(location.hash.slice(1));window.scrollTo(0,0);
+document.addEventListener('click',function(e){var t=e.target.closest&&e.target.closest('.walk .go,.walk .shut');
+if(!t)return;var w=t.closest('.walk'),v=w.querySelector('.view'),f=w.querySelector('iframe'),g=w.querySelector('.go');
+e.preventDefault();if(t===g){f.src=w.getAttribute('data-src');v.hidden=false;g.hidden=true;}
+else{v.hidden=true;g.hidden=false;f.src='about:blank';}});
+var lb=document.getElementById('lb'),li=lb.querySelector('img'),lc=lb.querySelector('p');
+function shut(){lb.hidden=true;li.removeAttribute('src');}
+document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a.pic');if(!a)return;
+e.preventDefault();li.src=a.getAttribute('href');li.alt=a.getAttribute('data-cap')||'Proof picture';
+lc.textContent=a.getAttribute('data-cap')||'';lb.hidden=false;lb.querySelector('button').focus();});
+lb.addEventListener('click',shut);
+document.addEventListener('keydown',function(e){if('Escape'===e.key&&!lb.hidden)shut();});})();
 """
 
 BED_SVG = ("<svg width='30' height='20' viewBox='0 0 30 20' aria-hidden='true'><path d='M2 4v14M28 11v7M2 14h26M2 11h26'"
@@ -421,16 +448,16 @@ def _pics(imgs: list) -> str:
     if not imgs:
         return ""
 
-    def fig(p, cap, cls=""):
+    def fig(p, cap, cls="", under=True):
         short = _short_caption(cap)
-        return (f"<figure class='{cls}'><a href='{escape(p, True)}' target=_blank rel=noopener>"
+        return (f"<figure class='{cls}'><a class=pic href='{escape(p, True)}' data-cap='{escape(short, True)}'>"
                 f"<img src='{escape(p, True)}' alt='{escape(short or 'Proof picture', True)}' loading=lazy></a>"
-                + (f"<figcaption>{escape(short)}</figcaption>" if short else "") + "</figure>")
+                + (f"<figcaption>{escape(short)}</figcaption>" if short and under else "") + "</figure>")
 
     lead, rest = imgs[0], imgs[1:]
     if not rest:
         return f"<div class='pics one'>{fig(*lead, cls='lead')}</div>"
-    thumbs = "".join(fig(p, "") for p, _ in rest)
+    thumbs = "".join(fig(p, c, under=False) for p, c in rest)
     caps = list(dict.fromkeys(_short_caption(c) for _, c in rest if _short_caption(c)))
     if caps:
         thumbs += f"<p class=tcap>{escape(' · '.join(caps))}</p>"
@@ -553,13 +580,29 @@ def _mismatch(run: Run, verdicts: list) -> str:
     return "".join(h)
 
 
+def _walk(run: Run, v: dict, word: str) -> str:
+    """Inline 3D viewer for one scan verdict: a button that loads /tour/...&embed=1 into an iframe right here, on
+    click only (one heavy viewer at a time, no spot picking on page load). '' when the claim has no scan to walk."""
+    from server.tour import tour_href, tour_target
+    cid = str(v.get("claim_id") or "")
+    if v.get("source") != "scan" or not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", cid)             or not re.fullmatch(r"[a-z0-9-]{1,64}", str(run.raw.get("run_id") or "")) or not tour_target(run.raw, cid):
+        return ""
+    page, frame = tour_href(run.raw, cid), tour_href(run.raw, cid, embed=True)
+    return (f"<div class=walk data-src='{escape(frame, True)}'>"
+            f"<a class=go href='{escape(page, True)}' target=_blank rel=noopener>{escape(word)}</a>"
+            "<div class=view hidden><div class=bar3d>"
+            f"<a href='{escape(page, True)}' target=_blank rel=noopener>Open in new tab</a>"
+            "<button type=button class=shut>Close</button></div>"
+            "<iframe title='3D walkthrough' allow='fullscreen; xr-spatial-tracking' allowfullscreen></iframe>"
+            "</div></div>")
+
+
 def _walk_link(run: Run, vs: list) -> str:
     """'Walk into this room' for the first verdict of this item that rests on a 3D scan."""
-    from server.tour import tour_href, tour_target
     for v in vs:
-        cid = str(v.get("claim_id") or "")
-        if v.get("source") == "scan" and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", cid)                 and re.fullmatch(r"[a-z0-9-]{1,64}", str(run.raw.get("run_id") or ""))                 and tour_target(run.raw, cid):
-            return f"<p class=walk><a href='{escape(tour_href(run.raw, cid), True)}'>Walk into this room</a></p>"
+        out = _walk(run, v, "Walk into this room")
+        if out:
+            return out
     return ""
 
 
@@ -576,7 +619,10 @@ def _match(run: Run, verdicts: list) -> str:
             kind = _kind(v, c)
             said = _said([c], list(run.claims.values()))
             imgs = run.images_for([v], c.get("label"))[:1] if v.get("image") else []
-            img = f"<img src='{escape(imgs[0][0], True)}' alt='{escape(_short_caption(imgs[0][1]) or 'Proof picture', True)}' loading=lazy>" if imgs else ""
+            short = _short_caption(imgs[0][1]) if imgs else ""
+            img = (f"<a class=pic href='{escape(imgs[0][0], True)}' data-cap='{escape(short, True)}'>"
+                   f"<img src='{escape(imgs[0][0], True)}' alt='{escape(short or 'Proof picture', True)}' loading=lazy></a>"
+                   if imgs else "")
             found = str(v.get("found") or "")
             found = escape(found[:1].upper() + found[1:])
             others = run.others(v, c)
@@ -585,7 +631,8 @@ def _match(run: Run, verdicts: list) -> str:
             h.append(f"<div class=row><i class='dot {DOT_OF.get(v.get('verdict'), '')}'></i>"
                      f"<span>{escape(said or c['_claimed'])}</span>"
                      f"<span class=found>{found}</span>"
-                     f"<span class=from>{escape(_source_line(v, kind, run))}</span>{img}</div>")
+                     f"<span class=from>{escape(_source_line(v, kind, run))}</span>{img}"
+                     f"{_walk(run, v, 'See it in 3D')}</div>")
     head = ("<div class='row rowlabels'><span></span><span>Listing says</span><span>What we found</span>"
             "<span>Where from</span></div>")
     return "<div class=rows>" + head + "".join(h) + "</div>"
@@ -675,5 +722,7 @@ def render_report(run_dict: dict) -> str:
             ag = AGENTS.get(e.get("agent"), str(e.get("agent") or "").title())
             h.append(f"<li><span class=ag>{escape(ag)}</span>{escape(e['text'])}</li>")
         h.append("</ol></details>")
-    h.append(f"</main><script>{SCRIPT}</script></body></html>")
+    h.append("</main><div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"
+             "<button type=button>Close</button><img alt=''><p></p></div>")
+    h.append(f"<script>{SCRIPT}</script></body></html>")
     return "".join(h)

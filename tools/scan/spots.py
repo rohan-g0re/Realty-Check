@@ -71,6 +71,9 @@ def plan_for(claim: dict, verdict: dict) -> dict:
             return {"target": "bedroom", "mode": "extra",
                     "question": "Which spot stands in, or looks straight into, a bedroom (a closed room with "
                                 "space for a bed, usually with a closet)?"}
+        if n is not None and claimed_n is not None and n == claimed_n:  # a confirmed count (report's Match tab)
+            return {"target": None, "why": "The scan has as many bedrooms as the listing says; "
+                                           "that is about the whole unit, not one spot in it."}
         return {"target": None, "why": "The scan has fewer bedrooms than the listing says, "
                                        "so there is no one spot that shows the difference."}
     if kind == "bathrooms":

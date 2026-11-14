@@ -114,20 +114,23 @@ QUALITY: dict[str, tuple[float, str]] = {
     "property_differs": (0.80, "Vexcel property data says otherwise"),
     "units_estimated": (0.80, "a unit count added up over several parcels, an estimate"),
     "parcel_by_address": (0.90, "the county parcel was found by its address, not the map point"),
+    "aerial_count":    (0.60, "a count from the aerial survey, which misses rooftop and indoor ones"),
 }
+COUNT_SCORE_MAX = 60  # a lower aerial pool / hot tub count alone never reaches "high" confidence
 
 # Outdoor features Vexcel property data marks yes / no per parcel: claim pattern -> its key in observed.property.
 # Rooftop decks, parking, courtyards and dog runs are not in it (the vision model alone looks for those).
 PROPERTY_FEATURES = [
-    (r"\bpool\b(?!\s*table)", "pool"),
+    (r"\bpools?\b(?!\s*tables?)", "pool"),  # plural too: "2 pools" (judge.claimed_count reads the number)
     (r"hot ?tubs?|jacuzzi|whirlpool|"
-     r"(?<!pet )(?<!day )(?<!med )\bspa\b(?![- ]?(?:inspired|like|style|quality|bath|tub))", "hot_tub"),
+     r"(?<!pet )(?<!day )(?<!med )\bspas?\b(?![- ]?(?:inspired|like|style|quality|bath|tub))", "hot_tub"),
     (r"(?:tennis|pickleball|basketball|sport|sports|volleyball) courts?|\btennis\b|\bpickleball\b", "sport_court"),
     (r"playground|play area|tot lot", "playground"),
     (r"\bsolar\b", "solar"),
 ]
 _PROPERTY_FEATURES = [(re.compile(p, re.I), k) for p, k in PROPERTY_FEATURES]
-_VISION_TO_PROPERTY = {"pool": "pool", "sports_court": "sport_court", "playground": "playground"}
+VISION_TO_PROPERTY = {"pool": "pool", "sports_court": "sport_court", "playground": "playground"}
+_VISION_TO_PROPERTY = VISION_TO_PROPERTY
 
 
 def property_key(claim: dict) -> str | None:
@@ -225,6 +228,8 @@ def quality(e: dict, claim: dict, today: _dt.date | None = None) -> list[str]:
             out.append("partial")  # scan photos show only some rooms
     if obs.get("how") == "property_data" and obs.get("stable") is False:
         out.append("unstable")  # the survey years disagree, or there is only one
+    if obs.get("how") == "property_data" and obs.get("count") is not None:
+        out.append("aerial_count")  # a count read from the survey: rooftop and indoor ones are missed
     pp = obs.get("property_present")
     if isinstance(pp, bool) and obs.get("how") != "property_data" and obs.get("presence") in ("seen", "not_seen"):
         out.append("property_agrees" if pp == (obs["presence"] == "seen") else "property_differs")
@@ -248,6 +253,23 @@ def property_evidence(e: dict | None, key: str, entry: dict) -> dict:
     if prop.get("captured"):
         obs["capture_date"] = prop["captured"]
     return {"source": "aerial", "status": "ok", "observed": obs}
+
+
+def count_confidence(claim: dict, e: dict | None, key: str, entry: dict, claimed: float, found: float,
+                     extra: list[dict] | None = None) -> dict:
+    """Confidence on a "close" pool / hot tub count: Vexcel property data counts fewer than the listing says. The
+    count reading decides (weight x "aerial_count"); `extra` rows (other sources, decider first excluded) can lower
+    it; the score is capped at COUNT_SCORE_MAX so an aerial count alone stays low to medium."""
+    pe = property_evidence(e, key, entry)
+    pe["observed"]["count"] = found
+    rows = [{"source": "aerial", "says": f"{int(found)} in property data", "weight": weight(pe, claim),
+             "agrees_with_listing": False, "same_as_decider": True, "covers_listing": False}] + list(extra or [])
+    out = confidence(kind_key(claim), str(claim.get("kind")), claimed, found, "aerial", rows)
+    if out["score"] > COUNT_SCORE_MAX:
+        out["score"] = COUNT_SCORE_MAX
+        out["band"] = band(COUNT_SCORE_MAX)
+    out["why"] = out["why"][:-1] + "; the count is from aerial survey data, which can miss rooftop and indoor ones."
+    return out
 
 
 def weight(e: dict, claim: dict, today: _dt.date | None = None) -> float:

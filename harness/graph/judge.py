@@ -354,11 +354,61 @@ def property_reading(claim: dict, evidences: list[dict]) -> tuple[str, dict, dic
     return None
 
 
-def _property_says(key: str, entry: dict) -> str:
-    """'Vexcel property data shows a pool, about 1,900 sq ft' / 'Vexcel property data does not show a hot tub'."""
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+              "ten": 10}
+_COUNT_NOUN = {"pool": r"(?:swimming\s+)?pools\b(?!\s*tables?)",
+               "hot_tub": r"(?:hot\s?tubs|spas|jacuzzis|whirlpools)\b"}
+_COUNT_STOP = {"with", "and", "or", "plus", "of", "in", "on", "at", "to", "the", "a", "an", "near", "by", "from",
+               "bed", "beds", "bedroom", "bedrooms", "bath", "baths", "bathroom", "bathrooms", "story", "stories",
+               "floor", "floors", "acre", "acres", "car", "cars", "level", "levels"}
+COUNT_NAME = {"pool": ("pool", "pools"), "hot_tub": ("hot tub", "hot tubs")}
+
+
+def claimed_count(claim: dict, key: str) -> int | None:
+    """How many pools / hot tubs the claim states ('2 pools', 'two resort-style pools', '3 hot tubs'), 2 or more;
+    else None. One is a presence claim, left to the presence rule."""
+    noun = _COUNT_NOUN.get(key)
+    if not noun:
+        return None
+    rx = re.compile(rf"\b(\d+|{'|'.join(_NUM_WORDS)})\s+((?:[a-z]+(?:-[a-z]+)*\s+){{0,3}}?){noun}", re.I)
+    for text in (amenities.text_of(claim), str(claim.get("quote") or "")):
+        for m in rx.finditer(text):
+            if any(w.lower() in _COUNT_STOP for w in m.group(2).split()):
+                continue
+            raw = m.group(1).lower()
+            n = int(raw) if raw.isdigit() else _NUM_WORDS[raw]
+            if 2 <= n <= 20:
+                return n
+    return None
+
+
+def count_reading(claim: dict, pr: tuple | None) -> tuple[int, int] | None:
+    """(claimed, counted) when the claim states 2+ pools / hot tubs and Vexcel property data shows that feature
+    present, stable over two survey years, with a count. Unstable or no count: None (the presence rule decides)."""
+    if not pr or pr[0] not in COUNT_NAME:
+        return None
+    key, entry, _ = pr
+    n = entry.get("count")
+    if entry.get("present") is not True or entry.get("stable") is not True or isinstance(n, bool) \
+            or not isinstance(n, (int, float)) or n < 1:
+        return None
+    want = claimed_count(claim, key)
+    return (want, int(n)) if want else None
+
+
+def _count_words(key: str, n: int) -> str:
+    one, many = COUNT_NAME[key]
+    return f"{n} {one if n == 1 else many}"
+
+
+def _property_says(key: str, entry: dict, count: int | None = None) -> str:
+    """'Vexcel property data shows a pool, about 1,900 sq ft' / 'Vexcel property data does not show a hot tub' /
+    'Vexcel property data shows 2 pools' (count: the claim stated a number the data meets)."""
     thing = PROPERTY_NICE.get(key, key.replace("_", " "))
     if not entry.get("present"):
         return f"Vexcel property data does not show {thing}"
+    if count is not None and key in COUNT_NAME:
+        return f"Vexcel property data shows {_count_words(key, count)}"
     area = _num(entry.get("area_sqft"))
     size = f", about {_n(round(area))} sq ft" if key == "pool" and area and area > 0 else ""
     return f"Vexcel property data shows {thing}{size}"
@@ -371,7 +421,23 @@ def _property_unsure(entry: dict) -> str:
 
 def _aerial_image(evidences: list[dict], prefer: dict | None = None) -> str | None:
     for e in [prefer] + [x for x in evidences or [] if isinstance(x, dict)]:
-        if e and e.get("source") == "aerial" and e.get("status") == "ok":
+        if e and e.get("source") == "aerial" and e.get("status") == "ok" \
+                and not (e.get("observed") or {}).get("outlined"):  # the outlined photo only for what it boxed
+            img = _first_image(e)
+            if img:
+                return img
+    return None
+
+
+def _outlined_image(key: str | None, evidences: list[dict]) -> str | None:
+    """The outlined top-down photo (run.outlined_photo: aerial Evidence observed.outlined) when it boxed this
+    feature (pool, sport_court, solar). Callers use it only when property data or the photo look reports the
+    feature present."""
+    if not key:
+        return None
+    for e in evidences or []:
+        if isinstance(e, dict) and e.get("source") == "aerial" and e.get("status") == "ok" \
+                and key in ((e.get("observed") or {}).get("outlined") or []):
             img = _first_image(e)
             if img:
                 return img
@@ -390,13 +456,17 @@ def judge_feature(claim: dict, evidences: list[dict], base: dict) -> dict:
     pr = property_reading(claim, evidences)
     yes = bool(pr and pr[1].get("present"))
     no = bool(pr and not pr[1].get("present"))
-    p_says = _property_says(pr[0], pr[1]) if pr else ""
+    cnt = count_reading(claim, pr)
+    if cnt and cnt[1] < cnt[0]:  # fewer than claimed: aerial counts miss rooftop / indoor ones, so never a mismatch
+        return _count_close(claim, evidences, base, said, pr, cnt)
+    met = cnt[1] if cnt else None  # a count at or above the claim (a neighbour's pool may be in it): confirmed
+    p_says = _property_says(pr[0], pr[1], met) if pr else ""
     p_miss = PROPERTY_MISS.get(pr[0], "not seeing something proves little") if pr else ""
     mine = [e for e in evidences or [] if isinstance(e, dict)
             and claim.get("id") in ((e.get("observed") or {}).get("claim_ids") or [])]
     if not mine:
         if yes:
-            return _property_confirmed(evidences, base, said, pr, None)
+            return _property_confirmed(evidences, base, said, pr, None, count=met)
         if no:
             return {**base, "verdict": "cant_check", "found": "Not in Vexcel property data", "source": None,
                     "reason": f"{said} {p_says}, but {p_miss}, so we could not check it.{_property_unsure(pr[1])}"}
@@ -422,12 +492,14 @@ def judge_feature(claim: dict, evidences: list[dict], base: dict) -> dict:
                           f"name.{also}{also_p}", "image": _first_image(best)}
     if out == "confirmed":
         found = "Visible in the Vexcel aerial photo" if src == "aerial" else "Visible in the 3D scan photos"
-        return {**base, "verdict": "confirmed", "found": found, "source": src, "image": _first_image(best),
+        img = (_outlined_image(trust.VISION_TO_PROPERTY.get(str(obs.get("feature"))), evidences)
+               if src == "aerial" else None) or _first_image(best)
+        return {**base, "verdict": "confirmed", "found": found, "source": src, "image": img,
                 "reason": f"{said} A vision model looked for {nice} in {where} and saw it (confidence {conf:.2f}). "
                           f"This is a picture check, not a measurement.{also_p}"}
     if yes:  # the property data saw it; the vision model did not (or could not tell)
         return _property_confirmed(evidences, base, said, pr, best if src == "aerial" else None,
-                                   vision_missed=out == "close" and src == "aerial")
+                                   vision_missed=out == "close" and src == "aerial", count=met)
     if out == "close":
         found = "Not visible in the Vexcel aerial photo" if src == "aerial" else "Not visible in the 3D scan photos"
         why = ("it may be indoors or on a part of the site the photo does not show" if src == "aerial"
@@ -446,13 +518,24 @@ def judge_feature(claim: dict, evidences: list[dict], base: dict) -> dict:
 
 
 def _property_confirmed(evidences: list[dict], base: dict, said: str, pr: tuple, vision: dict | None,
-                        vision_missed: bool = False) -> dict:
+                        vision_missed: bool = False, count: int | None = None) -> dict:
     key, entry, _ = pr
     miss = (" A vision model did not see it on the aerial photos, but the property data counts as a sighting."
             if vision_missed else "")
     return {**base, "verdict": "confirmed", "found": "In Vexcel property data", "source": "aerial",
-            "image": _aerial_image(evidences, vision),
-            "reason": f"{said} {_property_says(key, entry)}.{miss}{_property_unsure(entry)}"}
+            "image": _outlined_image(key, evidences) or _aerial_image(evidences, vision),
+            "reason": f"{said} {_property_says(key, entry, count)}.{miss}{_property_unsure(entry)}"}
+
+
+def _count_close(claim: dict, evidences: list[dict], base: dict, said: str, pr: tuple, cnt: tuple) -> dict:
+    """Vexcel property data (stable) counts fewer pools / hot tubs than the listing states: at most "close", with
+    a low-to-medium confidence (trust.count_confidence). The feature is there, so the outlined photo may show."""
+    key, entry, e = pr
+    want, got = cnt
+    return {**base, "verdict": "close", "found": f"{_count_words(key, got)} in Vexcel property data",
+            "source": "aerial", "image": _outlined_image(key, evidences) or _aerial_image(evidences),
+            "reason": f"{said} Vexcel property data shows {_count_words(key, got)}; {PROPERTY_MISS[key]}.",
+            "confidence": trust.count_confidence(claim, e, key, entry, want, got)}
 
 
 def _feature_confidence(claim: dict, evidences: list[dict], best: dict, mine: list[dict],

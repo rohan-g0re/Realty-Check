@@ -27,7 +27,7 @@ from typing import Any, Callable
 from rc_common import evidence as make_evidence
 from tools import cachectl
 
-from . import amenities, plans
+from . import amenities, plans, trust
 from .judge import SOURCE_NAME, VERB, judge
 from .toolbox import Toolbox
 
@@ -46,6 +46,10 @@ HELPERS = ("inside", "outside", "paper")
 ALWAYS_RESERVE_S = 1.5  # the close's direct aerial / county / record calls stop this far before the run's hard end
 PROPERTY_WAIT_S = 10.0  # the amenity photo check waits at most this long for Vexcel property data after its look
 MATCH_WAIT_S = 10.0     # read_claims waits this long for a match in progress, so "Helpers needed" knows the location
+PROPERTY_DECIDE_WAIT_S = 3.0  # the amenity photo check waits at most this long for property data before deciding
+                              # whether its vision look is needed (only when the data could answer every claim)
+OUTLINE_WAIT_S = 4.0    # the aerial checks wait at most this long, after their own work, for the outlined photo
+OUTLINE_KEYS = ("pool", "sport_court", "solar")  # what Vexcel elements/detect outlines (trust.property_key names)
 
 
 class Run:
@@ -93,6 +97,12 @@ class Run:
         self._stills_fetched = 0
         self._aerial: dict | None = None
         self._aerial_lock = threading.Lock()
+        self._prop: dict | None = None                 # Vexcel property data of this run (once read)
+        self._prop_ready = threading.Event()           # set once property_data() has finished, with or without data
+        self._outline_th: threading.Thread | None = None  # the outlined-photo fetch, started at most once per run
+        self.photo_look_skipped = False                # property data answered every aerial claim: no vision look
+        self._outline_desc: dict | None = None         # the outlined photo's image descriptor, once made
+        self._outline_feats: list[str] = []            # the property keys it boxed
         self._spans: dict[str, list[tuple[float, float]]] = {}
         self._late: dict[str, dict] = {}       # evidence that arrived after judging started (not used)
         self._match_evt = threading.Event()    # set once the match (and its map location) is known
@@ -543,11 +553,15 @@ class Run:
         def body():
             if self.lat is None or self.lon is None:
                 return self._no_location()
+            th = self._outlined_soon()  # the outlined photo, alongside (no-op unless a pool / court / solar claim)
             h, p = _ctx_map(lambda f: f(), [
                 lambda: self.line(self.add(self._safe("aerial", self.tb.building_height, self.lat, self.lon),
                                            "aerial")),
                 lambda: self.property_data(agent)], 2)  # roof height and property data side by side
-            return h + "\n" + p + "\n" + self.aerial_photos(agent)
+            out = h + "\n" + p + "\n" + self.aerial_photos(agent)
+            if th is not None:
+                th.join(timeout=OUTLINE_WAIT_S)  # it ran alongside the above, so this is usually no wait at all
+            return out
         return self._check("measure_building", agent, "Measuring the roof height from Vexcel aerial imagery.", body)
 
     def property_data(self, agent: str = "outside") -> str:
@@ -555,19 +569,23 @@ class Run:
         run and stored as its own aerial Evidence with the whole answer under observed.property. Nothing is stored
         when it fails or has no answer: the run goes on without it."""
         def body():
-            fn = _property_fn(self.tb)
-            if self.lat is None or self.lon is None or fn is None:
-                return "No Vexcel property data for this location."
             try:
-                prop = fn(self.lat, self.lon)
-            except Exception:
-                prop = None
-            if not isinstance(prop, dict) or not prop:
-                return "No Vexcel property data for this location."
-            ev = make_evidence("aerial", "ok", _property_summary(prop), {"property": prop},
-                               detail="Vexcel property data: outdoor features marked on the parcel from the aerial "
-                                      "survey (newest year; 'stable' = the year before agrees).")
-            return self.line(self.add(ev, "aerial"))
+                fn = _property_fn(self.tb)
+                if self.lat is None or self.lon is None or fn is None:
+                    return "No Vexcel property data for this location."
+                try:
+                    prop = fn(self.lat, self.lon)
+                except Exception:
+                    prop = None
+                if not isinstance(prop, dict) or not prop:
+                    return "No Vexcel property data for this location."
+                self._prop = prop
+                ev = make_evidence("aerial", "ok", _property_summary(prop), {"property": prop},
+                                   detail="Vexcel property data: outdoor features marked on the parcel from the "
+                                          "aerial survey (newest year; 'stable' = the year before agrees).")
+                return self.line(self.add(ev, "aerial"))
+            finally:
+                self._prop_ready.set()
         return self._check("property_data", agent, "Reading Vexcel property data for the parcel.", body)
 
     def _property_soon(self) -> threading.Thread:
@@ -576,6 +594,58 @@ class Run:
                               name="rc-property")
         th.start()
         return th
+
+    def _outline_wanted(self) -> bool:
+        """A claim about a pool, sport court or solar panels: the only things the outlined photo can box."""
+        return any(trust.property_key(c) in OUTLINE_KEYS for c in self.claims)
+
+    def _outlined_soon(self) -> threading.Thread | None:
+        """outlined_photo() in a background thread (same context), started at most once per run; later callers get
+        the same thread to wait on. None when there is nothing to outline or no outlining tool."""
+        with self._lock:
+            if self._outline_th is None:
+                if (self.lat is None or self.lon is None or _outlined_fn(self.tb) is None
+                        or not self._outline_wanted()):
+                    return None
+                self._outline_th = threading.Thread(target=contextvars.copy_context().run,
+                                                    args=(self.outlined_photo,), daemon=True, name="rc-outline")
+                self._outline_th.start()
+            return self._outline_th
+
+    def outlined_photo(self) -> dict | None:
+        """The top-down Vexcel aerial photo with detected pools, sport courts and solar panels boxed
+        (tools.aerial.outlined_image), stored as one aerial Evidence: images [outlined photo, plain top-down photo],
+        observed {"feature_check": true, "outlined": [property keys it boxed]}. It names no claim: the judge shows it
+        only on a pool / sport court / solar claim that the property data or the vision look reports present AND the
+        detection boxed. The detection square is 120 m wide, so the caption says "detected near the address".
+        Failure or nothing detected: no Evidence and nothing else changes. Returns the image descriptor or None."""
+        fn = _outlined_fn(self.tb)
+        if fn is None or self.lat is None or self.lon is None:
+            return None
+        plain_ev = self.aerial_ev()  # the plain photo first (shared with the run), so the outlining reuses it
+        try:
+            im = fn(self.lat, self.lon)
+        except Exception:
+            im = None
+        if not isinstance(im, dict) or not isinstance(im.get("path"), str) or not im["path"]:
+            return None
+        feats = _outlined_features(im)
+        if not feats:
+            return None
+        names = _and([OUTLINE_NAMES[k] for k in feats])
+        desc = {"path": im["path"], "caption": _outlined_caption(str(im.get("caption") or ""), names)}
+        plain = next((x for x in (plain_ev or {}).get("images") or [] if isinstance(x, dict) and x.get("path")
+                      and str(x.get("caption") or "").lower().startswith("top-down")), None)
+        ev = make_evidence("aerial", "ok",
+                           f"Top-down Vexcel aerial photo with the {names} detected near the address outlined.",
+                           {"feature_check": True, "outlined": feats, "looked_at": "Vexcel aerial photos"},
+                           [desc] + ([dict(plain)] if plain else []),
+                           detail="Vexcel elements/detect boxes on the top-down photo of a 120 m square around the "
+                                  "map point; a box can fall on a neighbouring lot. Shown only next to claims the "
+                                  "property data or the photo look already report present.")
+        self._outline_desc, self._outline_feats = desc, feats
+        self.add(ev, "aerial")
+        return desc
 
     def count_floors_on_photo(self, agent: str = "outside") -> str:
         """Illustrative only: a floor count read off a photo never decides the stories verdict (the vision model
@@ -1102,13 +1172,60 @@ class Run:
             return [make_evidence("aerial", "no_evidence", "We have no map location, so no Vexcel aerial photos.",
                                   {"feature_check": True, "claim_ids": ids, "presence": "unclear"})]
         th = self._property_soon()  # the judge reads it next to the vision model's answer
+        oth = self._outlined_soon()  # the outlined photo, alongside the look (no-op unless pool / court / solar)
         try:
-            return self._aerial_look(items, ids)
+            evs = self._aerial_look(items, ids)
         finally:
             th.join(timeout=PROPERTY_WAIT_S)
+        if oth is not None:
+            oth.join(timeout=OUTLINE_WAIT_S)
+        return self._outline_onto(evs)
+
+    def _data_answers(self, items: list) -> list[str] | None:
+        """The property keys of these aerial claims when Vexcel property data already shows every one of them
+        present in two survey years (stable), so the vision look would add nothing; else None. Waits for the data
+        (at most PROPERTY_DECIDE_WAIT_S, while the photos were fetched) only when it could answer every claim:
+        a rooftop deck, parking, courtyard or dog run claim always needs the look."""
+        keys = [trust.property_key(c) for c, _ in items]
+        if not keys or not all(keys) or not self._prop_ready.wait(PROPERTY_DECIDE_WAIT_S):
+            return None
+        prop = self._prop or {}
+        ok = all(isinstance(prop.get(k), dict) and prop[k].get("present") is True and prop[k].get("stable") is True
+                 for k in keys)
+        return list(dict.fromkeys(keys)) if ok else None
+
+    def _outline_onto(self, evs: list[dict]) -> list[dict]:
+        """The outlined photo added, next to the plain photos, to each photo-look Evidence about a feature it boxed
+        that the look saw or the property data shows present. Others are left as they are."""
+        desc, feats = getattr(self, "_outline_desc", None), getattr(self, "_outline_feats", None) or []
+        if not desc:
+            return evs
+        prop = self._prop or {}
+        out = []
+        for ev in evs:
+            obs = ev.get("observed") or {}
+            key = trust.VISION_TO_PROPERTY.get(str(obs.get("feature")))
+            present = obs.get("presence") == "seen" or (isinstance(prop.get(key), dict)
+                                                        and prop[key].get("present") is True)
+            if (ev.get("status") == "ok" and obs.get("feature_check") and key in feats and present
+                    and not any(isinstance(im, dict) and im.get("path") == desc["path"] for im in ev.get("images") or [])):
+                ev = {**ev, "images": list(ev.get("images") or []) + [dict(desc)]}
+            out.append(ev)
+        return out
 
     def _aerial_look(self, items: list, ids: list[str]) -> list[dict]:
         ev = self.aerial_ev()
+        answered = self._data_answers(items)
+        if answered:
+            words = _and([PROPERTY_WORDS.get(k, k) for k in answered])
+            self.photo_look_skipped = True
+            self.step("outside", f"Vexcel property data already shows the {words}, so the photo look was not needed.")
+            return [make_evidence("aerial", "ok", f"Vexcel property data already shows the {words}, so the vision "
+                                                  "look at the aerial photos was not needed.",
+                                  {"feature_check": True, "photo_look": "not_needed", "answered_by": "property_data",
+                                   "features": answered},
+                                  detail="Every outdoor amenity claim the photo look would check is marked present in "
+                                         "two Vexcel survey years; the vision model was not called.")]
         images = [im for im in ev.get("images") or [] if im.get("path")][:3]
         if ev.get("status") != "ok" or not images:
             return [make_evidence("aerial", "no_evidence", "No Vexcel aerial photos are available here.",
@@ -1302,6 +1419,46 @@ def _property_fn(tb: Toolbox) -> Callable | None:
         except Exception:
             return None
     return None
+
+
+OUTLINE_NAMES = {"pool": "pool", "sport_court": "sport court", "solar": "solar panels"}
+PROPERTY_WORDS = {**OUTLINE_NAMES, "hot_tub": "hot tub", "playground": "playground"}
+_OUTLINED_BACK = {v: k for k, v in OUTLINE_NAMES.items()}
+
+
+def _outlined_fn(tb: Toolbox) -> Callable | None:
+    """The toolbox's outlined_image(lat, lon); for the real toolbox (its aerial tools come from tools.aerial) the
+    real one, loaded lazily. None for a toolbox without it (the fake one, unless a test adds it)."""
+    fn = getattr(tb, "outlined_image", None)
+    if callable(fn):
+        return fn
+    if getattr(getattr(tb, "aerial_images", None), "__module__", "") == "tools.aerial.aerial":
+        try:
+            from tools.aerial import outlined_image
+            return outlined_image
+        except Exception:
+            return None
+    return None
+
+
+def _outlined_features(im: dict) -> list[str]:
+    """Property keys (pool, sport_court, solar) the outlined photo boxed: its "features" list when it has one, else
+    read from its caption ("..., detected pool, sport court outlined")."""
+    raw = im.get("features")
+    if isinstance(raw, list):
+        found = {str(x) for x in raw}
+    else:
+        m = re.search(r"detected (.+?) outlined", str(im.get("caption") or ""))
+        parts = re.split(r",\s*|\s+and\s+", m.group(1)) if m else []
+        found = {_OUTLINED_BACK[p.strip().lower()] for p in parts if p.strip().lower() in _OUTLINED_BACK}
+    return [k for k in OUTLINE_KEYS if k in found]
+
+
+def _outlined_caption(caption: str, names: str) -> str:
+    """'Top-down Vexcel aerial photo (2026-01-02): pool detected near the address, outlined (...)'."""
+    m = re.search(r"\((\d{4}-\d\d-\d\d)\)", caption)
+    return (f"Top-down Vexcel aerial photo{f' ({m.group(1)})' if m else ''}: {names} detected near the address, "
+            f"outlined (the 120 m detection square can take in a neighbouring lot)")
 
 
 def _unit_fns(tb: Toolbox) -> dict | None:

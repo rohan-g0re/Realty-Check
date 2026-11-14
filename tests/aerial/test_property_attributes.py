@@ -111,13 +111,31 @@ def test_no_vehicles_seen_is_zero(monkeypatch, priv):
 @pytest.mark.parametrize("features,fail", [
     ((), None),                                              # no data
     ((_feature("not a date"),), None),                       # nothing usable
-    ((), aerial._NoCoverage("property/extract answered 404")),
     ((), RuntimeError("Vexcel property/extract answered HTTP 500")),
     ((), TimeoutError("timed out")),
 ])
 def test_failure_is_none_and_not_cached(monkeypatch, priv, features, fail):
     _fake(monkeypatch, *features, fail=fail)
     assert aerial.property_attributes(LAT, LON) is None
+    assert not list(rc_common.cache_dir("aerial").rglob("property_v*.json"))
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_no_coverage_is_marked_and_not_cached(monkeypatch, priv, status):
+    calls = _fake(monkeypatch, fail=aerial._NoCoverage(f"property/extract answered {status}"))
+    assert aerial.property_attributes(LAT, LON) == {"no_coverage": True}
+    assert not list(rc_common.cache_dir("aerial").rglob("property_v*.json"))
+    assert aerial.property_attributes(LAT, LON) == {"no_coverage": True} and len(calls) == 2  # asked again
+
+
+def test_no_coverage_through_real_call(monkeypatch, priv):
+    """The real _call turns an HTTP 404 into _NoCoverage; property_attributes turns that into the marker."""
+    class Resp:
+        status_code, ok, content = 404, False, b""
+    monkeypatch.setattr(aerial.rc_common, "secret", lambda name: "invented-key")
+    monkeypatch.setattr(aerial._RATE, "wait", lambda: None)
+    monkeypatch.setattr(aerial.requests, "request", lambda *a, **k: Resp())
+    assert aerial.property_attributes(LAT, LON) == {"no_coverage": True}
     assert not list(rc_common.cache_dir("aerial").rglob("property_v*.json"))
 
 

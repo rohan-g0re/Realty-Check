@@ -407,7 +407,8 @@ def property_attributes(lat: float, lon: float) -> dict | None:
     property/extract, newest survey year, each yes/no marked stable when the year before agrees.
     Counts: pool["count"] (in-ground + above-ground) and hot_tub["count"] when the service gives one, plus
     "vehicles" and "buildings". The service gives no count for sport courts, playgrounds or decks (yes/no only).
-    None on failure, timeout or no data; never raises. Only successful answers are cached."""
+    {"no_coverage": True} when Vexcel has no coverage at the point (it answered 403 / 404, as _NoCoverage);
+    None on any other failure, timeout or no data; never raises. Only successful answers are cached."""
     try:
         path = _dir(lat, lon) / f"property_v{PROPERTY_VERSION}.json"
         if cachectl.hit(path):
@@ -415,9 +416,12 @@ def property_attributes(lat: float, lon: float) -> dict | None:
                 return json.loads(path.read_text(encoding="utf-8"))
             except ValueError:
                 pass
-        raw = _call("GET", "property/extract", params={
-            "wkt": _point(lat, lon), "srid": 4326, "layer": LAYERS, "latest": "true",
-            "include": "precomputed", "unit-system": "imperial"}, timeout=PROPERTY_TIMEOUT_S)
+        try:
+            raw = _call("GET", "property/extract", params={
+                "wkt": _point(lat, lon), "srid": 4326, "layer": LAYERS, "latest": "true",
+                "include": "precomputed", "unit-system": "imperial"}, timeout=PROPERTY_TIMEOUT_S)
+        except _NoCoverage:
+            return {"no_coverage": True}  # not cached: coverage may be added later
         out = _parse_property(json.loads(raw))
         if out is not None:
             path.write_text(json.dumps(out, indent=1), encoding="utf-8")

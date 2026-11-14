@@ -294,6 +294,18 @@ def _qv(v: Any) -> tuple[Any, str]:
     return to_number(v), ""
 
 
+def _one(v: Any) -> tuple[Any, str]:
+    """One unit's value, or (None, "") when the page lists several: a complex's numberOfRooms
+    [0, 1, 2, 3] or {minValue: 1, maxValue: 3} is the kinds of home it offers, not a fact about one home."""
+    if isinstance(v, list):
+        got = {_qv(x) for x in v if _qv(x)[0] is not None}
+        return got.pop() if len(got) == 1 else (None, "")
+    if isinstance(v, dict) and v.get("value") is None and (v.get("minValue") is not None or v.get("maxValue") is not None):
+        lo, hi = to_number(v.get("minValue")), to_number(v.get("maxValue"))
+        return (lo, str(v.get("unitCode") or v.get("unitText") or "")) if lo is not None and lo == hi else (None, "")
+    return _qv(v)
+
+
 def _amenity_kind(name: str) -> tuple[str, str]:
     n = name.lower()
     if "parking" in n or "garage" in n:
@@ -332,16 +344,14 @@ def _jsonld_from(o: dict, label: str | None, out: list[dict]) -> None:
             c["origin"] = METADATA
             out.append(c)
 
-    beds = to_number(o.get("numberOfBedrooms"))
-    if beds is None:
-        beds = to_number(o.get("numberOfRooms"))
-    add("bedrooms", beds, "unit")
+    key = "numberOfBedrooms" if o.get("numberOfBedrooms") is not None else "numberOfRooms"
+    add("bedrooms", _one(o.get(key))[0], "unit")
     for key in ("numberOfBathroomsTotal", "numberOfFullBathrooms"):
         if o.get(key) is not None:
-            add("bathrooms", to_number(o[key]), "unit")
+            add("bathrooms", _one(o[key])[0], "unit")
             break
     if o.get("floorSize") is not None:
-        n, code = _qv(o["floorSize"])
+        n, code = _one(o["floorSize"])
         if n is not None and code.upper() in ("MTK", "M2", "SQM"):
             n = round(n * 10.7639)
         add("area_sqft", n, "unit")

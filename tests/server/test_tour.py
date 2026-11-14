@@ -303,7 +303,9 @@ def test_report_embeds_scan_mismatch_only(client, monkeypatch):
     assert html.count("Walk into this room") == 1  # Plan Z item; the aerial floors item has none
     # inline viewer: lazy iframe (no src until clicked) fed by the embed URL; the plain link stays as fallback
     assert f"<div class=walk data-src='/tour/{RUN_ID}?claim=c1&amp;embed=1'>" in html
-    assert f"href='/tour/{RUN_ID}?claim=c1'" in html and "Open in new tab" in html and ">Close</button>" in html
+    assert f"href='/tour/{RUN_ID}?claim=c1'" in html and ">Full screen</button>" in html and ">Close</button>" in html
+    walks = re.findall(r"<div class=walk .*?</iframe>", html, re.S)
+    assert walks and not any("target=" in w or "new tab" in w for w in walks)  # never a new tab
     frame = html[html.index("<iframe"):html.index("</iframe>")]
     assert " src=" not in frame and "allow='fullscreen; xr-spatial-tracking'" in frame
     assert html.count("<iframe") == 1

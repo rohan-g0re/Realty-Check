@@ -29,6 +29,8 @@ from pydantic import PrivateAttr
 from harness.model import ask
 from harness.model import cli_chat_model as ccm
 
+from .run import record_amenities  # noqa: F401  (kept importable from here)
+
 PROVIDER = "reality_check_cli"
 MAX_MODEL_CALLS = 14      # text calls across orchestrator, subagents and the claim reading (photo checks not counted)
 ORCH_MAX_CALLS = 5        # orchestrator's own turns: 3 planned + one refused judge + one follow-up
@@ -132,7 +134,7 @@ class EndAfterTools(AgentMiddleware):
 ORCHESTRATOR_PROMPT = """You are the lead fact-checker of Realty Check. A rental listing page makes claims about an apartment and its building. You run the whole check with your tools and helpers in three turns. You never judge claims yourself: judge_claims applies fixed rules to the evidence the helpers store.
 
 Turn 1: call read_claims and match_listing together in one message.
-Turn 2: delegate with the task tool, ALL tasks in ONE message as parallel calls, one task per helper. Ask EVERY helper listed under "Helpers needed" in the read_claims result, never just one when several are listed. Each task description is one sentence naming what to check (claim ids and plan names). If no helper is needed, skip to turn 3.
+Turn 2: delegate with the task tool, ALL tasks in ONE message as parallel calls, one task per helper. Ask EVERY helper listed under "Helpers needed" in the read_claims result, never just one when several are listed. With a map location, outside and paper are always listed (Vexcel roof height and photos, county and building records): ask them even when every claim is about the apartments. Each task description is one sentence naming what to check (claim ids and plan names). If no helper is needed, skip to turn 3.
 Turn 3: call judge_claims and fill_in together in one message. That ends the check.
 
 Optional, only between turns 2 and 3: if a floor plan's scan gave no bedroom/bathroom counts for a room claim, call look_at_scan_photos for that plan once. If judge_claims answers "Not judged yet", do what it says.
@@ -141,9 +143,11 @@ Every message that calls tools starts with one short plain sentence (at most 20 
 SUB_RULES = "Never guess numbers. Make all your tool calls in ONE message; their results are your report."
 INSIDE_PROMPT = ("You check the inside of the apartments. Call check_floor_plans (with no plans it checks every "
                  "floor plan the listing names) and unit_feature_photos. " + SUB_RULES)
-OUTSIDE_PROMPT = ("You measure the building from the air. Call measure_building and outdoor_feature_photos. "
+OUTSIDE_PROMPT = ("You measure the building from the air with Vexcel aerial imagery. Call measure_building "
+                  "and outdoor_feature_photos. "
                   + SUB_RULES)
-PAPER_PROMPT = "You read paper records. Call county_lookup and building_record. " + SUB_RULES
+PAPER_PROMPT = ("You read paper records: the county roll (floors, year built, homes, size, land use, owner type) and "
+                "the building record (its facts and amenities). Call county_lookup and building_record. " + SUB_RULES)
 
 
 def build_agent(run, model: BudgetedCLIModel):
@@ -200,7 +204,7 @@ def build_agent(run, model: BudgetedCLIModel):
 
     # outside
     def measure_building() -> str:
-        """Measure the roof height above ground from aerial elevation data, estimate floors, fetch aerial photos."""
+        """Measure the roof height above ground from Vexcel elevation data, estimate floors, fetch the aerial photos."""
         return run.tool("outside", run.measure_building)
 
     def outdoor_feature_photos() -> str:
@@ -213,22 +217,25 @@ def build_agent(run, model: BudgetedCLIModel):
 
     # paper
     def county_lookup() -> str:
-        """Look up the county property record for the address: stories, year built, unit count, building size."""
+        """Look up the county property record for the address: stories, year built, unit count, building size,
+        land use, owner type (company or individual), and in Houston the 311 request counts nearby."""
         return run.tool("paper", run.county_lookup)
 
     def building_record() -> str:
-        """Read the building record matched to the address: stories, year built, unit count."""
-        return run.tool("paper", run.building_record)
+        """Read the building record matched to the address: stories, year built, unit count, and the amenities
+        on record."""
+        return run.tool("paper", run.building_record)  # also stores the record's amenities
 
     one_round = [EndAfterTools(rounds=1)]
     subagents = [
         {"name": "inside", "description": "Floor plan claims (bedrooms, bathrooms, area) and in-unit features: "
          "the building's plans, 3D scans, scan photos and record.", "system_prompt": INSIDE_PROMPT,
          "tools": [check_floor_plans, unit_feature_photos], "model": model, "middleware": one_round},
-        {"name": "outside", "description": "Aerial imagery: roof height (floors) and outdoor amenities.",
+        {"name": "outside", "description": "Vexcel aerial imagery: roof height (floors), aerial photos and outdoor amenities.",
          "system_prompt": OUTSIDE_PROMPT, "tools": [measure_building, outdoor_feature_photos], "model": model,
          "middleware": [EndAfterTools(rounds=1)]},
-        {"name": "paper", "description": "County records and the building record: stories, year built, unit count.",
+        {"name": "paper", "description": "County records and the building record: stories, year built, unit count, "
+         "land use, owner type, 311 counts, amenities on record.",
          "system_prompt": PAPER_PROMPT, "tools": [county_lookup, building_record], "model": model,
          "middleware": [EndAfterTools(rounds=1)]},
     ]

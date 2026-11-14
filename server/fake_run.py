@@ -76,7 +76,7 @@ def _fake_facts(scan_path: str, aerial_path: str) -> list[dict]:
         f("pets-dogs", "Rules", "Dogs", "Allowed, up to 2, $300 deposit, $25 a month pet rent", "record", rec),
         f("parking-garage", "Rules", "Parking: garage", "$75 a month, assigned spaces available", "record", rec),
         f("aerial-view", "Around it", "The block from above",
-          "Top-down aerial photo of the building and what sits next to it", "aerial", "", aerial_path),
+          "Top-down Vexcel aerial photo of the building and what sits next to it", "aerial", "", aerial_path),
         f("county-parcel", "Records", "County parcel number", "0000000000000", "county",
           "Look it up with the county appraisal district."),
     ]
@@ -127,13 +127,13 @@ def run_fake(snapshot: dict, emit) -> dict:
         {"bedrooms": 1, "bathrooms": 1, "area_sqft": 968, "room_labels": ["Bedroom", "Den", "Living", "Kitchen"],
          "label": "1BR W Den", "plan": "Plan E"},
         [{"path": scan_path, "caption": "Floor plan from the 3D scan"}], detail="3D scan room labels")})
-    say({"type": "step", "agent": "outside", "text": "Measuring the roof height from aerial photos."})
+    say({"type": "step", "agent": "outside", "text": "Measuring the roof height from Vexcel aerial photos."})
     say({"type": "evidence", "evidence": evidence(
         "aerial", "ok", "Roof is 23.1 m above ground: about 6 floors.", {"height_m": 23.1, "stories": 6},
         [{"path": aerial_path, "caption": "Oblique view from the north"}], detail="Aerial height estimate")})
     say({"type": "evidence", "evidence": evidence(  # invented picture check: the photo could not tell
-        "aerial", "ok", "Looking at the aerial photos for a pool: the vision model could not tell.",
-        {"feature_check": True, "claim_ids": ["c5"], "feature": "pool", "looked_at": "aerial photos",
+        "aerial", "ok", "Looking at the Vexcel aerial photos for a pool: the vision model could not tell.",
+        {"feature_check": True, "claim_ids": ["c5"], "feature": "pool", "looked_at": "Vexcel aerial photos",
          "presence": "unclear", "presence_confidence": 0.5},
         [{"path": aerial_path, "caption": "Oblique view from the north"}], detail="Aerial picture check")})
     say({"type": "step", "agent": "paper", "text": "Checking the county property record."})

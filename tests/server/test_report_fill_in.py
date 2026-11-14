@@ -49,7 +49,7 @@ def test_fill_in_event_renders_tab():
     assert p.index("Plan Q7</span>") < p.index("Rooms in the 3D scan of Plan Q7")  # order kept within topic
     for text in ("2 bed, 1 bath, 900 sq ft", "<small>Labelled automatically by the scan; labels can be wrong.</small>",
                  "Cats allowed", "From the building record", "From the 3D scan", "From county records",
-                 "From aerial photos"):
+                 "From Vexcel aerial photos"):
         assert text in p, text
     assert "<small></small>" not in p
     assert "<a class=pic href='/img/00112233aabbccdd'" in p and "<img src='/img/00112233aabbccdd'" in p

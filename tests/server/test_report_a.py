@@ -113,7 +113,7 @@ def test_many_findings():
     # sections and anchors the extension and old links use
     for anchor in ("id=mismatch", "id=match", "id=cant-verify", "id=extra", "id=sources", "id=questions"):
         assert anchor in html, anchor
-    for word in ("CoStar", "Matterport", "Aerial", "County"):
+    for word in ("CoStar", "Matterport", "Vexcel", "County"):
         assert word in html
     # questions: deterministic, neutral, each copyable
     qs = re.findall(r"<button type=button class='btn ghost copy' data-text='([^']+)'", html)

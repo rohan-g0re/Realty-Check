@@ -56,6 +56,7 @@ PAGE_SAYS = {
     "condo": r"\bcondo(minium)?s?\b",
     "leed": r"\bleed\b",
 }
+OWNER_WORDS = {"company": "A company", "individual": "An individual"}  # the owner's type only, never a name
 KIND_TOPICS = {"year_built": "year_built", "stories": "stories", "unit_count": "unit_count", "parking": "parking"}
 
 
@@ -197,8 +198,8 @@ def _building(f: _Facts, page: _Page, rec: dict, kit: dict) -> None:
     if kit.get("manager") and not page.says("manager"):
         f.add("manager", "Building", "Management company", kit["manager"], "record",
               "Company named in the building record or its rental listing.")
-    if kit.get("owner") and not page.says("owner") and kit.get("owner") != kit.get("manager"):
-        f.add("owner", "Building", "Owner (company)", kit["owner"], "record", RECORD_NOTE)
+    if OWNER_WORDS.get(kit.get("owner_type")) and not page.says("owner"):
+        f.add("owner", "Building", "Owner", OWNER_WORDS[kit["owner_type"]], "record", RECORD_NOTE)
     if _n(rec.get("building_sf")):
         f.add("building-size", "Building", "Building size", f"{_int(rec['building_sf'])} sq ft in all", "record",
               RECORD_NOTE)
@@ -218,10 +219,12 @@ def _year_and_age(year) -> str:
     return str(y)
 
 
-def _amenities(f: _Facts, page: _Page, match: dict, kit: dict) -> None:
-    """Amenities the building record lists that the page never mentions (kit `amenities` or the match's, a list of
-    plain names). Nothing when the record has none."""
-    names = kit.get("amenities") or match.get("amenities") or []
+def _amenities(f: _Facts, page: _Page, match: dict, kit: dict, evs: list[dict] | None = None) -> None:
+    """Amenities the building record lists that the page never mentions (kit `amenities`, the match's, or the run's
+    record Evidence observed.amenities: a list of plain names). Nothing when the record has none."""
+    names = kit.get("amenities") or match.get("amenities") or next(
+        (e["observed"]["amenities"] for e in _ok(evs or [], "record")
+         if isinstance(e["observed"].get("amenities"), list) and e["observed"]["amenities"]), [])
     if not isinstance(names, list):
         return
     text = page.text.lower()
@@ -495,7 +498,7 @@ def _around(f: _Facts, page: _Page, kit: dict, evs: list[dict]) -> None:
         if top:
             date = (e.get("observed") or {}).get("capture_date")
             f.add("aerial-view", "Around it", "The block from above",
-                  "Top-down aerial photo of the building and what sits next to it", "aerial",
+                  "Top-down Vexcel aerial photo of the building and what sits next to it", "aerial",
                   f"Photo taken {date}." if date else "", top["path"])
             break
     if not page.says("stories"):
@@ -504,7 +507,7 @@ def _around(f: _Facts, page: _Page, kit: dict, evs: list[dict]) -> None:
             if _n(o.get("height_m")) and _n(o.get("stories")):
                 f.add("roof-height", "Building", "Measured roof height",
                       f"{_n(o['height_m']):.1f} m, about {_n(o['stories']):g} floors", "aerial",
-                      "Measured from aerial elevation data.")
+                      "Measured from Vexcel aerial elevation data.")
                 break
 
 
@@ -523,6 +526,15 @@ def _records(f: _Facts, page: _Page, evs: list[dict]) -> None:
             f.add("county-homes", "Records", "Homes (county)", _int(o["unit_count"]), "county", note)
         if _n(o.get("building_sf")):
             f.add("county-size", "Records", "Building size (county)", f"{_int(o['building_sf'])} sq ft", "county", note)
+        land = o.get("land_use")
+        if isinstance(land, str) and land.strip() and len(land) <= 60:
+            f.add("county-land-use", "Records", "Land use (county)", land.strip(), "county", note)
+        if OWNER_WORDS.get(o.get("owner_type")) and not page.says("owner") and "owner" not in f.ids:
+            f.add("county-owner", "Records", "Owner (county)", OWNER_WORDS[o["owner_type"]], "county", note)
+        calls = _city_calls(o)
+        if calls:
+            f.add("county-311", "Records", "311 service requests nearby", calls, "county",
+                  f"Counts from {who}; what the requests say is not shown.")
         for k, v in o.items():  # 311 and complaint records: the count only, never what they say
             n = len(v) if isinstance(v, (list, dict)) else v if isinstance(v, int) and not isinstance(v, bool) else None
             if n and re.search(r"311|complaint", str(k), re.I):
@@ -533,6 +545,25 @@ def _records(f: _Facts, page: _Page, evs: list[dict]) -> None:
             f.add("county-parcel", "Records", "County parcel number", str(o["parcel_id"]), "county",
                   f"Look it up with {who}.")
         break
+
+
+def _city_calls(o: dict) -> str:
+    """'42 since 2026-01-01 within 100 m; most often water leak (10), parking violation (6)' from the county
+    Evidence's houston_311_count and city_calls (counts by category only). '' when there is no such count."""
+    n = o.get("houston_311_count")
+    if isinstance(n, bool) or not isinstance(n, int) or n <= 0:
+        return ""  # 0 is left out like any other blank value
+    c = o.get("city_calls") if isinstance(o.get("city_calls"), dict) else {}
+    value = f"{n:,}"
+    if c.get("since"):
+        value += f" since {c['since']}"
+    if _n(c.get("radius_m")):
+        value += f" within {_int(c['radius_m'])} m"
+    top = [(str(t), v) for t, v in (c.get("by_type") or {}).items()
+           if isinstance(v, int) and not isinstance(v, bool) and v > 0 and 0 < len(str(t)) <= 60][:3]
+    if top:
+        value += "; most often " + ", ".join(f"{t.lower()} ({v:,})" for t, v in top)
+    return value
 
 
 def build_fill_in(match: dict | None, evidences: list[dict] | None, claims: list[dict] | None,
@@ -546,7 +577,7 @@ def build_fill_in(match: dict | None, evidences: list[dict] | None, claims: list
     f = _Facts()
     if matched:
         _building(f, page, match.get("record") or {}, kit)
-        _amenities(f, page, match, kit)
+        _amenities(f, page, match, kit, evs)
         _homes(f, page, match, kit)
         _type_sizes(f, _kit_plans(match, kit))
     _scans(f, page, evs, _lookup(_kit_plans(match, kit)) if matched else [])

@@ -84,3 +84,21 @@ def test_cached_json_has_no_key():
     key = rc_common.secret("VEXCEL_API_KEY")
     for f in rc_common.cache_dir("aerial").rglob("*.json"):
         assert key not in f.read_text(encoding="utf-8"), f.name
+
+
+def test_display_text_names_vexcel_even_for_old_cache():
+    """Evidence cached before the sponsor name was added still reads 'Vexcel' in its summary and captions; keys,
+    paths and numbers are unchanged. Invented values, no network."""
+    old_photos = {"source": "aerial", "status": "ok", "summary": "Top-down aerial photo and 2 angled views of the point.",
+                  "observed": {"angled_views": 2}, "detail": "",
+                  "images": [{"path": "C:/x/top.jpg", "caption": "Top-down aerial photo (2026-01-02)"},
+                             {"path": "C:/x/n.jpg", "caption": "Angled aerial view, camera looking north"}]}
+    ev = aerial.named(old_photos)
+    assert ev["summary"] == "Top-down Vexcel aerial photo and 2 angled views of the point."
+    assert [i["caption"] for i in ev["images"]] == ["Top-down Vexcel aerial photo (2026-01-02)",
+                                                    "Angled Vexcel aerial view, camera looking north"]
+    assert ev["images"][0]["path"] == "C:/x/top.jpg" and ev["source"] == "aerial"
+    old_height = {"source": "aerial", "status": "ok", "summary": "Roof is 23.1 m above the ground: about 6 floors.",
+                  "observed": {"height_m": 23.1, "stories": 6}, "images": [], "detail": ""}
+    assert aerial.named(old_height)["summary"].startswith("Vexcel elevation data: roof is 23.1 m")
+    assert aerial.named(aerial.named(old_photos)) == aerial.named(old_photos)  # once only

@@ -24,7 +24,7 @@ IMG_RE = re.compile(r"^/img/[a-f0-9]{16}$")
 GENERIC_CANT = ("none of our sources", "no data", "not checked")
 EXTRA = ("extra", "Not on the listing")
 TOPICS = ["Building", "Homes & floor plans", "Rent", "Rules", "Around it", "Records"]
-FACT_FROM = {"record": "From the building record", "scan": "From the 3D scan", "aerial": "From aerial photos",
+FACT_FROM = {"record": "From the building record", "scan": "From the 3D scan", "aerial": "From Vexcel aerial photos",
              "county": "From county records"}  # same wording as _source_line
 
 CSS = """
@@ -143,7 +143,8 @@ window.addEventListener('hashchange',function(){show(location.hash.slice(1));});
 show(location.hash.slice(1));window.scrollTo(0,0);
 document.addEventListener('click',function(e){var t=e.target.closest&&e.target.closest('.walk .go,.walk .shut');
 if(!t)return;var w=t.closest('.walk'),v=w.querySelector('.view'),f=w.querySelector('iframe'),g=w.querySelector('.go');
-e.preventDefault();if(t===g){f.src=w.getAttribute('data-src');v.hidden=false;g.hidden=true;}
+e.preventDefault();if(t.hasAttribute('data-fs')){if(f.requestFullscreen)f.requestFullscreen();}
+else if(t===g){f.src=w.getAttribute('data-src');v.hidden=false;g.hidden=true;}
 else{v.hidden=true;g.hidden=false;f.src='about:blank';}});
 var lb=document.getElementById('lb'),li=lb.querySelector('img'),lc=lb.querySelector('p');
 function shut(){lb.hidden=true;li.removeAttribute('src');}
@@ -411,7 +412,7 @@ def _source_line(v: dict, kind: str, run: Run) -> str:
     if src == "scan":
         return "From the 3D scan"
     if src == "aerial":
-        return "From a roof height measurement" if kind == "stories" else "From aerial photos"
+        return "From a roof height measurement" if kind == "stories" else "From Vexcel aerial photos"
     if src == "county":
         return "From county records"
     if src == "record":
@@ -643,16 +644,17 @@ def _mismatch(run: Run, verdicts: list) -> str:
 
 def _walk(run: Run, v: dict, word: str) -> str:
     """Inline 3D viewer for one scan verdict: a button that loads /tour/...&embed=1 into an iframe right here, on
-    click only (one heavy viewer at a time, no spot picking on page load). '' when the claim has no scan to walk."""
+    click only (one heavy viewer at a time, no spot picking on page load), with Full screen and Close; never a new
+    tab. '' when the claim has no scan to walk."""
     from server.tour import tour_href, tour_target
     cid = str(v.get("claim_id") or "")
     if v.get("source") != "scan" or not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", cid)             or not re.fullmatch(r"[a-z0-9-]{1,64}", str(run.raw.get("run_id") or "")) or not tour_target(run.raw, cid):
         return ""
     page, frame = tour_href(run.raw, cid), tour_href(run.raw, cid, embed=True)
     return (f"<div class=walk data-src='{escape(frame, True)}'>"
-            f"<a class=go href='{escape(page, True)}' target=_blank rel=noopener>{escape(word)}</a>"
+            f"<a class=go href='{escape(page, True)}'>{escape(word)}</a>"  # no script: the walk in this tab
             "<div class=view hidden><div class=bar3d>"
-            f"<a href='{escape(page, True)}' target=_blank rel=noopener>Open in new tab</a>"
+            "<button type=button class=shut data-fs>Full screen</button>"
             "<button type=button class=shut>Close</button></div>"
             "<iframe title='3D walkthrough' allow='fullscreen; xr-spatial-tracking' allowfullscreen></iframe>"
             "</div></div>")

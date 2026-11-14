@@ -417,6 +417,17 @@ def _embed_note(state: str, text: str) -> str:
             f"try{{window.parent.postMessage({msg},t)}}catch(e){{}}}});}})();</script>")
 
 
+# In the report's frame (any embed page): Esc is sent up to the report, which never hears keys typed in here
+# (cross-origin frame), so its panel closes as it would on the page; the scan's own frame keeps keys from this page,
+# so focus comes back here when the pointer leaves it (onto the label card or the note).
+ESC_FORWARD = ("<script>(function(){if(window.parent===window)return;var o=location.origin;"
+               "var to=[o,o.replace('//localhost','//127.0.0.1')].filter(function(t,i,a){return a.indexOf(t)===i;});"
+               "addEventListener('keydown',function(e){if(e.key!=='Escape')return;to.forEach(function(t){"
+               "try{window.parent.postMessage({rc3d:1,key:'Escape'},t)}catch(x){}});});"
+               "addEventListener('mouseover',function(e){var a=document.activeElement;"
+               "if(a&&a.tagName==='IFRAME'&&e.target!==a){a.blur();window.focus();}});})();</script>")
+
+
 def _page(title: str, body: str, script: str = "", refresh_s: int | None = None, embed: bool = False,
           refresh_url: str | None = None) -> str:
     meta = ""
@@ -427,7 +438,7 @@ def _page(title: str, body: str, script: str = "", refresh_s: int | None = None,
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<meta name=referrer content=no-referrer>{meta}{PRECONNECT}"
             f"<title>{escape(title)}</title><style>{CSS}</style></head>"
-            f"<body{' class=embed' if embed else ''}>{body}{script}</body></html>")
+            f"<body{' class=embed' if embed else ''}>{body}{script}{ESC_FORWARD if embed else ''}</body></html>")
 
 
 def _back(run_id: str | None, embed: bool) -> str:

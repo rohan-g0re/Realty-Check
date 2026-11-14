@@ -43,6 +43,8 @@ MAX_SCAN_FETCH = 8      # property-level scan summaries fetched from Matterport 
 MAX_FEATURE_SCANS = 2   # scans whose photos are searched for in-unit features per run
 MAX_STILLS_FETCH = 3    # uncached scan stills (proof pictures) fetched per run; cached ones are free
 HELPERS = ("inside", "outside", "paper")
+ALWAYS_RESERVE_S = 1.5  # the close's direct aerial / county / record calls stop this far before the run's hard end
+MATCH_WAIT_S = 10.0     # read_claims waits this long for a match in progress, so "Helpers needed" knows the location
 
 
 class Run:
@@ -86,11 +88,15 @@ class Run:
         self.needed: dict[str, str] = {}      # helper -> why (from the claim kinds)
         self.helpers_used: set[str] = set()   # helpers whose tools ran
         self._judge_refused = False
+        self._refused_at: float | None = None  # when judge_claims refused (fill_in called alongside stops waiting)
         self._stills_fetched = 0
         self._aerial: dict | None = None
         self._aerial_lock = threading.Lock()
         self._spans: dict[str, list[tuple[float, float]]] = {}
         self._late: dict[str, dict] = {}       # evidence that arrived after judging started (not used)
+        self._match_evt = threading.Event()    # set once the match (and its map location) is known
+        self.single_unit = False               # the page lists one home (set when judging; see single_unit_page())
+        self.direct: list[str] = []            # always-run helpers the run called itself (the agent skipped them)
 
     def time_left(self) -> float:
         return self.budget_s - (time.monotonic() - self.t0)
@@ -414,7 +420,7 @@ class Run:
             if self.lat is None or self.lon is None:
                 return self._no_location()
             return self.line(self.add(self.aerial_ev(), "aerial"))
-        return self._check("aerial_photos", agent, "Fetching aerial photos of the building.", body)
+        return self._check("aerial_photos", agent, "Fetching Vexcel aerial photos of the building.", body)
 
     def measure_building(self, agent: str = "outside") -> str:
         def body():
@@ -422,7 +428,7 @@ class Run:
                 return self._no_location()
             h = self.line(self.add(self._safe("aerial", self.tb.building_height, self.lat, self.lon), "aerial"))
             return h + "\n" + self.aerial_photos(agent)
-        return self._check("measure_building", agent, "Measuring the roof height from aerial imagery.", body)
+        return self._check("measure_building", agent, "Measuring the roof height from Vexcel aerial imagery.", body)
 
     def count_floors_on_photo(self, agent: str = "outside") -> str:
         """Illustrative only: a floor count read off a photo never decides the stories verdict (the vision model
@@ -437,19 +443,19 @@ class Run:
             angled = [im for im in imgs if any(w in str(im.get("caption", "")).lower() for w in ("angled", "oblique"))]
             use = (angled or imgs)[:2]
             if not use:
-                return "No aerial photo is available to count floors on."
+                return "No Vexcel aerial photo is available to count floors on."
             res = self._vision(self.tb.count_floors, [im["path"] for im in use])
             a = res.get("answer") or {}
             ok = res.get("status") == "ok" and isinstance(a.get("stories"), (int, float))
             ev = make_evidence("aerial", "ok" if ok else "error",
-                               f"For illustration only: window rows on the angled aerial photo suggest about "
+                               f"For illustration only: window rows on the angled Vexcel aerial photo suggest about "
                                f"{a.get('stories')} floors (a photo count never decides the verdict)." if ok
-                               else "Floors could not be counted on the aerial photo.",
+                               else "Floors could not be counted on the Vexcel aerial photo.",
                                {"photo_floor_count": a.get("stories"), "illustrative": True,
                                 "how_counted": str(a.get("how_counted", ""))[:150]} if ok else {},
                                use, f"vision model floor count (illustrative), confidence {res.get('confidence')}")
             return self.line(self.add(ev, "aerial"))
-        return self._check("count_floors", agent, "Counting floors on the angled aerial photo.", body)
+        return self._check("count_floors", agent, "Counting floors on the angled Vexcel aerial photo.", body)
 
     def county_lookup(self, agent: str = "paper") -> str:
         def body():
@@ -464,7 +470,9 @@ class Run:
                 ev = make_evidence("record", "no_evidence", "No building record matched this address.")
             else:
                 ev = self._safe("record", self.tb.record_evidence, self.match)
-            return self.line(self.add(ev, "record"))
+            out = self.line(self.add(ev, "record"))
+            extra = record_amenities(self)
+            return f"{out}\n{extra}" if extra else out
         return self._check("record", agent, "Reading the building record.", body)
 
     # ---- agent path: the orchestrator's own tools ----------------------------------------------------
@@ -484,8 +492,13 @@ class Run:
             self.claims = [c for c in claims if isinstance(c, dict) and c.get("id")]
         except Exception as e:
             self.error(f"reading claims failed: {type(e).__name__}: {e}")
-        self.needed = helpers_needed(self.claims, self.match)
+        # The location decides whether outside / paper are needed: match now if match_listing has not started (it
+        # then answers "already matched"), or wait for the one running alongside.
+        if not self.match_ready:
+            self.match_listing()
+            self._match_evt.wait(timeout=max(0.0, min(MATCH_WAIT_S, self.time_left() - VISION_MIN_LEFT_S)))
         with self._order:
+            self.needed = helpers_needed(self.claims, self.match)
             self.claims_ready = True
             self._flush()
         return self.claims_text()
@@ -512,20 +525,24 @@ class Run:
     def match_listing(self) -> str:
         """Orchestrator tool: match the listing's address to a building record (plans, scans, location)."""
         with self._order:
-            if self.match_ready or getattr(self, "_matching", False):
-                return self.match_text() + " (already matched)"
-            self._matching = True
+            busy = self.match_ready or getattr(self, "_matching", False)
+            if not busy:
+                self._matching = True
+        if busy:  # matched already, or matching in another thread (read_claims): its result, once known
+            self._match_evt.wait(timeout=max(0.0, min(MATCH_WAIT_S, self.time_left())))
+            return self.match_text() + " (already matched)"
         self.step("matcher", f"Finding the building at {self.address or 'this address'}.")
         try:
             with self.phase("match"):
                 self.do_match()
         except Exception as e:
             self.error(f"address match failed: {type(e).__name__}: {e}")
-        if self.claims_ready:
-            self.needed = helpers_needed(self.claims, self.match)
         with self._order:
+            if self.claims_ready:
+                self.needed = helpers_needed(self.claims, self.match)
             self.match_ready = True
             self._flush()  # sent right after the claims event, never before it
+        self._match_evt.set()
         return self.match_text()
 
     def match_text(self) -> str:
@@ -546,16 +563,22 @@ class Run:
         missing = [h for h in self.needed if h not in self.helpers_used]
         if missing and not self._judge_refused and self.claims_ready:
             self._judge_refused = True
+            self._refused_at = time.monotonic()
             return (f"Not judged yet: these helpers are needed and were not asked: {', '.join(missing)}. "
                     "Ask them now with the task tool (all in one message), then call judge_claims again.")
+        self.run_always()
         verdicts = self.judge_all(by="agent")
         counts = {k: sum(v["verdict"] == k for v in verdicts) for k in ("confirmed", "contradicted", "close", "cant_check")}
         return "Judged: " + ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in counts.items()) + "."
 
     def fill_in_tool(self) -> str:
         """Orchestrator tool: "Fill me in" facts, sent after the verdicts."""
-        if not self._judged.wait(timeout=max(0.0, min(15.0, self.time_left()))):
-            return "Not sent: call judge_claims first."
+        t = time.monotonic()
+        end = t + max(0.0, min(15.0, self.time_left()))
+        while not self._judged.wait(timeout=0.05):
+            refused = self._refused_at is not None and self._refused_at >= t - 2.0
+            if refused or time.monotonic() >= end:  # a refusal alongside: no point waiting for verdicts
+                return "Not sent: call judge_claims first."
         n = self.send_fill_in(by="agent")
         return f"Sent {n} facts the listing does not mention." if n is not None else "Already sent."
 
@@ -627,7 +650,7 @@ class Run:
                         {"feature_check": True, "claim_ids": ids, "presence": "skipped"}), src))])
             return "\n".join(line for r in res for line in r) or "Nothing found."
         return self._check(f"features:{which}", agent, "Looking for the claimed features in "
-                           + ("the aerial photos." if which == "aerial" else "the 3D scan photos."), body)
+                           + ("the Vexcel aerial photos." if which == "aerial" else "the 3D scan photos."), body)
 
     def _bounded(self, fn: Callable[[], Any], reserve: float = 12.0) -> Any:
         """fn() in a worker thread (same context: the run's model), waited for until `reserve` seconds of the budget
@@ -686,6 +709,7 @@ class Run:
                 if self.match.get("how") == "not run":
                     self.match = {**self.match, "how": "The check stopped before the address was matched."}
                 self.match_ready = True
+                self._match_evt.set()
             self._flush()
 
     def judge_all(self, by: str) -> list[dict]:
@@ -698,10 +722,14 @@ class Run:
             self.step("judge", "Comparing every claim with the evidence.")
             t = time.monotonic()
             evs = list(self.evidence.values())
+            try:
+                self.single_unit = self.single_unit_page()
+            except Exception:
+                self.single_unit = False
             verdicts = []
             for c in self.claims:
                 try:
-                    v = self.type_verdict(c) or judge(c, evs)
+                    v = self.type_verdict(c) or judge(c, evs, single_unit=self.single_unit)
                 except Exception as e:
                     v = {"claim_id": c.get("id"), "verdict": "cant_check", "claimed": str(c.get("quote") or ""),
                          "found": "no data", "source": None,
@@ -740,8 +768,70 @@ class Run:
             self.fill_in_by = by
             return len(facts)
 
+    def has_location(self) -> bool:
+        """A matched building or a map location: the aerial and paper helpers always have something to say."""
+        return self.match.get("status") == "matched" or (self.lat is not None and self.lon is not None)
+
+    def run_always(self) -> list[str]:
+        """Before judging: the aerial measurement + photos and the county + building record lookups, called here
+        (no model) for whichever the agent skipped, in parallel, waited for until ALWAYS_RESERVE_S before the run's
+        hard end. A lookup still running then is left out (its evidence would arrive after judging). Returns the
+        helpers called."""
+        if self.verdicts is not None or self.sealed or not self.has_location():
+            return []
+        jobs = []
+        with self._lock:
+            if "measure_building" not in self._done:
+                jobs.append(("outside", self.measure_building))
+            if "county" not in self._done:
+                jobs.append(("paper", self.county_lookup))
+            if "record" not in self._done:
+                jobs.append(("paper", self.building_record))
+        wait = RUN_BUDGET_S - (time.monotonic() - self.t0) - ALWAYS_RESERVE_S
+        if not jobs or wait <= 0:
+            return []
+        names = list(dict.fromkeys(a for a, _ in jobs))
+        self.step("orchestrator", "Adding the Vexcel aerial and county checks the planner skipped."
+                  if "outside" in names else "Adding the county and building record checks the planner skipped.")
+        with self.phase("always"):
+            ctx = contextvars.copy_context()
+            th = threading.Thread(target=ctx.run, args=(_ctx_map, lambda job: self.tool(job[0], job[1]), jobs,
+                                                        len(jobs)), daemon=True, name="rc-always")
+            th.start()
+            th.join(timeout=wait)
+        with self._lock:
+            self.direct = list(dict.fromkeys(self.direct + names))
+        return names
+
+    def single_unit_page(self) -> bool:
+        """True when the page is about one home: the match is a single home, or the page names no floor plan and
+        states at most one value per unit kind (beds, baths, size) with at least a bed or bath count, and any
+        matched building has at most one floor plan. When unsure: False."""
+        m = self.match or {}
+        unit = [c for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS]
+        values: dict[str, set] = {}
+        for c in unit:
+            values.setdefault(c["kind"], set()).add(str(c.get("value")).replace(",", "").strip())
+        if any(len(v) > 1 for v in values.values()):
+            return False  # several homes on the page
+        if m.get("status") == "matched" and m.get("kind") == "home":
+            return True
+        if any((c.get("label") or "").strip() for c in self.claims):
+            return False  # the page lists floor plans or units
+        if not ({"bedrooms", "bathrooms"} & set(values)):
+            return False
+        if m.get("status") == "matched" and len(m.get("floorplans") or []) > 1:
+            return False  # a building with several plans: which one this home is, we cannot tell
+        return True
+
     def close(self, by: str) -> dict:
         """Verdicts (if the agent did not judge), fill in (if not sent), done. Never raises."""
+        if self.verdicts is None:
+            try:
+                self.ensure_claims_and_match()
+                self.run_always()
+            except Exception as e:
+                self.agent_stats["always_error"] = f"{type(e).__name__}: {str(e)[:200]}"
         verdicts = self.judge_all(by)
         self.send_fill_in(by)
         counts = {k: sum(v["verdict"] == k for v in verdicts) for k in ("confirmed", "contradicted", "close", "cant_check")}
@@ -754,7 +844,8 @@ class Run:
                 "report_url": f"/report/{self.run_id}",
                 "harness": {"path": self.path, "judged_by": self.judged_by,
                             "fill_in_by": getattr(self, "fill_in_by", None), "stopped": stopped,
-                            "helpers": sorted(self.helpers_used), "needed": sorted(self.needed)},
+                            "helpers": sorted(self.helpers_used), "needed": sorted(self.needed),
+                            "direct": list(self.direct), "single_unit": self.single_unit},
                 "timing": self.timing()}
         LAST_AGENT_STATS.clear()
         LAST_AGENT_STATS.update(self.agent_stats)
@@ -851,16 +942,17 @@ class Run:
     def _aerial_features(self, items: list) -> list[dict]:
         ids = [c["id"] for c, _ in items]
         if self.lat is None or self.lon is None:
-            return [make_evidence("aerial", "no_evidence", "We have no map location, so no aerial photos.",
+            return [make_evidence("aerial", "no_evidence", "We have no map location, so no Vexcel aerial photos.",
                                   {"feature_check": True, "claim_ids": ids, "presence": "unclear"})]
         ev = self.aerial_ev()
         images = [im for im in ev.get("images") or [] if im.get("path")][:3]
         if ev.get("status") != "ok" or not images:
-            return [make_evidence("aerial", "no_evidence", "No aerial photos are available here.",
+            return [make_evidence("aerial", "no_evidence", "No Vexcel aerial photos are available here.",
                                   {"feature_check": True, "claim_ids": ids, "presence": "unclear"},
                                   detail=str(ev.get("summary") or "")[:200])]
         res = self._look([im["path"] for im in images], {k: d for _, (k, d, _) in items}, "aerial")
-        return self._feature_evs("aerial", items, res, images, {"looked_at": "aerial photos"}, "the aerial photos")
+        return self._feature_evs("aerial", items, res, images, {"looked_at": "Vexcel aerial photos"},
+                                "the Vexcel aerial photos")
 
     def _unit_features(self, items: list) -> list[dict]:
         """Labelled claims use their plan's scan; unlabelled ones any unit scan (plans' scans first). Cap 2 scans."""
@@ -1007,6 +1099,31 @@ class Run:
             self.building_record()
 
 
+def record_amenities(run) -> str:
+    """Store the building record's amenities (kit facts `amenities`, named from the record's photo captions) as
+    record Evidence with observed.amenities, once per run. '' when the record names none or the kit facts are not
+    built. A local file read: no model, no network."""
+    m = run.match or {}
+    if m.get("status") != "matched" or m.get("kind", "building") != "building":
+        return ""
+    with run._lock:
+        if getattr(run, "_amenities_done", False):
+            return ""
+        run._amenities_done = True
+    try:
+        kit = run.tb.kit_facts(m.get("property_id")) or {}
+    except Exception:
+        return ""
+    names = [str(a).strip() for a in (kit.get("amenities") or []) if isinstance(a, str) and 0 < len(a.strip()) <= 40]
+    if not names:
+        return ""
+    ev = make_evidence("record", "ok", "The building record's photos are captioned with these amenities: "
+                       + ", ".join(names) + ".", {"amenities": names},
+                       detail="Building record photo captions mapped to amenity names (the record's amenity ids "
+                              "have no names).")
+    return run.line(run.add(ev, "record"))
+
+
 def _ctx_map(fn: Callable, items: list, workers: int) -> list:
     """ThreadPoolExecutor.map that carries the caller's context (the run's chat model) into each worker."""
     if not items:
@@ -1043,7 +1160,9 @@ def _stills_cached(model_id: str | None) -> bool:
 
 def helpers_needed(claims: list[dict], match: dict | None = None) -> dict[str, str]:
     """Which helpers the claim kinds call for, and why. Every source that applies is listed, so the
-    orchestrator does not stop at one (stories: the roof height AND the paper records)."""
+    orchestrator does not stop at one (stories: the roof height AND the paper records). With a usable location
+    (a matched building, or a map location) outside and paper are always needed: the Vexcel roof height and
+    photos, the county record and the building record go in every report, whatever the claims are."""
     checkable = [c for c in claims if c.get("checkable")]
     kinds = {c.get("kind") for c in checkable}
     feats = [amenities.feature_for(c) for c in checkable]
@@ -1062,11 +1181,17 @@ def helpers_needed(claims: list[dict], match: dict | None = None) -> dict[str, s
         outside.append("roof height for floors")
     if any(f and f[2] == "aerial" for f in feats):
         outside.append("outdoor amenities on aerial photos")
+    m = match or {}
+    located = m.get("status") == "matched" or (m.get("lat") is not None and m.get("lon") is not None)
+    if located and not outside:
+        outside.append("Vexcel roof height and aerial photos, always")
     if outside:
         need["outside"] = ", ".join(outside)
     paper = sorted(kinds & {"stories", "year_built", "unit_count"})
     if paper:
         need["paper"] = "county and building records for " + ", ".join(k.replace("_", " ") for k in paper)
+    elif located:
+        need["paper"] = "county and building records, always"
     return need
 
 
@@ -1091,7 +1216,8 @@ def _headline(verdicts: list[dict], claims: dict[str, dict]) -> str:
         src = v.get("source")
         verb = "measures" if claims[v["claim_id"]]["kind"] == "area_sqft" else VERB.get(src, "shows")
         # Stories come from the measured roof height, not from reading the photo: say so.
-        who = "the measured roof height" if src == "aerial" else SOURCE_NAME.get(src, "our check")
+        who = ("the measured roof height from Vexcel aerial imagery" if src == "aerial"
+               else SOURCE_NAME.get(src, "our check"))
         text = f"Listing says {v['claimed']}, but {who} {verb} {v['found']}"
         more = len(bad) - 1
         return text + (f"; {more} more claim{'s' if more != 1 else ''} did not match." if more else ".")

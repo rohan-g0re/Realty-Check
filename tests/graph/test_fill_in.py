@@ -194,3 +194,66 @@ def test_renter_rows_age_type_sizes_amenities_and_311_counts():
     assert by["amenities"]["value"] == "Dog park, Fitness center"  # the page already talks about the pool
     assert by["county-311"]["value"] == "2" and "Sam" not in str(facts)
     assert all(f["source"] in ("record", "county") for f in facts)
+
+
+def test_owner_is_a_type_never_a_name():
+    kit = {**KIT, "owner": "Linden Grove Holdings LLC", "owner_type": "company"}  # an old facts file kept the name
+    by_id, out = facts(kit=kit)
+    assert by_id["owner"]["value"] == "A company" and "Linden Grove" not in str(out)
+    by_id, _ = facts(kit={**KIT, "owner_type": "individual"})
+    assert by_id["owner"]["value"] == "An individual"
+    by_id, _ = facts(kit={**KIT, "owner": "Linden Grove Holdings LLC"})  # name only, no type: nothing said
+    assert "owner" not in by_id
+    by_id, _ = facts(kit={**KIT, "owner_type": "company"}, text="Owned by a local family.")
+    assert "owner" not in by_id  # the page talks about the owner
+
+
+def test_county_land_use_owner_and_311_rows():
+    county = {**COUNTY, "observed": {
+        **COUNTY["observed"], "land_use": "Apartments (multi-family)", "owner_type": "individual",
+        "houston_311_count": 12,
+        "city_calls": {"total": 12, "by_type": {"Water Leak": 5, "Pothole": 4, "Tree Trim": 2, "Pothole Two": 1},
+                       "since": "2026-01-01", "until": "2026-11-13", "radius_m": 100}}}
+    by_id, _ = facts(evs=(SCAN, county), kit={**KIT, "owner_type": None})
+    assert by_id["county-land-use"]["value"] == "Apartments (multi-family)"
+    assert by_id["county-owner"]["value"] == "An individual"
+    assert by_id["county-311"]["value"] == ("12 since 2026-01-01 within 100 m; most often water leak (5), "
+                                           "pothole (4), tree trim (2)")
+    assert by_id["county-311"]["source"] == "county" and "not shown" in by_id["county-311"]["note"]
+    by_id, _ = facts(evs=(SCAN, county), kit={**KIT, "owner_type": "company"})
+    assert by_id["owner"]["value"] == "A company" and "county-owner" not in by_id  # one owner row
+    zero = {**county, "observed": {**county["observed"], "houston_311_count": 0,
+                                   "city_calls": {"total": 0, "by_type": {}, "since": "2026-01-01", "radius_m": 100}}}
+    by_id, _ = facts(evs=(SCAN, zero))
+    assert "county-311" not in by_id  # 0 is left out like any blank value
+
+
+def test_building_record_tool_stores_record_amenities():
+    import threading
+    from harness.graph.agent import record_amenities
+
+    class FakeRun:
+        def __init__(self, kit):
+            self.match = {"status": "matched", "kind": "building", "property_id": "900001"}
+            self._lock = threading.RLock()
+            self.tb = type("TB", (), {"kit_facts": staticmethod(lambda pid: kit)})()
+            self.evs = []
+
+        def add(self, ev, source):
+            self.evs.append(ev)
+            return f"E{len(self.evs)}"
+
+        def line(self, eid):
+            return f"{eid} [record ok]"
+
+    run = FakeRun({"amenities": ["Pool", "Dog park"]})
+    assert record_amenities(run) == "E1 [record ok]"
+    ev = run.evs[0]
+    assert ev["source"] == "record" and ev["status"] == "ok" and ev["observed"] == {"amenities": ["Pool", "Dog park"]}
+    assert record_amenities(run) == "" and len(run.evs) == 1  # once per run
+    for kit in (None, {}, {"amenities": []}):
+        empty = FakeRun(kit)
+        assert record_amenities(empty) == "" and not empty.evs
+    unmatched = FakeRun({"amenities": ["Pool"]})
+    unmatched.match = {"status": "no_match"}
+    assert record_amenities(unmatched) == "" and not unmatched.evs

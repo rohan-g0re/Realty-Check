@@ -29,7 +29,7 @@ def _tok(street: str) -> str:
 def pluto_at(lat: float, lon: float, house_no: str = "", street: str = "") -> tuple[dict | None, str]:
     """Tax lot near the point whose PLUTO address has the listing's house number and street,
     else a lot whose centroid is within 15 m of the point, else None (no guessing)."""
-    params = {"$select": "bbl,address,numfloors,yearbuilt,unitsres,bldgarea,latitude,longitude",
+    params = {"$select": "bbl,address,numfloors,yearbuilt,unitsres,bldgarea,landuse,ownername,latitude,longitude",
               "$where": f"latitude between {lat - D} and {lat + D} and "
                         f"longitude between {lon - D} and {lon + D}",
               "$limit": 500}
@@ -46,6 +46,18 @@ def pluto_at(lat: float, lon: float, house_no: str = "", street: str = "") -> tu
     if rows and rows[0]["_m"] <= 15:
         return rows[0], url
     return None, url
+
+
+LAND_USE = {"01": "One- and two-family homes", "02": "Multi-family walk-up buildings",
+            "03": "Multi-family elevator buildings", "04": "Mixed residential and commercial",
+            "05": "Commercial and office", "06": "Industrial and manufacturing", "07": "Transportation and utility",
+            "08": "Public facilities and institutions", "09": "Open space and outdoor recreation",
+            "10": "Parking facilities", "11": "Vacant land"}
+
+
+def land_use(code) -> str | None:
+    c = str(code or "").strip()
+    return LAND_USE.get(c.zfill(2)) if c.isdigit() else None
 
 
 def _n(v) -> float:

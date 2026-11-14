@@ -141,7 +141,7 @@ def test_server_fill_in_escaped_and_links_to_extra(env, monkeypatch):
         assert page.locator("#rc-host .fact").count() == 4
         assert page.locator('#rc-host .fact[data-id="f2"] .fl').inner_text() == "Pets <b>"  # escaped, not markup
         assert page.locator('#rc-host .fact[data-id="f5"]').count() == 0
-        assert page.locator('#rc-host .fact[data-id="f4"] .fs').inner_text() == "Aerial"
+        assert page.locator('#rc-host .fact[data-id="f4"] .fs').inner_text() == "Vexcel"
         with env["ctx"].expect_page() as newp:
             page.locator("#rc-host #fiAll").click()
         rep = newp.value

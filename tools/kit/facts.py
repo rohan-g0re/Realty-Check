@@ -3,12 +3,16 @@
 The address index (build_index.py) keeps only what matching and the fact-check need. This module reads the
 kit once more and keeps what a renter would want to know: class and rating, style, rules (pets, parking),
 vacancy, the management company, nearby schools, every floor plan with its size range and the asking rent
-per plan from the Apartments.com listing. Files go to cache_dir("kit", "facts") (outside the repo).
+per plan from the Apartments.com listing, the amenities the record's photos are captioned with, and whether
+the owner is a company or an individual. Files go to cache_dir("kit", "facts") (outside the repo).
 
 Rules applied here, so the harness never sees them:
 - An enum 0 / Unknown, a null, or a 0 count is "not recorded" and is dropped, never turned into "none".
-- Only company names are kept (management company, owner company). No person names, phones or emails, and
-  no free-text fields (pet restrictions, comments, descriptions) since those can carry contact details.
+- Only the management company's name is kept. The owner is kept only as the word "company" or "individual"
+  (`owner_type`), never a name. No person names, phones or emails, and no free-text fields (pet restrictions,
+  comments, descriptions) since those can carry contact details.
+- Amenities: the kit's amenity ids have no name table, so names come from the record's own photo captions
+  ("Pool", "Fitness Center"), mapped onto a fixed list (AMENITIES); a caption is never copied as is.
 
 Run once: python -m tools.kit.facts   (about a minute; reads the zip, writes one file per building)
 At run time: kit_facts(property_id) -> dict or None (one small file read; never builds, never networks).
@@ -22,7 +26,8 @@ from pathlib import Path
 
 import rc_common
 
-FACTS_VERSION = 1
+FACTS_VERSION = 2       # 2: amenities, owner_type (the owner's name is no longer kept)
+READ_VERSIONS = (1, 2)  # version 1 files lack the new keys but are otherwise the same shape
 LISTING_AS_OF = "2026-11-12"  # the kit's apartment listings are the ones active on this date (kit docs)
 
 CLASS = {1: "A", 2: "B", 3: "C"}
@@ -46,7 +51,42 @@ ROOM_TYPE = {1: "Den", 2: "Study", 4: "Bachelor", 5: "Efficiency", 6: "Junior", 
              11: "Studio", 12: "Townhouse", 13: "Alcove studio", 14: "Convertible", 15: "Penthouse"}
 RENOVATED = (4, 16, 17)  # ConstructionEventType RenovationFinished, RedevelopmentComplete, Redeveloped
 OWNER_ROLES = (7,)       # ContactRole TrueOwner
+RECORDED_OWNER_ROLES = (3,)  # ContactRole RecordedOwner: the owner type when no true owner is on record
 MANAGER_ROLES = (4,)     # ContactRole PropertyManager
+INDIVIDUAL_OWNER = 5     # company-detail businessStatus IndividualOwner
+
+# Amenity names, in display order, and the photo captions that name them. A caption longer than CAPTION_MAX is
+# a description, not a name, and is skipped. Parking is left out (its own "Fill me in" rows cover it), and so
+# are things inside a home (kitchen, balcony, washer/dryer).
+CAPTION_MAX = 60
+AMENITIES = [
+    ("Pool", r"\b(swimming |lap |resort[- ]style |infinity )?pools?\b(?!\s*(table|room))"),
+    ("Spa or hot tub", r"(?<!pet )\bspa\b|hot ?tub|jacuzzi|whirlpool"),
+    ("Fitness center", r"fitness|\bgym\b|yoga|work ?out room|exercise room|spin room"),
+    ("Clubhouse", r"club ?house|club ?room"),
+    ("Resident lounge", r"(?<!sky )(?<!roof )(?<!rooftop )(?<!outdoor )\blounge\b|community room|resident room|"
+                        r"great room|social room|party room"),
+    ("Rooftop deck", r"roof ?top|roof (deck|terrace)|sky ?(lounge|deck|terrace)"),
+    ("Sun deck", r"sun ?deck"),
+    ("Courtyard", r"courtyard"),
+    ("Outdoor lounge", r"outdoor lounge"),
+    ("Grills or outdoor kitchen", r"\bgrill(s|ing)?\b|\bbbq\b|barbe(cue|que)|outdoor kitchen"),
+    ("Picnic area", r"picnic"),
+    ("Business center", r"business center|co-?working|work ?space|conference room"),
+    ("Library", r"\blibrary\b"),
+    ("Game room", r"game ?room|billiards?|pool table"),
+    ("Media room", r"theater|theatre|cinema|media room|screening room"),
+    ("Coffee bar", r"coffee bar|coffee lounge|\bcaf[eé]\b"),
+    ("Dog park", r"dog (park|run)|bark park|pet park"),
+    ("Pet spa", r"pet (spa|wash|grooming)|dog wash"),
+    ("Playground", r"playground|play area|tot lot"),
+    ("Sports court", r"(tennis|basketball|pickleball|volleyball|sport|sports) courts?"),
+    ("Laundry room", r"laundry (room|facilit|center|area)"),
+    ("Package room", r"package|parcel locker|mail ?room|mail center"),
+    ("Bike storage", r"bike (storage|room|shop|repair)|bicycle (storage|room)"),
+]
+_AMENITIES = [(name, re.compile(rx, re.I)) for name, rx in AMENITIES]
+NOT_AMENITY_PHOTOS = (1, 9, 10, 11, 12, 16)  # AttachmentType Aerial, PlatMap, FloorPlan, SitePlan, TypicalFloorPlan, Map
 
 # A company name must carry a company word; anything else may be a person and is dropped.
 COMPANY_RE = re.compile(
@@ -191,8 +231,39 @@ def _company(contacts: list, roles: tuple, companies: dict) -> str | None:
     return None
 
 
-def extract(r: dict, li: dict | None, companies: dict) -> dict:
-    """One commercial-property record (+ its apartment listing) -> the compact facts dict."""
+def _owner_type(contacts: list, companies: dict, statuses: dict | None) -> str | None:
+    """'company' | 'individual' for the current true owner (else the recorded owner); None when the record does
+    not say. Only the word is returned, never the name."""
+    from tools.paper.owner import owner_type  # lazy: tools.paper.owner imports this module
+    for roles in (OWNER_ROLES, RECORDED_OWNER_ROLES):
+        for c in contacts or []:
+            if c.get("contactRole") not in roles or c.get("endDate") is not None:
+                continue
+            loc = c.get("locationId")
+            if (statuses or {}).get(loc) == INDIVIDUAL_OWNER:
+                return "individual"
+            t = owner_type(companies.get(loc))
+            if t:
+                return t
+    return None
+
+
+def amenities_from_captions(attachments: list) -> list[str]:
+    """Amenity names (from AMENITIES, in its order) that the record's photo captions name. Never a raw caption."""
+    found = set()
+    for a in attachments or []:
+        cap = " ".join(str(a.get("caption") or "").split())
+        if not cap or len(cap) > CAPTION_MAX or a.get("attachmentType") in NOT_AMENITY_PHOTOS:
+            continue
+        for name, rx in _AMENITIES:
+            if rx.search(cap):
+                found.add(name)
+    return [name for name, _ in AMENITIES if name in found]
+
+
+def extract(r: dict, li: dict | None, companies: dict, statuses: dict | None = None) -> dict:
+    """One commercial-property record (+ its apartment listing) -> the compact facts dict. `companies` maps a
+    contact's locationId to the company name, `statuses` to its company-detail businessStatus."""
     apt = r.get("propertyApartment") or {}
     prof = apt.get("residentialProfile") or {}
     renov = [e.get("year") for e in r.get("constructionEvents") or [] if e.get("eventType") in RENOVATED and e.get("year")]
@@ -222,7 +293,8 @@ def extract(r: dict, li: dict | None, companies: dict) -> dict:
         "lot": {"size": lot, "unit": lot_unit} if lot and lot_unit else None,
         "leed": next((x for x in leed if x), None),
         "manager": manager,
-        "owner": _company(r.get("contacts"), OWNER_ROLES, companies),
+        "owner_type": _owner_type(r.get("contacts"), companies, statuses),
+        "amenities": amenities_from_captions(r.get("attachments")),
         "parking": _parking(r, prof),
         "pets": _pets(prof),
         "schools": _schools(prof),
@@ -244,16 +316,17 @@ def build() -> int:
     for r in _rows(z, "data/commercial-property.jsonl"):
         props.append(r)
         for c in r.get("contacts") or []:
-            if c.get("contactRole") in OWNER_ROLES + MANAGER_ROLES and c.get("locationId"):
+            if c.get("contactRole") in OWNER_ROLES + RECORDED_OWNER_ROLES + MANAGER_ROLES and c.get("locationId"):
                 wanted.add(c["locationId"])
-    companies = {}
+    companies, statuses = {}, {}
     for c in _rows(z, "data/company-detail.jsonl"):
         if c.get("id") in wanted:
             companies[c["id"]] = _name(c.get("name") or (c.get("profile") or {}).get("companyName"))
+            statuses[c["id"]] = c.get("businessStatus")
     out = facts_dir()
     n = 0
     for r in props:
-        f = extract(r, listings.get(r["id"]), companies)
+        f = extract(r, listings.get(r["id"]), companies, statuses)
         (out / f"{r['id']}.json").write_text(json.dumps(f, separators=(",", ":")), encoding="utf-8")
         n += 1
     (out / "_version.json").write_text(json.dumps({"version": FACTS_VERSION, "count": n}), encoding="utf-8")
@@ -277,7 +350,7 @@ def kit_facts(property_id) -> dict | None:
     try:
         p = facts_dir() / f"{pid}.json"
         f = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
-        if f and f.get("version") != FACTS_VERSION:
+        if f and f.get("version") not in READ_VERSIONS:
             f = None
     except Exception:
         f = None

@@ -118,8 +118,9 @@ def test_model_call_cap_stops_and_judges_what_exists(monkeypatch):
     monkeypatch.setattr(agent_mod.BudgetedCLIModel, "__init__", small_cap)
     events, done = go(Toolbox.fake())
     assert len(seen) == 2
-    assert verdicts(events) == ALL_CANT
-    assert done["harness"]["stopped"] == "model-call cap 2"
+    # turn 1 ran (claims, match): the close itself measures the roof and reads the county and building records
+    assert verdicts(events) == {**ALL_CANT, "c2": "contradicted", "c4": "confirmed"}
+    assert done["harness"]["stopped"] == "model-call cap 2" and done["harness"]["direct"] == ["outside", "paper"]
     assert any(x["agent"] == "orchestrator" and "stopped before judging" in x["text"] for x in steps(events))
 
 

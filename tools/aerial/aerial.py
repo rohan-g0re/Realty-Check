@@ -109,6 +109,27 @@ def _save_jpg(raw: bytes, out: Path) -> Path:
     return out
 
 
+_SPONSOR = re.compile(r"\b(top-down |angled )?aerial (photos?|views?)", re.I)
+
+
+def named(ev: dict) -> dict:
+    """Evidence whose display text names the sponsor ('Top-down Vexcel aerial photo', 'Vexcel elevation data: ...'),
+    also for evidence cached before the name was added. Keys, paths and numbers are unchanged."""
+    if not isinstance(ev, dict):
+        return ev
+
+    def fix(text: str) -> str:
+        if not isinstance(text, str) or "vexcel" in text.lower():
+            return text
+        return _SPONSOR.sub(lambda m: (m.group(1) or "") + "Vexcel aerial " + m.group(2), text, count=1)
+    ev = {**ev, "summary": fix(ev.get("summary") or "")}
+    if (ev.get("observed") or {}).get("height_m") is not None and "vexcel" not in ev["summary"].lower():
+        ev["summary"] = "Vexcel elevation data: " + ev["summary"][:1].lower() + ev["summary"][1:]
+    ev["images"] = [{**im, "caption": fix(im.get("caption") or "")} if isinstance(im, dict) else im
+                    for im in ev.get("images") or []]
+    return ev
+
+
 def _cached_evidence(path: Path, build) -> dict:
     """Return cached Evidence, or build it; cache it unless it is an error (errors may be transient)."""
     if cachectl.hit(path):
@@ -131,9 +152,9 @@ def aerial_images(lat: float, lon: float, half_m: int = 60) -> dict:
     """One top-down photo (square of 2*half_m metres) and up to 2 angled views, saved as JPEGs in the cache."""
     try:
         d = _dir(lat, lon)
-        return _cached_evidence(d / f"images_h{half_m}.json", lambda: _build_images(lat, lon, half_m, d))
+        return named(_cached_evidence(d / f"images_h{half_m}.json", lambda: _build_images(lat, lon, half_m, d)))
     except Exception as ex:  # never raise
-        return rc_common.evidence("aerial", "error", "Aerial photos could not be fetched.",
+        return rc_common.evidence("aerial", "error", "Vexcel aerial photos could not be fetched.",
                                   detail=f"{type(ex).__name__}: {str(ex)[:200]}")
 
 
@@ -146,7 +167,7 @@ def _build_images(lat: float, lon: float, half_m: int, d: Path) -> dict:
         return rc_common.evidence("aerial", "no_evidence", NO_COVERAGE, detail=f"Vexcel ortho/extract: {ex}.")
     date, coll = _capture_date(raw), _collection(raw)
     images = [{"path": str(_save_jpg(raw, d / f"topdown_h{half_m}.jpg")),
-               "caption": "Top-down aerial photo" + (f" ({date})" if date else "")}]
+               "caption": "Top-down Vexcel aerial photo" + (f" ({date})" if date else "")}]
     skipped = []
     for direction in ("north", "east"):
         try:
@@ -158,9 +179,10 @@ def _build_images(lat: float, lon: float, half_m: int, d: Path) -> dict:
             continue
         odate = _capture_date(oraw)
         images.append({"path": str(_save_jpg(oraw, d / f"oblique_{direction}_h{half_m}.jpg")),
-                       "caption": f"Angled aerial view, camera looking {direction}" + (f" ({odate})" if odate else "")})
+                       "caption": f"Angled Vexcel aerial view, camera looking {direction}"
+                                  + (f" ({odate})" if odate else "")})
     n_obl = len(images) - 1
-    summary = f"Top-down aerial photo and {n_obl} angled view{'s' if n_obl != 1 else ''} of the point."
+    summary = f"Top-down Vexcel aerial photo and {n_obl} angled view{'s' if n_obl != 1 else ''} of the point."
     detail = (f"Vexcel API v2 ortho/extract (layers {LAYERS}, {2 * half_m} m square) and oriented/extract "
               f"(oblique, layer urban, {half_m} m buffer). Top-down collection {coll or 'unknown'}, captured {date or 'unknown'}.")
     if skipped:
@@ -189,9 +211,9 @@ def building_height(lat: float, lon: float) -> dict:
     """Roof height above the surrounding ground from Vexcel elevation models, plus a floor estimate."""
     try:
         d = _dir(lat, lon)
-        return _cached_evidence(d / "height.json", lambda: _build_height(lat, lon, d))
+        return named(_cached_evidence(d / "height.json", lambda: _build_height(lat, lon, d)))
     except Exception as ex:  # never raise
-        return rc_common.evidence("aerial", "error", "Roof height could not be measured.",
+        return rc_common.evidence("aerial", "error", "The roof height could not be measured from Vexcel data.",
                                   detail=f"{type(ex).__name__}: {str(ex)[:200]}")
 
 
@@ -222,7 +244,7 @@ def _build_height(lat: float, lon: float, d: Path) -> dict:
         ground_how = "ground = 5th percentile of the surface model in a 25-40 m ring"
     v = above[(rr <= 20) & np.isfinite(above)]
     if v.size < 100:
-        return rc_common.evidence("aerial", "no_evidence", "The elevation model has no data at this point.",
+        return rc_common.evidence("aerial", "no_evidence", "The Vexcel elevation model has no data at this point.",
                                   detail="Vexcel dsm/extract returned no valid pixels within 20 m.")
     p98 = float(np.percentile(v, 98))
     if p98 < 3.0:
@@ -231,7 +253,7 @@ def _build_height(lat: float, lon: float, d: Path) -> dict:
     roof = round(float(np.median(v[v >= 0.6 * p98])), 1)
     stories, rng = stories_from_height(roof)
     date, coll = _capture_date(dsm_raw), _collection(dsm_raw)
-    summary = f"Roof is {roof} m above the ground: about {stories} floors."
+    summary = f"Vexcel elevation data: roof is {roof} m above the ground, about {stories} floors."
     detail = (f"Vexcel API v2 dsm/extract and dtm/extract, 80 m square. Roof level = median of heights at or above "
               f"60% of the 98th percentile within 20 m of the point ({ground_how}). Floors = 1 + round((height - 6.0 m) / 3.2 m) "
               f"(6.0 m = ~4.5 m ground floor + ~1.5 m parapet; range uses 3.3-3.0 m per floor). "

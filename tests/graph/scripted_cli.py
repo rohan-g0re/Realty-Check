@@ -2,7 +2,8 @@
 REAL deepagents graph and the real adapter parsing run without a CLI process. Invented data only.
 
 install(monkeypatch, **opts) patches ClaudeCLIChatModel._run_cli and returns the list of (role, tools) seen.
-opts: skip = helpers the orchestrator leaves out of its first delegation; delay = {role_turn: seconds}.
+opts: skip = helpers the orchestrator leaves out of its first delegation; delay = {role_turn: seconds};
+stubborn = after a judge refusal it calls judge_claims again instead of asking the skipped helpers.
 """
 from __future__ import annotations
 
@@ -34,14 +35,14 @@ def _needed(prompt: str) -> list[str]:
     return [h for h in ("inside", "outside", "paper") if re.search(rf"\b{h} \(", m.group(1))]
 
 
-def orchestrator_reply(prompt: str, skip=frozenset()) -> str:
+def orchestrator_reply(prompt: str, skip=frozenset(), stubborn=False) -> str:
     n = prompt.count("<tool_result")
     transcript = prompt.split("# Transcript", 1)[-1]
     if n == 0:
         return _block([("read_claims", {}), ("match_listing", {})], "Reading the claims and finding the building.")
     asked = set(re.findall(r'"subagent_type": "(\w+)"', transcript))
     need = _needed(transcript)
-    if "Not judged yet" in transcript.rsplit("<assistant>", 1)[-1]:
+    if "Not judged yet" in transcript.rsplit("<assistant>", 1)[-1] and not stubborn:
         todo = [h for h in need if h not in asked]
         return _block([("task", {"subagent_type": h, "description": f"Check the {h} claims."}) for h in todo],
                       "Asking the helpers I skipped.")
@@ -53,7 +54,7 @@ def orchestrator_reply(prompt: str, skip=frozenset()) -> str:
     return _block([("judge_claims", {}), ("fill_in", {})], "Judging the claims.")
 
 
-def install(monkeypatch, skip=(), delay=None):
+def install(monkeypatch, skip=(), delay=None, stubborn=False):
     seen: list[tuple[str, list[str]]] = []
     delay = delay or {}
 
@@ -66,7 +67,7 @@ def install(monkeypatch, skip=(), delay=None):
         if f"{who}{turn}" in delay:
             time.sleep(delay[f"{who}{turn}"])
         if who == "orchestrator":
-            r = orchestrator_reply(prompt, frozenset(skip))
+            r = orchestrator_reply(prompt, frozenset(skip), stubborn)
         elif who in SUB_CALLS:
             r = _block(SUB_CALLS[who]) if prompt.count("<tool_result") == 0 else "Done."
         else:

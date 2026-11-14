@@ -61,7 +61,14 @@ function undock(w){var f=w._f;if(!f||f.className!=='dock')return;f.className='';
 f.style.width='';f.style.height='';stamp(w,'undock');}
 R.mount=mount;R.unmount=unmount;
 var twin=location.origin.replace('//127.0.0.1','//localhost');  /* the viewer runs on localhost (SDK key rule) */
+/* Esc while a viewer has focus: keys go to the cross-origin viewer, never to this page. Our tour page forwards Esc
+   ({rc3d:1,key:'Escape'}), and focus comes back here when the pointer leaves a viewer */
+function ours(src){return [].some.call(document.querySelectorAll('iframe'),function(f){return f.contentWindow===src;});}
+function regain(){var a=document.activeElement;if(!a||a.tagName!=='IFRAME')return;
+var p=a.closest('[role=dialog]'),x=p&&!p.hidden&&p.querySelector('.cf-x');if(x)x.focus({preventScroll:true});else a.blur();}
+document.addEventListener('mouseover',function(e){var a=document.activeElement;if(a&&a.tagName==='IFRAME'&&e.target!==a)regain();});
 window.addEventListener('message',function(e){if((e.origin!==location.origin&&e.origin!==twin)||!e.data||e.data.rc3d!==1)return;
+if(e.data.key==='Escape'){if(ours(e.source)){regain();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));}return;}
 var w=all().filter(function(x){return x._f&&x._f.contentWindow===e.source;})[0];if(!w)return;var d=e.data;stamp(w,d.state);
 if(d.state==='ready'){w.classList.add('live');w.classList.remove('loading');clearTimeout(w._to);
 if(d.room==='start')note(w,d.note||'Showing the scan from its start position.');}

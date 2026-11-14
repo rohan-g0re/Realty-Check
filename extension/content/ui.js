@@ -9,9 +9,9 @@
   // Page marks: one blue for "not true" and "close", ink for "true", grey for "couldn't check".
   const VC = { contradicted: BLUE, close: BLUE, confirmed: INK, cant_check: "#b5b5b5" };
   const SOURCES = ["record", "scan", "aerial", "county"];
-  const SRC = { record: "CoStar", scan: "Matterport", aerial: "Aerial", county: "County" };
-  const AG = { orchestrator: "Listing", claims: "Listing", matcher: "CoStar", inside: "Matterport", outside: "Aerial", paper: "County", judge: "Judging" };
-  const AG_SRC = { CoStar: "record", Matterport: "scan", Aerial: "aerial", County: "county" };
+  const SRC = { record: "CoStar", scan: "Matterport", aerial: "Vexcel", county: "County" };
+  const AG = { orchestrator: "Listing", claims: "Listing", matcher: "CoStar", inside: "Matterport", outside: "Vexcel", paper: "County", judge: "Judging" };
+  const AG_SRC = { CoStar: "record", Matterport: "scan", Vexcel: "aerial", County: "county" };
   const BAD = new Set(["contradicted", "close"]);
   const UNIT_KINDS = new Set(["bedrooms", "bathrooms", "area_sqft"]);
   // Kinds where one source's own number can be compared with the listing's without the judge's plan/scan rules.
@@ -371,7 +371,7 @@
   function fieldLabel(r) {
     const n = r.claims.length, nv = Object.keys(r.verdicts).length;
     if (!n) return "Claim field, waiting for the listing's claims.";
-    return `Claim field: ${n} claims, one column each; rows CoStar, Matterport, Aerial, County. ${nv} of ${n} judged. Black means a source backs the claim, blue means it does not.`;
+    return `Claim field: ${n} claims, one column each; rows CoStar, Matterport, Vexcel, County. ${nv} of ${n} judged. Black means a source backs the claim, blue means it does not.`;
   }
   function updateField(r) {
     const cols = $("cols");
@@ -462,7 +462,20 @@
     for (const v of Object.values(r.verdicts)) if (v.verdict in k) k[v.verdict]++;
     return k;
   }
+  // The server's headline (done.top: server/report_a.py's counts, ranking and words), so the drawer and the report
+  // always name the same thing; older checkers and the sample send none, and the drawer counts for itself.
+  function topOf(r) {
+    const t = r.done && r.done.top;
+    return t && typeof t.headline === "string" && Array.isArray(t.lines) && t.lines.length === 2 ? t : null;
+  }
   function headlineHTML(r, k) {
+    const t = topOf(r);
+    if (t && t.calm) return `<h1 class="hl calm" id="headline" data-n="0"><span class="hw">${esc(t.headline)}</span></h1>`;
+    if (t) {
+      const m = /^(\d+)\s+(.*)$/.exec(t.lines[0]);
+      const l1 = m ? `<span class="hn">${esc(m[1])}</span> ${esc(m[2])}` : esc(t.lines[0]);
+      return `<h1 class="hl" id="headline" data-n="${Number(t.hard) || 0}"><span class="hw">${l1}</span><br><span class="hw ind">${esc(t.lines[1])}</span></h1>`;
+    }
     const bad = k.contradicted + k.close;
     if (bad > 0) {
       const one = bad === 1;
@@ -487,8 +500,10 @@
   function sizeClass(t) { const n = String(t).length; return n > 34 ? " s" : n > 18 ? " m" : ""; }
   function renderResult() {
     const r = run, k = counts(r);
+    const t = topOf(r), rank = new Map(((t && Array.isArray(t.order)) ? t.order : []).map((id, i) => [id, i]));
+    const at = (c) => (rank.has(c.id) ? rank.get(c.id) : 1e6);
     const bad = r.claims.map((c, i) => [c, r.verdicts[c.id], i]).filter(([, v]) => v && BAD.has(v.verdict))
-      .sort((a, b) => ORDER[a[1].verdict] - ORDER[b[1].verdict] || a[2] - b[2]);
+      .sort((a, b) => at(a[0]) - at(b[0]) || ORDER[a[1].verdict] - ORDER[b[1].verdict] || a[2] - b[2]); // the report's order when sent
     // a verdict for a claim we never got (should not happen) still counts in the headline, not in the rows
     const meta = [
       r.mode === "sample" ? `<span>Sample result</span>` : "",
@@ -498,7 +513,7 @@
       k.cant_check ? `<span data-k="cant_check">${k.cant_check} couldn't check</span>` : "",
       `<span data-k="time">${took((r.t1 || Date.now()) - r.t0)}</span>`,
     ].filter(Boolean).join(`<span class="sep" aria-hidden="true"> · </span>`);
-    let h = `<div class="res">${headlineHTML(r, k)}<p class="meta" id="counts">${meta}</p><div class="chk" id="chk"></div>`;
+    let h = `<div class="res">${headlineHTML(r, k)}${t && t.line ? `<p class="topl" id="topLine">${esc(t.line)}</p>` : ""}<p class="meta" id="counts">${meta}</p><div class="chk" id="chk"></div>`;
     if (r.claims.length) h += fieldHTML(r, true);
     if (bad.length) {
       h += `<ul class="finds" id="finds" aria-label="What doesn't match">` + bad.slice(0, FIND_TOP).map(([c, v], i) => {
@@ -806,6 +821,7 @@
   @keyframes rc-settle{0%{transform:translateY(-.5em);opacity:0}60%{opacity:1}}
   .meta{margin-top:12px;font-size:15px;color:var(--mute);animation:rc-fade .5s ease .2s backwards}
   .meta .b{color:var(--blue)}
+  .topl{margin-top:14px;font-size:16px;line-height:1.4;animation:rc-fade .5s ease .15s backwards}
   .res .field{margin-top:24px}
   .finds{list-style:none;margin:18px -12px 0}
   .find{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:10px 12px;transition:background-color .18s ease;
@@ -826,6 +842,9 @@
   .is.m{font-size:25px}
   .is.s{font-size:21px;line-height:1.15}
   .by{font-size:13px;color:var(--mute);margin-top:2px}
+  /* close, not exact: quiet, never struck through (as in the report) */
+  .find[data-verdict="close"] .strike{display:none}
+  .find[data-verdict="close"] .is{font-size:19px;line-height:1.25;color:var(--ink)}
   .morebtn{min-height:44px;font-size:15px;text-decoration:underline;text-underline-offset:4px;align-self:flex-start;margin-top:2px}
   .morebtn:hover,.lnk:hover{color:var(--blue)}
   .fi{margin-top:14px}

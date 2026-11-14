@@ -22,10 +22,10 @@ globalThis.RC_SAMPLE = (() => {
     {"type": "evidence", "evidence": {"source": "scan", "status": "ok", "summary": "The 3D scan of Plan E shows one bedroom and a den, 850 sq ft.", "observed": {"plan": "Plan E", "model_name": "Plan E - 1 Bed + Den - 850 SF", "counts_from": "model_name", "bedrooms": 1, "area_sqft": 850, "room_labels": ["Bedroom", "Den", "Living", "Kitchen"]}, "images": [], "detail": "sample"}},
     {"type": "verdict", "verdict": {"claim_id": "c1", "verdict": "contradicted", "claimed": "2 bedrooms", "found": "1 bedroom and a den", "source": "scan", "reason": "The 3D scan of Plan E shows one bedroom and a den, not two bedrooms.", "image": null}},
     {"type": "verdict", "verdict": {"claim_id": "c3", "verdict": "contradicted", "claimed": "1,100 sq ft", "found": "850 sq ft", "source": "scan", "reason": "The 3D scan of Plan E is titled 850 sq ft, 23% less than listed.", "image": null}},
-    {"type": "step", "agent": "outside", "text": "Measuring the roof from the aerial photo…"},
+    {"type": "step", "agent": "outside", "text": "Measuring the roof from the Vexcel aerial photo…"},
     {"type": "evidence", "evidence": {"source": "aerial", "status": "ok", "summary": "Roof is 23.1 m above ground: about 6 floors.", "observed": {"height_m": 23.1, "stories": 6, "stories_range": [6, 7], "capture_date": "2026-01-02"}, "images": [], "detail": "sample"}},
-    {"type": "evidence", "evidence": {"source": "aerial", "status": "ok", "summary": "Parking seen in the aerial photo.", "observed": {"feature_check": true, "claim_ids": [], "feature": "parking", "presence": "seen", "presence_confidence": 0.9, "looked_at": "aerial photos"}, "images": [], "detail": "sample"}},
-    {"type": "verdict", "verdict": {"claim_id": "c2", "verdict": "contradicted", "claimed": "5 stories", "found": "6 floors", "source": "aerial", "reason": "The roof height in the aerial photo matches a 6-floor building.", "image": null}},
+    {"type": "evidence", "evidence": {"source": "aerial", "status": "ok", "summary": "Parking seen in the Vexcel aerial photo.", "observed": {"feature_check": true, "claim_ids": [], "feature": "parking", "presence": "seen", "presence_confidence": 0.9, "looked_at": "Vexcel aerial photos"}, "images": [], "detail": "sample"}},
+    {"type": "verdict", "verdict": {"claim_id": "c2", "verdict": "contradicted", "claimed": "5 stories", "found": "6 floors", "source": "aerial", "reason": "The roof height in the Vexcel aerial photo matches a 6-floor building.", "image": null}},
     {"type": "step", "agent": "paper", "text": "Reading the county record…"},
     {"type": "evidence", "evidence": {"source": "county", "status": "ok", "summary": "The county record lists 2016 as the year built.", "observed": {"year_built": 2016, "building_sf": 112000, "unit_count": 100, "land_use": "Apartments", "owner_type": "company", "complaints_311": 4, "source_name": "Example County Appraisal District"}, "images": [], "detail": "sample"}},
     {"type": "verdict", "verdict": {"claim_id": "c4", "verdict": "confirmed", "claimed": "built in 2016", "found": "built in 2016", "source": "county", "reason": "The county record lists 2016 as the year built.", "image": null}},
@@ -38,7 +38,7 @@ globalThis.RC_SAMPLE = (() => {
       {"id": "county-311", "topic": "Records", "label": "311 service requests on record", "value": "4", "source": "county", "note": "A count from the county; what they say is not shown.", "image": null},
       {"id": "lot", "topic": "Records", "label": "Lot size", "value": "0.9 acres", "source": "county", "note": "From the county parcel record.", "image": null}
     ]},
-    {"type": "done", "run_id": "sample", "counts": {"confirmed": 1, "contradicted": 3, "close": 0, "cant_check": 1}, "headline": "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den.", "report_url": "/report/sample"}
+    {"type": "done", "run_id": "sample", "counts": {"confirmed": 1, "contradicted": 3, "close": 0, "cant_check": 1}, "headline": "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den.", "report_url": "/report/sample", "top": {"headline": "3 things don't match.", "lines": ["3 things", "don't match."], "calm": false, "hard": 3, "claim_id": "c1", "line": "Biggest difference: the listing says “2 Beds” for Plan E; the 3D scan shows 1 bedroom and a den.", "order": ["c1", "c3", "c2"]}}
   ] /* /RC_SAMPLE_EVENTS */;
   const events = (address) => JSON.parse(JSON.stringify(EVENTS), (k, v) => (v === "{{address}}" ? address : v));
   return { events, delayMs: 650 };

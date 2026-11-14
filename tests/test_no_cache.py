@@ -141,7 +141,7 @@ def test_county_geocode_and_record(monkeypatch, priv):
     looked = []
     monkeypatch.setattr(county, "_houston", lambda a, lat, lon: looked.append(a) or
                         rc_common.evidence("county", "ok", "fresh"))
-    rec = rc_common.cache_dir("paper", "county") / f"{county._key(county._norm(addr), 1.0, 2.0)}.json"
+    rec = rc_common.cache_dir("paper", "county") / f"{county._key(county._norm(addr), 1.0, 2.0, county.CACHE_VERSION)}.json"
     rec.write_text(json.dumps(rc_common.evidence("county", "ok", "cached")))
     assert county.county_record(addr, 1.0, 2.0)["summary"] == "cached" and not looked
 

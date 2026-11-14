@@ -112,7 +112,7 @@ def test_one_finding(run):
     f = r.R(".find").first
     assert f.locator(".wt").inner_text() == "“5-story building”"
     assert f.locator(".is").inner_text() == "6 floors"
-    assert f.locator(".by").inner_text() == "Aerial"  # CoStar and County say 5 stories: they back the listing
+    assert f.locator(".by").inner_text() == "Vexcel"  # CoStar and County say 5 stories: they back the listing
     # the headline stays on two lines whatever the font
     box = r.R("#headline").bounding_box()
     size = float(r.R("#headline").evaluate("e => parseFloat(getComputedStyle(e).fontSize)"))

@@ -81,9 +81,9 @@ def feat(source, cid, presence, conf, how=None, title=None):
 def test_feature_verdicts():
     c = claim("amenity", "Resort-style pool", scope="building")
     v = judge(c, [feat("aerial", "c1", "seen", 0.9)])
-    assert v["verdict"] == "confirmed" and v["found"] == "Visible in the aerial photo" and v["image"] == "C:/x/top.jpg"
+    assert v["verdict"] == "confirmed" and v["found"] == "Visible in the Vexcel aerial photo" and v["image"] == "C:/x/top.jpg"
     v = judge(c, [feat("aerial", "c1", "not_seen", 0.85)])
-    assert v["verdict"] == "close" and v["found"] == "Not visible in the aerial photo"
+    assert v["verdict"] == "close" and v["found"] == "Not visible in the Vexcel aerial photo"
     assert "cannot prove" in v["reason"]
     assert judge(c, [feat("aerial", "c1", "not_seen", 0.6)])["verdict"] == "cant_check"
     assert "don't show this clearly" in judge(c, [feat("aerial", "c1", "seen", 0.5)])["reason"]

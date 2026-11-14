@@ -28,13 +28,15 @@ def in_area(lat: float, lon: float) -> bool:
 
 
 def parcel_at(lat: float, lon: float, house_no: str = "") -> tuple[dict | None, str]:
-    """Return (parcel attributes or None, query URL). Owner fields are never requested.
+    """Return (parcel attributes or None, query URL). Of the owner fields only the first owner name (and the
+    confidential flag) is requested, so the caller can tell a company from an individual; the caller drops the
+    name at once and never stores it. No mailing address, no other owners.
     If the point misses a parcel or hits one with another house number (geocoded points often sit
     on the street), take a parcel within 40 m that has the listing's house number."""
     params = {"geometry": f"{lon},{lat}", "geometryType": "esriGeometryPoint", "inSR": 4326,
               "spatialRel": "esriSpatialRelIntersects", "returnGeometry": "false", "f": "json",
               "outFields": "HCAD_NUM,acct_num,site_str_num,site_str_name,site_str_sfx,site_zip,"
-                           "state_class,tax_year"}
+                           "state_class,tax_year,owner_name_1,confidential_flag"}
     url, d = net.get_json_url(PARCELS, params)
     hit = [f["attributes"] for f in d.get("features", [])]
     if hit and (not house_no or str(hit[0].get("site_str_num") or "").strip() == house_no):
@@ -46,6 +48,30 @@ def parcel_at(lat: float, lon: float, house_no: str = "") -> tuple[dict | None, 
         if same:
             return same[0], url2
     return (hit[0] if hit else None), url
+
+
+# HCAD state class (Texas property category) -> plain land use words. Unlisted codes: no land use is stated.
+STATE_CLASS = {
+    "A1": "Single-family homes", "A2": "Mobile homes", "A3": "Residential outbuildings", "A4": "Condominiums",
+    "B1": "Apartments (multi-family)", "B2": "Duplex", "B3": "Triplex", "B4": "Fourplex",
+    "C1": "Vacant lot", "C2": "Vacant commercial lot", "C3": "Vacant rural land",
+    "D1": "Farm or ranch land", "D2": "Farm or ranch buildings", "E1": "Farm or ranch home",
+    "F1": "Commercial", "F2": "Industrial", "J1": "Utility (water)", "J2": "Utility (gas)",
+    "J3": "Utility (electric)", "J4": "Utility (telephone)", "J6": "Utility (pipeline)", "J7": "Utility (cable)",
+    "O1": "Residential inventory", "X1": "Tax-exempt",
+}
+
+
+def land_use(state_class) -> str | None:
+    """'B1' -> 'Apartments (multi-family)'; X-something -> 'Tax-exempt'; unknown -> None."""
+    code = str(state_class or "").strip().upper()
+    if not code:
+        return None
+    if code in STATE_CLASS:
+        return STATE_CLASS[code]
+    if code.startswith("X"):
+        return "Tax-exempt"
+    return STATE_CLASS.get(code[:2])
 
 
 # ---------- bulk roll index ----------

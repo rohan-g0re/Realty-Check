@@ -92,12 +92,13 @@ def test_sample_flow_marks_and_report(env):
     page.locator("#rc-host #useSample").click()
     page.locator("#rc-host #cols .col").nth(4).wait_for(timeout=10000)  # the claim field, one column per claim
     page.locator("#rc-host #headline").wait_for(timeout=15000)
-    # concise verdict: headline from counts, quiet counts line, the three findings worst first
+    # concise verdict: the report's headline and lead line (done.top), quiet counts line, findings in the report's order
     assert headline(page) == "3 things don't match."
+    assert page.locator("#rc-host #topLine").inner_text().startswith("Biggest difference: the listing says “2 Beds”")
     meta = page.locator("#rc-host #counts").inner_text()
     assert "Sample result" in meta and "1 true" in meta and "1 couldn't check" in meta and "close" not in meta, meta
     finds = page.locator("#rc-host .find")
-    assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c2", "c3"]
+    assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c3", "c2"]  # size before floors
     assert page.locator("#rc-host #moreF").count() == 0
     assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
     assert finds.first.locator(".by").inner_text() == "Matterport"

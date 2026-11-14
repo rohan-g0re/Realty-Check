@@ -55,7 +55,7 @@ BASE = run_of(
 
 def test_rows_in_order_and_counts():
     f = claim_field(BASE)
-    assert [s["name"] for s in f["sources"]] == ["CoStar", "Matterport", "Aerial", "County"]
+    assert [s["name"] for s in f["sources"]] == ["CoStar", "Matterport", "Vexcel", "County"]
     counts = {s["key"]: s["count"] for s in f["sources"]}
     assert counts == {"record": 2, "scan": 1, "aerial": 2, "county": 2}
 
@@ -135,7 +135,7 @@ def test_section_renders_grid_and_is_self_contained():
     assert html.count("class='cf-cell ") == 5 * 4
     assert "cf-cell cf-match" in html and "cf-cell cf-contra" in html and "cf-cell cf-close" in html
     assert "cf-cell cf-data" in html and "cf-cell cf-none" in html
-    for word in ("CoStar", "Matterport", "Aerial", "County", "matches the listing", "doesn't match",
+    for word in ("CoStar", "Matterport", "Vexcel", "County", "matches the listing", "doesn't match",
                  "nothing to say", "One column per claim."):
         assert word in html
     assert "\u201c5-story building\u201d" in html and "\u201cBuilt in 2001\u201d" in html  # highlighted columns

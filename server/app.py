@@ -219,6 +219,30 @@ def drawer_field(run: dict) -> dict | None:
     return {"claims": out}
 
 
+def drawer_top(run: dict) -> dict | None:
+    """The report's headline and lead finding (server.report_a.top_finding: its counts, ranking and words), so the
+    drawer's headline never names a different mismatch than the report. None when it cannot be built."""
+    try:
+        from server.report_a import top_finding
+        return top_finding(run)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def with_drawer_keys(ev: dict, run: dict) -> dict:
+    """A `done` event with the additive drawer keys (`field`, `top`) the report computes, where missing."""
+    add = {}
+    if "field" not in ev:
+        field = drawer_field(run)
+        if field is not None:
+            add["field"] = field
+    if "top" not in ev:
+        top = drawer_top(run)
+        if top is not None:
+            add["top"] = top
+    return {**ev, **add} if add else ev
+
+
 # ---------- running ----------
 
 def start_run(snapshot: dict, base_url: str) -> queue.Queue:
@@ -247,9 +271,9 @@ def start_run(snapshot: dict, base_url: str) -> queue.Queue:
                 ev = {**ev, "run_id": run_id}
             if ev["type"] == "done":
                 ev["report_url"] = f"{base_url}/report/{run_id}"
-                field = drawer_field({"run_id": run_id, "events": run["events"]})
-                if field is not None:
-                    ev["field"] = field
+                ev.pop("field", None)  # always the server's own, from the events this run sent
+                ev.pop("top", None)
+                ev = with_drawer_keys(ev, {"run_id": run_id, "events": run["events"]})
             ev = rewrite_images(ev, run["images"])
             if ev["type"] == "fill_in":
                 run["fill_in"] = ev["facts"]  # also kept top level, for the report and later readers
@@ -315,10 +339,8 @@ def replay(run: dict, base_url: str = "") -> queue.Queue:
                 time.sleep(gap)
             if ev.get("type") == "done" and base_url:
                 ev = {**ev, "report_url": f"{base_url}/report/{run['run_id']}"}  # this server, not the original
-            if ev.get("type") == "done" and "field" not in ev:  # runs saved before the drawer field existed
-                field = drawer_field({"run_id": run["run_id"], "events": run["events"][:i]})
-                if field is not None:
-                    ev = {**ev, "field": field}
+            if ev.get("type") == "done":  # runs saved before the drawer field / top existed
+                ev = with_drawer_keys(ev, {"run_id": run["run_id"], "events": run["events"][:i]})
             q.put(ev)
         q.put(None)
 

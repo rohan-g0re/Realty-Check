@@ -1,4 +1,4 @@
-"""The claim field: every claim a column, every source a row (CoStar, Matterport, Aerial, County).
+"""The claim field: every claim a column, every source a row (CoStar, Matterport, Vexcel, County).
 
 `claim_field(run)` is the pure mapping (no I/O): for each claim and source it asks the judge's own rules
 (`harness.graph.judge.judge` on that source's evidence alone) whether the source agrees with the listing.
@@ -13,7 +13,7 @@ import json
 import re
 from html import escape
 
-SOURCES = [("record", "CoStar"), ("scan", "Matterport"), ("aerial", "Aerial"), ("county", "County")]
+SOURCES = [("record", "CoStar"), ("scan", "Matterport"), ("aerial", "Vexcel"), ("county", "County")]
 SOURCE_NAME = dict(SOURCES)
 STATE_WORDS = {"match": "Matches the listing", "contra": "Doesn't match the listing", "close": "Close, not exact",
                "data": "Has data, not compared", "none": "Nothing from this source"}
@@ -717,11 +717,11 @@ def _saw_html(rows: dict) -> str:
         chips = "".join(f"<span class=cf-chip style='--cf-i:{i}'><i>{escape(lab)}</i>{escape(val)}</span>"
                         for i, (lab, val) in enumerate(items[:8]))
         lines.append(f"<div class=cf-saw-row><b>{escape(name)}</b><span class=cf-chips>{chips}</span></div>")
-    credit = ("<p class=cf-credit>Rows: CoStar building record, Matterport 3D scans, aerial imagery, county public "
+    credit = ("<p class=cf-credit>Rows: CoStar building record, Matterport 3D scans, Vexcel aerial imagery, county public "
               "records.</p>")
     if not lines:
         return f"<div class=cf-saw>{credit}</div>"
-    return "<div class=cf-saw aria-label='What aerial imagery and county records saw'>" + "".join(lines) + credit + "</div>"
+    return "<div class=cf-saw aria-label='What Vexcel aerial imagery and county records saw'>" + "".join(lines) + credit + "</div>"
 
 
 def _json_script(obj) -> str:

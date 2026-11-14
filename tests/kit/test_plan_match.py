@@ -164,3 +164,19 @@ def test_link_plans_and_plan_types():
     one = [t for t in types if t["beds"] == 1 and not t["den"]][0]
     assert one["plans"] == ["A1", "A2", "A3"] and (one["sqft_min"], one["sqft_max"]) == (640, 720)
     assert [t for t in types if t["den"]][0]["scan_ids"] == ["mDen"]
+
+
+def test_multi_plan_page_scan_of_the_3_bed_plan_is_linked_only_to_that_plan():
+    kit = [fp("S1", 0, 1, 500), fp("A1", 1, 1, 640), fp("A2", 1, 1, 700), fp("C3", 3, 2, 1200, "SAMPLEscan01")]
+    match = {"status": "matched", "property_id": "900001", "name": "Linden Grove", "floorplans": kit,
+             "matterport_model_ids": ["SAMPLEscan01"]}
+    titles = {"SAMPLEscan01": "418 Linden Grove Ave - Plan C3 - 3 Bed / 2 Bath + Den"}
+    for label in ("1 Bedroom", "1x1", "A1", "Plan A1", "Studio", "Linden Grove Apartments"):
+        assert link_plan(label, match, [], titles)["scan_id"] is None, label
+    for label in ("C3", "3 Bedrooms"):
+        r = link_plan(label, match, [], titles)
+        assert r["kit"]["name"] == "C3" and r["scan_id"] == "SAMPLEscan01", label
+    # a 1-bed type-level claim is never contradicted, even with the 3-bed scan in the building
+    r = link_plan("1 Bedroom", match, [], titles)
+    assert check_type_claim(claim("bedrooms", 1, "1 Bedroom"), r)["verdict"] == "confirmed"
+    assert check_type_claim(claim("bedrooms", 3, "1 Bedroom"), r)["verdict"] == "cant_check"

@@ -44,8 +44,8 @@ from server.report import (FACT_FROM, IMG_RE, TOPICS, Run, _cant_reason, _claime
                            _said, _same_plan, _scan_title, _short_caption, _source_line, _value_words)
 
 SRC_ORDER = ["record", "scan", "aerial", "county"]
-SRC_NAME = {"record": "CoStar", "scan": "Matterport", "aerial": "Aerial", "county": "County"}
-SRC_LONG = {"record": "CoStar building record", "scan": "Matterport 3D scan", "aerial": "Aerial imagery",
+SRC_NAME = {"record": "CoStar", "scan": "Matterport", "aerial": "Vexcel", "county": "County"}
+SRC_LONG = {"record": "CoStar building record", "scan": "Matterport 3D scan", "aerial": "Vexcel aerial imagery",
             "county": "County records"}
 VERDICT_WORD = {"contradicted": "Doesn't match", "close": "Close", "confirmed": "Matches", "cant_check": "Couldn't check"}
 BRAND = "Realty Check"
@@ -60,7 +60,7 @@ OBS_WORDS = [("stories", "floors"), ("year_built", "year built"), ("unit_count",
 SRC_FROM = {"scan": "the 3D scan shows", "county": "county records say", "record": "the CoStar building record says"}
 SRC_SAYS = {"scan": "the 3D scan says", "county": "county records say", "record": "the CoStar record says",
             "aerial": "the roof height says"}
-SRC_SHORT = {"record": "CoStar", "scan": "3D scan", "aerial": "Aerial", "county": "County"}
+SRC_SHORT = {"record": "CoStar", "scan": "3D scan", "aerial": "Vexcel", "county": "County"}
 # renter impact: what a wrong claim costs the renter, most first
 TIER_UNIT = {"bedrooms", "bathrooms", "area_sqft"}
 TIER_BUILDING = {"stories", "year_built", "unit_count"}
@@ -397,7 +397,14 @@ function undock(w){var f=w._f;if(!f||f.className!=='dock')return;f.className='';
 f.style.width='';f.style.height='';stamp(w,'undock');}
 R.mount=mount;R.unmount=unmount;
 var twin=location.origin.replace('//127.0.0.1','//localhost');  /* the viewer runs on localhost (SDK key rule) */
+/* Esc while a viewer has focus: keys go to the cross-origin viewer, never to this page. Our tour page forwards Esc
+   ({rc3d:1,key:'Escape'}), and focus comes back here when the pointer leaves a viewer */
+function ours(src){return [].some.call(document.querySelectorAll('iframe'),function(f){return f.contentWindow===src;});}
+function regain(){var a=document.activeElement;if(!a||a.tagName!=='IFRAME')return;
+var p=a.closest('[role=dialog]'),x=p&&!p.hidden&&p.querySelector('.cf-x');if(x)x.focus({preventScroll:true});else a.blur();}
+document.addEventListener('mouseover',function(e){var a=document.activeElement;if(a&&a.tagName==='IFRAME'&&e.target!==a)regain();});
 window.addEventListener('message',function(e){if((e.origin!==location.origin&&e.origin!==twin)||!e.data||e.data.rc3d!==1)return;
+if(e.data.key==='Escape'){if(ours(e.source)){regain();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));}return;}
 var w=all().filter(function(x){return x._f&&x._f.contentWindow===e.source;})[0];if(!w)return;var d=e.data;stamp(w,d.state);
 if(d.state==='ready'){w.classList.add('live');w.classList.remove('loading');clearTimeout(w._to);
 if(d.room==='start')note(w,d.note||'Showing the scan from its start position.');}
@@ -721,7 +728,7 @@ def _top_line(run: Run, v: dict) -> str:
     if not found:
         return ""
     who = SRC_FROM.get(v.get("source")) or ("the measured roof height suggests" if _kind(v, c) == "stories"
-                                             else "aerial photos suggest")
+                                             else "Vexcel aerial photos suggest")
     plan = f" for {c['label']}" if c.get("label") else ""
     return f"Biggest difference: the listing says {said}{plan}; {who} {found}."
 
@@ -739,6 +746,27 @@ def _headline(n: dict) -> tuple[str, str, bool]:
     if n["cant_check"]:
         return "Nothing here could", "be checked.", True
     return "No claims", "to check.", True
+
+
+def _lead(off: list):
+    """The finding the hero names: the top-ranked one, only when it is a hard mismatch (a close one never leads)."""
+    return off[0] if off and off[0].get("verdict") == "contradicted" else None
+
+
+def top_finding(run_dict: dict) -> dict:
+    """The hero's headline and lead finding, for the drawer (done.top, docs/CONTRACT.md 7): the same counts, ranking
+    and words the report uses, so the two never disagree.
+    {"headline": "1 thing doesn't match.", "lines": ["1 thing", "doesn't match."], "calm": bool, "hard": int,
+     "claim_id": id of the lead hard mismatch or None, "line": "Biggest difference: ..." or "",
+     "order": claim ids of every hard mismatch, then every close one, in the report's order}"""
+    run = Run(run_dict)
+    n = _counts(run)
+    off = _ranked_off(run, run.verdicts)
+    top = _lead(off)
+    l1, l2, calm = _headline(n)
+    return {"headline": f"{l1} {l2}", "lines": [l1, l2], "calm": calm, "hard": n["contradicted"],
+            "claim_id": top.get("claim_id") if top else None, "line": _top_line(run, top) if top else "",
+            "order": [v.get("claim_id") for v in off]}
 
 
 def _source_used(run: Run) -> dict:
@@ -1271,7 +1299,7 @@ def _question(run: Run, v: dict) -> str:
     verdict = v.get("verdict")
     if verdict in ("contradicted", "close") and kind not in SOFT_KINDS and found:
         src = v.get("source")
-        who = SRC_FROM.get(src) or ("a roof height measurement suggests" if kind == "stories" else "aerial photos suggest")
+        who = SRC_FROM.get(src) or ("a roof height measurement suggests" if kind == "stories" else "Vexcel aerial photos suggest")
         if verdict == "close":
             return f"The listing says {said}{plan}; {who} {found}. Which number is exact?"
         return f"The listing says {said}{plan}, but {who} {found}. Which is right?"
@@ -1322,7 +1350,7 @@ def _footer(run: Run) -> str:
     rid = str(run.raw.get("run_id") or "")
     return (f"<footer class=dark><div class='wrap foot'><p class=mark aria-hidden=true>{BRAND}</p>"
             f"<div class=foot-row><div class=foot-links>{''.join(links)}</div>"
-            "<p class=foot-note>Sources: CoStar building records, Matterport 3D scans, aerial imagery and county "
+            "<p class=foot-note>Sources: CoStar building records, Matterport 3D scans, Vexcel aerial imagery and county "
             "public records."
             + (f" {_e(meta)}." if meta else "") + f" Listing: {_e(title)}.</p></div>{how}"
             f"<div class=foot-end><span>Report {_e(rid)}</span><a href='#top'>Back to the top</a></div></div></footer>")
@@ -1345,7 +1373,7 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
         if not m.group(2).lower().startswith("floor plan"):
             lead_pic = (m.group(1), m.group(2))
             break
-    top = off[0] if off and off[0].get("verdict") == "contradicted" else None
+    top = _lead(off)
     hero = _hero(run, n, "f1" if top else None, live_3d, top)
     url = run.snap.get("url") or ""
     nav = []

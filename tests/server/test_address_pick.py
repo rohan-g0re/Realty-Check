@@ -116,3 +116,43 @@ def test_name_agreement_ignores_generic_words():
 def test_name_agreement_uses_the_part_before_at():
     sig = _page_signals({"url": "https://www.example.com/", "title": "Modern Living at Example Brook"})
     assert name_agreement("Example Brook at Placeholder Heights", sig)[0] == 1.0
+
+
+# ---- a building known only from its condo units' home listings --------------------------------------------------
+def _unit_home(pid, unit, beds, sqft, scan, name="Linden Grove Condominiums"):
+    p = prop(pid, name, 418, "Linden Grove Ave", zip_code="77998", kind="home", units=None)
+    p.update(unit=unit, address=f"418 Linden Grove Ave (unit {unit})", matterport_model_ids=[scan] if scan else [],
+             record={"stories": None, "year_built": 1985, "unit_count": None, "building_sf": None},
+             floorplans=[{"name": f"Unit {unit}", "beds": beds, "baths": 1, "sqft": sqft, "matterport_model_id": scan}])
+    return p
+
+
+UNITS_INDEX = {"properties": [_unit_home("900001", "1204", 2, 1060, "SAMPLEscan01"),
+                              _unit_home("900002", "1204", 2, 1060, "SAMPLEscan01"),
+                              _unit_home("900003", "1310", 1, 660, None)]}
+CONDO = "418 Linden Grove Ave, Faketown, TX 77998"
+
+
+def test_units_only_building_is_picked_with_a_plain_note():
+    snap = {"url": "https://listings.example/building/linden-grove", "title": "Linden Grove Condominiums",
+            "address_text": CONDO, "address_candidates": [cand(CONDO, 5.0, ["h1"])]}
+    r = pick_address(snap, UNITS_INDEX)
+    assert r["chosen"] == CONDO and r["property"]["units_only"] is True
+    assert r["property"]["units_on_file"] == ["1204", "1310"]
+    assert r["why"] == "There is no building record here, but units 1204 and 1310 of this building are on record."
+    assert r["confidence"] >= 0.7
+
+
+def test_units_only_pick_names_a_unit_not_on_record():
+    a = "418 Linden Grove Ave #159, Faketown, TX 77998"
+    r = pick_address({"url": "https://listings.example/x", "title": "Condo for sale", "address_text": a,
+                      "address_candidates": [cand(a, 5.0, ["h1"])]}, UNITS_INDEX)
+    assert r["property"]["unit_not_on_record"] == "159" and r["why"].endswith("Unit 159 is not.")
+    assert r["confidence"] >= 0.5
+
+
+def test_unit_page_picks_its_own_home_record():
+    a = "418 Linden Grove Ave #1310, Faketown, TX 77998"
+    r = pick_address({"url": "https://listings.example/x", "title": "Condo", "address_text": a,
+                      "address_candidates": [cand(a, 5.0, ["h1"])]}, UNITS_INDEX)
+    assert r["property"]["property_id"] == "900003" and not r["property"].get("units_only")

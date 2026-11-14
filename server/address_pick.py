@@ -15,6 +15,7 @@ import re
 from typing import Callable
 from urllib.parse import urlparse
 
+from tools.kit.match import units_building, units_words
 from tools.kit.normalize import parse, street_key
 
 MAX_CANDIDATES = 6
@@ -127,6 +128,11 @@ def index_matcher(index) -> Callable[[str], dict]:
             if hits:
                 ps = {p["property_id"]: p for p, _ in hits}
                 cands = [p for p in ps.values() if p.get("kind") == "building"] or list(ps.values())
+                units = units_building(hits, q, conf, how)  # only condo units on record: the same rule as the kit
+                if units:
+                    return units
+                if len(cands) > 1 and q["unit"] and all(p.get("kind") == "home" for p in cands):
+                    cands = [p for p in cands if str(p.get("unit") or "").lower() == q["unit"]][:1]
                 if len(cands) != 1:
                     return {"status": "no_match", "confidence": 0.0, "how": f"{len(cands)} properties share this address"}
                 p = cands[0]
@@ -231,6 +237,13 @@ def pick_address(snapshot: dict, index=None, matcher: Callable[[str], dict] | No
         conf = 0.2
         why = ("No building record matches the addresses on this page; this one looks most like the listing's own."
                if len(cands) > 1 else "No building record matches this address, so we may not have its building.")
+
+    if ok and m.get("units_only") and not locked and _residential(m) and not best["weak_place"]:
+        units = m.get("units_on_file") or []
+        why = (f"There is no building record here, but {units_words(units)} of this building "
+               f"{'is' if len(units) == 1 else 'are'} on record.")
+        if m.get("unit_not_on_record"):
+            why += f" Unit {m['unit_not_on_record']} is not."
 
     alts = []
     for c in sorted((c for c in cands if c is not best), key=lambda c: -c["pick_score"]):

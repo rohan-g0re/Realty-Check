@@ -367,7 +367,7 @@ def link_plan(label: str, match: dict, claims: list[dict] | None = None, scans: 
 
     # 1. name
     hits = _by_name(label, fps, building, want) or (_by_name(core, fps, building, want) if core != label else [])
-    how = "name"
+    how, size_only = "name", False
     generic = is_generic(core)
     # a line several of the page's plans share (sizes or counts no one plan has): never one plan for the whole
     # label; each of its size claims is compared with its own plan (plan_for_claim, check_type_claim)
@@ -394,6 +394,16 @@ def link_plan(label: str, match: dict, claims: list[dict] | None = None, scans: 
         elif generic:  # no size: the name states the kind of home; one plan of that kind, or a type-level match
             fit = _den_filter(fit, p["den"])
             hits, how = fit, ("size" if len(fit) == 1 else "type")
+    elif not hits and not shared and want["beds"] is None and sqft and not _loose_size(label, claims or []):
+        # size alone (no bed count on the page; baths, when given, must agree): only when exactly one record plan
+        # is within SIZE_TOL of it, else no plan
+        fit = [fp for fp in fps if _fits(_kit_shape(fp), want)]
+        if p["den"]:
+            fit = _den_filter(fit, True)
+        within = [fp for fp in fit if _kit_shape(fp)["sqft"]
+                  and abs(_kit_shape(fp)["sqft"] - sqft) / sqft <= SIZE_TOL]
+        if len(within) == 1:
+            hits, how, size_only = within, "size", True
     if not hits:
         if shared:
             r.update(shared=True, note=f"{label} is a line several of the page's plans share, and none of the "
@@ -416,6 +426,9 @@ def link_plan(label: str, match: dict, claims: list[dict] | None = None, scans: 
         if how == "size" and not sqft:
             r["note"] = (f"Matched to the building's plan {name}, its only "
                          f"{type_words(r['beds'], r['baths'], _kit_shape(fp)['den'])} plan.")
+        elif how == "size" and size_only:
+            r["note"] = (f"Matched to the building's plan {name} by size alone: the page does not give its bedrooms, "
+                         f"and it is the only plan of that size.")
         elif how == "size":
             r["note"] = f"Matched to the building's plan {name} by size."
         elif label.strip().lower() not in name.lower():

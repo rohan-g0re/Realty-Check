@@ -19,6 +19,16 @@ STATES = {"tx", "texas", "ca", "california", "al", "ak", "az", "ar", "co", "ct",
           "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc", "sd", "tn", "ut", "vt", "va", "wa",
           "wv", "wi", "wy", "dc", "new jersey", "new york"}
 UNIT_RE = re.compile(r"\s*(?:#|\b(?:apt|apartment|unit|ste|suite|floor|rm|room|bldg|building)\b)\s*#?\s*([a-z0-9-]*)")
+# street type spellings -> one canonical form, so 'Dr' and 'Drive' agree
+_TYPE_GROUPS = (("st", "street", "str"), ("ave", "av", "avenue"), ("blvd", "boulevard"), ("rd", "road"),
+                ("dr", "drive"), ("ln", "lane"), ("ct", "court"), ("pl", "place"), ("pkwy", "pky", "parkway"),
+                ("hwy", "highway"), ("fwy", "freeway"), ("cir", "circle"), ("ter", "terrace"), ("trl", "trail"),
+                ("sq", "square"), ("plz", "plaza"), ("vlg", "village"), ("holw", "hollow"), ("grv", "grove"),
+                ("hts", "heights"), ("ests", "estates"), ("lndg", "landing"), ("aly", "alley"),
+                ("expy", "expressway"), ("cv", "cove"), ("crk", "creek"), ("xing", "crossing"), ("pt", "point"),
+                ("bnd", "bend"))
+TYPE_CANON = {t: g[0] for g in _TYPE_GROUPS for t in g}
+ABBREV_MIN = 3  # an abbreviated street-name word keeps at least this many letters ('Lind' for 'Linden')
 ZIP_RE = re.compile(r"\b(\d{5})(?:-[0-9x]{1,4})?[\s,]*(?:usa|us|united states)?[\s,]*$")
 
 
@@ -66,10 +76,100 @@ def street_variants(name: str) -> list[str]:
     return out
 
 
-def parse(address: str, cities: list[str]) -> dict:
-    """Split free text into {num_lo, num_hi, streets, zip, city, unit}. Missing parts are None.
+def street_type(street: str) -> str | None:
+    """Canonical street type of free street text ('Linden Drive' -> 'dr', 'S Corbel Blvd N' -> 'blvd'), from the
+    last type word after trailing directions are dropped; None when it names none."""
+    toks = _tokens(street)
+    while len(toks) > 1 and toks[-1] in DIRECTIONS:
+        toks = toks[:-1]
+    if len(toks) > 1 and toks[-1] in STREET_TYPES:
+        return TYPE_CANON.get(toks[-1], toks[-1])
+    return None
 
-    `cities` are known lower-case city names, used to peel the city off text without commas.
+
+def _num_unit(tok: str) -> tuple[int, str] | None:
+    """'41811-310' -> (41811, '310'): a street number with its unit after a dash, not a number range. Only when the
+    right part is shorter than the left, smaller, and 3+ digits ('101-105' and '1200-08' stay ranges)."""
+    m = re.fullmatch(r"(\d{4,6})-(\d{3,5})", tok or "")
+    if m and len(m.group(2)) < len(m.group(1)) and int(m.group(2)) < int(m.group(1)):
+        return int(m.group(1)), m.group(2)
+    return None
+
+
+def unit_label(text, street_num=None) -> str | None:
+    """Comparable unit key of a page's unit label, as tools.kit.units.norm_unit gives it: '#1204', 'Apt 1204',
+    'Unit 1204' -> '1204'. '41811-310' -> '310' when the page's street number is 41811 (`street_num`), or, with no
+    street number given, when it reads as one (see _num_unit). Other dashed labels are left to norm_unit."""
+    from tools.kit.units import norm_unit
+    t = str(text if text is not None else "").strip()
+    m = re.fullmatch(r"(?:#\s*)?(\d+)\s*-\s*([a-z0-9]+)", t, re.I)
+    if m:
+        try:
+            num = int(str(street_num).strip()) if street_num is not None and str(street_num).strip() else None
+        except ValueError:
+            num = None
+        if (num is not None and int(m.group(1)) == num) or (num is None and _num_unit(f"{m.group(1)}-{m.group(2)}")):
+            return norm_unit(m.group(2))
+    return norm_unit(t)
+
+
+def abbrev_match(a: str, b: str) -> bool:
+    """Two street keys that differ only by abbreviated words ('lind' / 'linden'): same word count, and every word
+    pair equal or one a prefix of the other with at least ABBREV_MIN letters. Equal keys are not an abbreviation."""
+    ta, tb = a.split(), b.split()
+    if a == b or not ta or len(ta) != len(tb):
+        return False
+    for x, y in zip(ta, tb):
+        if x == y:
+            continue
+        short, long_ = sorted((x, y), key=len)
+        if not (short.isalpha() and long_.isalpha() and len(short) >= ABBREV_MIN and long_.startswith(short)):
+            return False
+    return True
+
+
+def abbrev_hits(q: dict, by_street: dict, address_of=None) -> list:
+    """Fallback when no street key equals the query's: index hits whose street name is an abbreviation of the
+    query's or the other way round ('Lind Dr' / 'Linden Dr'). Safe only when everything else agrees, so a hit must
+    have the street number in range, the same zip (or, with no zip given, the same city), and the same street type
+    (`address_of(property) -> display address` gives the record's type; a hit whose type is unknown is dropped).
+    `by_street` is {street key: [(property, key)]}. [] when hits fall on more than one street name (not guessing)."""
+    if q.get("num_lo") is None or not q.get("streets") or not (q.get("zip") or q.get("city")) \
+            or not q.get("street_type"):
+        return []
+    address_of = address_of or (lambda p: p.get("address") or "")
+    found: dict[str, list] = {}
+    for key, rows in by_street.items():
+        if not any(abbrev_match(st, key) for st in q["streets"]):
+            continue
+        for p, k in rows:
+            if k.get("num_lo") is None or not (k["num_lo"] <= q["num_lo"] <= (k.get("num_hi") or k["num_lo"])):
+                continue
+            if q.get("zip") and k.get("zip") != q["zip"]:
+                continue
+            if not q.get("zip") and k.get("city") != q["city"]:
+                continue
+            if record_street_type(address_of(p)) != q["street_type"]:
+                continue
+            found.setdefault(key, []).append((p, k))
+    return next(iter(found.values())) if len(found) == 1 else []
+
+
+def record_street_type(address: str) -> str | None:
+    """Street type of a display address ('11 Linden Grove Ave, Houston, TX 77006' -> 'ave')."""
+    line = str(address or "").lower().replace(".", " ").split(",")[0]
+    toks = line.split()
+    if toks and re.fullmatch(r"\d+[a-z]?(?:-\d+[a-z]?)?", toks[0]):
+        toks = toks[1:]
+    return street_type(" ".join(toks))
+
+
+def parse(address: str, cities: list[str]) -> dict:
+    """Split free text into {num_lo, num_hi, streets, street_type, zip, city, unit}. Missing parts are None.
+
+    `cities` are known lower-case city names, used to peel the city off text without commas. A leading
+    '41811-310' (street number, dash, a shorter smaller number) is the street number and a unit, not a range,
+    unless the text names another unit.
     """
     s = " ".join(address.lower().replace(".", " ").split())
     um = UNIT_RE.search(s)
@@ -95,11 +195,16 @@ def parse(address: str, cities: list[str]) -> dict:
     line = next((p for p in parts if p[0].isdigit()), parts[0] if parts else "")
     toks = line.split()
     lo = hi = None
-    if toks:
+    if toks and not unit and (nu := _num_unit(toks[0])):
+        lo = hi = nu[0]
+        unit = nu[1]
+        toks = toks[1:]
+    elif toks:
         nm = re.fullmatch(r"(\d+)[a-z]?(?:-(\d+)[a-z]?)?", toks[0])
         if nm:
             lo = int(nm.group(1))
             hi = int(nm.group(2)) if nm.group(2) else lo
             toks = toks[1:]
-    return {"num_lo": lo, "num_hi": hi, "streets": street_variants(" ".join(toks)), "zip": zip_code, "city": city,
-            "unit": unit or None}
+    street = " ".join(toks)
+    return {"num_lo": lo, "num_hi": hi, "streets": street_variants(street), "street_type": street_type(street),
+            "zip": zip_code, "city": city, "unit": unit or None}

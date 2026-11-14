@@ -23,3 +23,4 @@
 - Stories reason: "The measured roof height (23.1 m) means about 6 floors."
 - Claim cap raised from 25 to 40 (the fixture pages have ~28); the claim model's parsed reply is cached by prompt hash under `rc_cache/claims`.
 - LA aerial (3700 Sepulveda): roof 11.7 m → about 3 floors (kit record also 3); top-down + 2 angled photos available.
+- Scan area vs listed size: a precheck over 89 floor plans found the scan's measured floor a median 11% smaller than the advertised size, so the old 5% / 10% rule gave false contradictions. A size in the scan's own title ("… - 855 SF") is now compared with the 5% / 10% rule; otherwise measured area is confirmed from 20% smaller to 5% larger, close to 30% smaller or 10% larger, contradicted beyond. Record and county sizes keep 5% / 10%. The fake scenario's 968 vs 1,100 sq ft is now confirmed.

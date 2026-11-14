@@ -102,7 +102,9 @@ Each module re-exports its functions from its package `__init__.py` (e.g. `from 
 
 ## 4. Judge rules (deterministic first, model only for wording)
 - Count kinds (`bedrooms`, `bathrooms`, `stories`, `unit_count`, `year_built`): equal → `confirmed`; different → `contradicted`.
-- `area_sqft`: within 5% → `confirmed`; 5–10% → `close`; beyond 10% → `contradicted`.
+- `area_sqft` against the record (kit) or county: within 5% → `confirmed`; 5–10% → `close`; beyond 10% → `contradicted`.
+- `area_sqft` against a scan whose title states a size (`observed.model_name` such as "1BR W Den 1BA - 855 SF"): the title's sq ft is compared with the same 5% / 10% rule; `found` is "855 sq ft (scan title)", reason "The 3D scan of this plan is titled '1BR W Den 1BA - 855 SF', which gives 855 sq ft."
+- `area_sqft` against a scan's measured floor area (no size in the title): a scan measures interior floor and runs a median 11% under the advertised size (89 floor plans), so the band is one-sided: from 20% smaller to 5% larger → `confirmed`; 20–30% smaller or 5–10% larger → `close`; beyond → `contradicted`. Reason: "The 3D scan measures 640 sq ft of floor, 10% smaller; scans usually measure about a tenth less than the advertised size."
 - No evidence with `status="ok"` that observes the claim's kind → `cant_check`.
 - When sources disagree, priority is scan and aerial (measured), then county, then record. Name the winning source in `source`.
 - Stories from aerial: reason reads "The measured roof height (23.1 m) means about 6 floors."

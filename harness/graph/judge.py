@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from . import amenities
+from .plans import title_sqft
 
 COUNT_KINDS = ("bedrooms", "bathrooms", "stories", "unit_count", "year_built")
 RANK = {"scan": 0, "aerial": 0, "county": 1, "record": 2}  # lower wins
@@ -196,10 +197,26 @@ def judge(claim: dict, evidences: list[dict]) -> dict:
 
     kit_plan = obs.get("kit_plan") if src == "record" else None
     if kind == "area_sqft":
+        title = str(obs.get("model_name") or "").strip() if src == "scan" else ""
+        titled = title_sqft(title) if title else None
+        if titled:
+            found = titled  # the scan's own title states the plan's size: compare like any written size
         pct = abs(found - claimed) / claimed * 100 if claimed else 100.0
-        verdict = "confirmed" if pct <= 5 else "close" if pct <= 10 else "contradicted"
         diff = f", {pct:.0f}% {'smaller' if found < claimed else 'larger'}" if pct >= 0.5 else ""
-        how = f"{_cap(SOURCE_NAME[src])} measures {found_txt}{diff}."
+        if src == "scan" and not titled:
+            # A scan measures the scanned interior floor; the advertised size is the whole unit, which in
+            # 89 floor plans ran a median 11% larger. Allow that shortfall, but not much extra size.
+            d = (found - claimed) / claimed * 100 if claimed else -100.0
+            verdict = ("confirmed" if -20 <= d <= 5 else "close" if -30 <= d <= 10 else "contradicted")
+            how = (f"The 3D scan measures {found_txt} of floor{diff}; scans usually measure about a tenth less "
+                   "than the advertised size.")
+        else:
+            verdict = "confirmed" if pct <= 5 else "close" if pct <= 10 else "contradicted"
+            if titled:
+                found_txt = f"{phrase(kind, found)} (scan title)"
+                how = f"The 3D scan of this plan is titled '{title}', which gives {phrase(kind, found)}{diff}."
+            else:
+                how = f"{_cap(SOURCE_NAME[src])} measures {found_txt}{diff}."
         if kit_plan:
             how = f"According to the building record, its plan {kit_plan} has {found_txt}{diff}."
     else:

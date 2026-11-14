@@ -10,7 +10,7 @@ from harness.model import cli_chat_model as ccm
 
 SNAP = {"url": "https://example.test/listing", "title": "Synthetic Lofts",
         "address_text": "100 Example St, Houston, TX 77002", "text": "2 Beds 1,100 sq ft", "jsonld": []}
-EXPECTED = {"c1": "contradicted", "c2": "contradicted", "c3": "contradicted", "c4": "confirmed", "c5": "cant_check"}
+EXPECTED = {"c1": "contradicted", "c2": "contradicted", "c3": "confirmed", "c4": "confirmed", "c5": "cant_check"}
 
 
 def go(tb):
@@ -32,7 +32,7 @@ def test_fixed_plan_with_fake_toolbox(monkeypatch):
     monkeypatch.setattr(run_mod, "AGENT_ENABLED", False)
     events, done = go(Toolbox.fake())
     assert verdicts(events) == EXPECTED
-    assert done["counts"] == {"confirmed": 1, "contradicted": 3, "close": 0, "cant_check": 1}
+    assert done["counts"] == {"confirmed": 2, "contradicted": 2, "close": 0, "cant_check": 1}
     assert done["headline"].startswith("Listing says 2 bedrooms, but the 3D scan shows 1 bedroom + den")
     types = [e["type"] for e in events]
     assert types[0] == "run_started" and "evidence" in types

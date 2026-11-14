@@ -31,12 +31,45 @@ def test_stories_aerial_beats_county_and_record():
     assert v["image"] == "C:/x/oblique.jpg"
 
 
-def test_area_bands():
-    def at(found):
-        return judge(claim("area_sqft", 1100), [ev("scan", {"area_sqft": found})])
+def test_area_bands_for_county_and_record():
+    # written sizes (county, building record) keep the plain 5% / 10% rule
+    def at(found, source="county"):
+        return judge(claim("area_sqft", 1100), [ev(source, {"area_sqft": found})])
     assert at(968)["verdict"] == "contradicted" and "12%" in at(968)["reason"]
     assert at(1060)["verdict"] == "confirmed"
     assert at(1010)["verdict"] == "close"
+    assert at(968, "record")["verdict"] == "contradicted"
+
+
+def test_scan_measured_area_allows_the_usual_shortfall():
+    def at(listed, measured):
+        return judge(claim("area_sqft", listed), [ev("scan", {"area_sqft": measured})])
+    v = at(712, 640)  # 10% smaller: normal for a scan
+    assert v["verdict"] == "confirmed" and v["found"] == "640 sq ft"
+    assert v["reason"] == ("Listing says 712 sq ft. The 3D scan measures 640 sq ft of floor, 10% smaller; "
+                           "scans usually measure about a tenth less than the advertised size.")
+    assert at(1000, 800)["verdict"] == "confirmed"      # 20% smaller
+    assert at(1000, 1050)["verdict"] == "confirmed"     # 5% larger
+    assert at(640, 498)["verdict"] == "close"           # 22% smaller
+    assert at(1000, 700)["verdict"] == "close"          # 30% smaller
+    assert at(1000, 1080)["verdict"] == "close"         # 8% larger
+    assert at(1000, 690)["verdict"] == "contradicted"   # 31% smaller
+    assert at(1000, 1110)["verdict"] == "contradicted"  # 11% larger
+
+
+def test_scan_title_size_beats_measured_area():
+    def at(listed, measured, title):
+        return judge(claim("area_sqft", listed),
+                     [ev("scan", {"area_sqft": measured, "model_name": title})])
+    v = at(855, 744, "1BR W Den 1BA - 855 SF")
+    assert v["verdict"] == "confirmed" and v["source"] == "scan" and v["found"] == "855 sq ft (scan title)"
+    assert v["reason"] == ("Listing says 855 sq ft. The 3D scan of this plan is titled "
+                           "'1BR W Den 1BA - 855 SF', which gives 855 sq ft.")
+    assert at(712, 640, "1BR 1BA - 735 SF")["verdict"] == "confirmed"
+    v = at(1240, 1058, "2BR 2BA - 1,060 SF")
+    assert v["verdict"] == "contradicted" and "15% smaller" in v["reason"]
+    # a title without a size falls back to the measured area
+    assert at(855, 744, "1BR W Den")["found"] == "744 sq ft"
 
 
 def test_year_built_confirmed_by_county():

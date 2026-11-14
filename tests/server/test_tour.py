@@ -1,10 +1,15 @@
-"""Tour page (GET /tour/<run_id>?claim=<id>): invented run, isolated private folder under tmp_path."""
+"""Tour page (GET /tour/<run_id>?claim=<id>): invented run, isolated private folder under tmp_path.
+Spot picking uses a fake Matterport client and a fake picture check: no network, no model calls."""
 import json
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 import server.app as srv
+from server import tour
+from tools.scan import spots
 
 RUN_ID = "20990101-000000-abc123"
 MODEL = "TestModel123"
@@ -51,12 +56,61 @@ def _summary(tmp_path, rooms):
                                                                    "panoLocations": panos}}}), encoding="utf-8")
 
 
+class FakeClient:
+    """Stands in for tools.scan.matterport: invented spots whose face URLs look signed."""
+
+    def __init__(self):
+        self.queries = self.downloads = 0
+        self.spot_ids = [f"spot{i:04d}abcd" for i in range(6)]
+
+    def spot_query(self, model_id):
+        self.queries += 1
+        url = "https://signed.invalid/face.jpg?Signature=abc123&Expires=1"
+        rooms = [{"id": "liv", "tags": ["living"]}, {"id": "nook", "tags": ["unfurnished"]}]
+        panos = [{"id": sid, "label": str(i), "position": {"x": float(i), "y": float(i % 2), "z": 1.4},
+                  "anchor": {"room": {"id": "nook" if i == 2 else "liv"}}, "skybox": {"children": [url] * 6}}
+                 for i, sid in enumerate(self.spot_ids)]
+        return {"id": model_id, "name": "invented", "rooms": rooms, "panoLocations": panos}
+
+    def download_image(self, url):
+        self.downloads += 1
+        return Image.new("RGB", (64, 64), (200, 190, 180))
+
+
+class FakeLook:
+    def __init__(self):
+        self.calls, self.answer, self.confidence, self.images, self.question = 0, None, 0.9, [], ""
+
+    def __call__(self, paths, question, fields):
+        self.calls += 1
+        self.images, self.question = list(paths), question
+        assert set(fields) == {"spot", "view", "seen"}
+        return {"status": "ok", "answer": dict(self.answer or {}), "confidence": self.confidence, "notes": ""}
+
+
+FAKE_CLIENT, FAKE_LOOK = FakeClient(), FakeLook()
+
+
 @pytest.fixture(autouse=True)
 def env(tmp_path, monkeypatch):
+    global FAKE_CLIENT, FAKE_LOOK
     monkeypatch.setenv("RC_PRIVATE_DIR", str(tmp_path))
     monkeypatch.delenv("MATTERPORT_SDK_KEY", raising=False)
     (tmp_path / ".env").write_text("MATTERPORT_API_KEY=other-secret-value-xyz\n", encoding="utf-8")
     srv.save_run(_run())
+    FAKE_CLIENT, FAKE_LOOK = FakeClient(), FakeLook()
+    monkeypatch.setattr(spots, "_default_client", lambda: FAKE_CLIENT)
+    monkeypatch.setattr(spots, "_default_look", lambda: FAKE_LOOK)
+    tour.reset_spots()
+    yield
+    tour.reset_spots()
+
+
+def _add_claim(claim, verdict):
+    run = _run()
+    run["events"][1]["claims"].append(claim)
+    run["events"].insert(-1, {"type": "verdict", "verdict": verdict})
+    srv.save_run(run)
 
 
 @pytest.fixture
@@ -115,18 +169,131 @@ def test_room_picked_only_when_one_room_carries_the_word(client, tmp_path, monke
     _summary(tmp_path, [{"id": "roomA", "label": None, "tags": ["bathroom"], "classifications": []},
                         {"id": "roomB", "label": None, "tags": ["unfurnished"], "classifications": []},
                         {"id": "roomC", "label": None, "tags": ["bedroom"], "classifications": []}])
-    bath = _cfg(client.get(f"/tour/{RUN_ID}?claim=c2").text)["room"]
-    assert bath["room_id"] == "roomA" and bath["sweeps"] == ["pano0000abcd"]
-    den = _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["room"]  # no room is tagged den: start view
-    assert "room_id" not in den and den["word"] == "den"
+    html = client.get(f"/tour/{RUN_ID}?claim=c2").text
+    bath = _cfg(html)["spot"]
+    assert bath["status"] == "found" and bath["sweeps"] == ["pano0000abcd"] and bath["sweep"] is None
+    assert "only room the scan tags as a bathroom" in html
+    assert FAKE_CLIENT.queries == 0 and FAKE_LOOK.calls == 0  # the run's saved room tags settled it
 
 
 def test_room_not_picked_when_ambiguous_or_shared(client, tmp_path, monkeypatch):
     monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    FAKE_LOOK.answer = {"spot": "none", "view": None, "seen": None}
     _summary(tmp_path, [{"id": "roomA", "tags": ["bathroom"]}, {"id": "roomB", "tags": ["bathroom"]}])
-    assert "room_id" not in _cfg(client.get(f"/tour/{RUN_ID}?claim=c2").text)["room"]
-    _summary(tmp_path, [{"id": "roomA", "tags": ["bathroom", "kitchen"]}])
-    assert "room_id" not in _cfg(client.get(f"/tour/{RUN_ID}?claim=c2").text)["room"]
+    spot = _cfg(client.get(f"/tour/{RUN_ID}?claim=c2").text)["spot"]
+    assert spot["sweep"] is None and spot["sweeps"] == []  # two bathrooms: picture check said none
+    assert FAKE_LOOK.calls == 1
+
+
+# ---------- spot picking (tools/scan/spots.py) with a fake Matterport client and a fake picture check ----------
+
+def test_den_spot_chosen_by_picture_check(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    FAKE_LOOK.answer = {"spot": "3", "view": "B", "seen": "Small room off the living room, no closet, no door"}
+    html = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    spot = _cfg(html)["spot"]
+    assert spot["status"] == "found" and spot["sweep"] == FAKE_CLIENT.spot_ids[2] and spot["face"] == 1
+    assert "At this spot: Small room off the living room, no closet, no door." in html
+    cfg = _cfg(html)
+    assert cfg["tag"]["description"].startswith("Here: Small room") and cfg["pull"] < 1
+    assert FAKE_LOOK.calls == 1 and len(FAKE_LOOK.images) <= 5  # two spots per sheet, at most 10 spots
+    assert "spots are numbered 1 to" in FAKE_LOOK.question and "den" in FAKE_LOOK.question
+
+
+def test_none_keeps_start_view_and_says_so(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    FAKE_LOOK.answer = {"spot": "none", "view": None, "seen": None}
+    html = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    spot = _cfg(html)["spot"]
+    assert spot["status"] == "none" and spot["sweep"] is None and spot["sweeps"] == []
+    assert "none clearly shows a den" in html and "start position" in html
+
+
+def test_low_confidence_or_bad_spot_is_none(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    FAKE_LOOK.answer = {"spot": "99", "view": "A", "seen": "a room"}
+    assert _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["spot"]["sweep"] is None
+    (tmp_path / "rc_cache" / "spots" / MODEL / "bedrooms_2.json").unlink()
+    tour.reset_spots()
+    FAKE_LOOK.answer, FAKE_LOOK.confidence = {"spot": "2", "view": "A", "seen": "maybe a den"}, 0.3
+    assert _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["spot"]["sweep"] is None
+
+
+def test_pick_cached_and_reused(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    FAKE_LOOK.answer = {"spot": "1", "view": "C", "seen": "Small nook by the kitchen"}
+    first = _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["spot"]
+    assert (tmp_path / "rc_cache" / "spots" / MODEL / "bedrooms_2.json").is_file()
+    q, d = FAKE_CLIENT.queries, FAKE_CLIENT.downloads
+    tour.reset_spots()  # as after a server restart: only the disk cache is left
+    again = _cfg(client.get(f"/tour/{RUN_ID}?claim=c1").text)["spot"]
+    assert again == first and FAKE_LOOK.calls == 1
+    assert (FAKE_CLIENT.queries, FAKE_CLIENT.downloads) == (q, d)
+
+
+def test_no_signed_url_written_to_cache(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    FAKE_LOOK.answer = {"spot": "2", "view": "D", "seen": "Small room with a window"}
+    html = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    assert _cfg(html)["spot"]["status"] == "found"
+    files = [f for f in (tmp_path / "rc_cache" / "spots").rglob("*") if f.is_file()]
+    assert any(f.suffix == ".json" for f in files) and any(f.suffix == ".jpg" for f in files)
+    for f in files:
+        data = f.read_bytes()
+        assert b"signed.invalid" not in data and b"Signature=" not in data and b"http" not in data.lower()
+    assert "signed.invalid" not in html and "Signature=" not in html
+
+
+def test_finding_page_while_picking(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    gate = threading.Event()
+
+    def slow(model_id, claim, verdict):
+        gate.wait(5)
+        return {"status": "none", "why": "Nothing found."}
+    monkeypatch.setattr(tour, "PICKER", slow)
+    monkeypatch.setattr(tour, "WAIT_S", 0.05)
+    r = client.get(f"/tour/{RUN_ID}?claim=c1")
+    assert r.status_code == 200 and "Finding the spot" in r.text and "http-equiv=refresh" in r.text
+    assert "TOUR_CFG" not in r.text and FAKE_KEY not in r.text
+    gate.set()
+    for th in list(tour._JOBS.values()):
+        th.join(5)
+    assert "TOUR_CFG" in client.get(f"/tour/{RUN_ID}?claim=c1").text
+
+
+def test_whole_unit_claim_is_not_picked(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    _add_claim({"id": "c4", "kind": "area_sqft", "value": 900, "unit": "sqft", "scope": "unit", "label": "Plan Z",
+                "quote": "900 sq ft", "checkable": True},
+               {"claim_id": "c4", "verdict": "contradicted", "claimed": "900 sq ft", "found": "700 sq ft",
+                "source": "scan", "reason": "x", "image": None})
+    html = client.get(f"/tour/{RUN_ID}?claim=c4").text
+    assert _cfg(html)["spot"]["status"] == "skip" and "whole unit" in html
+    assert FAKE_CLIENT.queries == 0 and FAKE_LOOK.calls == 0
+
+
+def test_more_bedrooms_than_listed_stands_in_the_smallest(tmp_path):
+    _summary(tmp_path, [{"id": "big", "tags": ["bedroom"], "dimensions": {"areaFloor": 15.0}},
+                        {"id": "small", "tags": ["bedroom"], "dimensions": {"areaFloor": 9.0}},
+                        {"id": "liv", "tags": ["living"], "dimensions": {"areaFloor": 30.0}}])
+    claim = {"id": "c9", "kind": "bedrooms", "value": 1, "label": "Plan Z"}
+    verdict = {"claimed": "1 bedroom", "found": "2 bedrooms"}
+    pick = spots.pick_spot(MODEL, claim, verdict, client=FAKE_CLIENT, look=FAKE_LOOK)
+    assert pick["status"] == "found" and pick["how"] == "geometry" and pick["room_id"] == "small"
+    assert "smallest" in pick["why"] and FAKE_LOOK.calls == 0
+    fewer = spots.pick_spot(MODEL, {**claim, "value": 3}, {"claimed": "3 bedrooms", "found": "2 bedrooms"},
+                            client=FAKE_CLIENT, look=FAKE_LOOK)
+    assert fewer["status"] == "skip" and FAKE_LOOK.calls == 0
+
+
+def test_spread_spots_one_per_room_then_far_apart():
+    panos = [{"id": f"p{i}", "position": {"x": float(i), "y": 0.0, "z": 1.4}, "anchor": {"room": {"id": "r1"}}}
+             for i in range(20)]
+    panos.append({"id": "lone", "position": {"x": 50.0, "y": 0.0, "z": 1.4}, "anchor": {"room": {"id": "r2"}}})
+    picked = spots.spread_spots(panos, 4)
+    ids = [p["id"] for p in picked]
+    assert len(ids) == 4 and "lone" in ids and "p0" in ids  # r2's only spot, and the far end of r1
 
 
 def test_report_links_scan_mismatch_only(client, monkeypatch):

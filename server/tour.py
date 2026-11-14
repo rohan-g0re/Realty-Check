@@ -1,8 +1,10 @@
 """"See it yourself": the real Matterport 3D walkthrough for one claim of a saved run.
 
-GET /tour/<run_id>?claim=<claim id>. The page embeds the scan the claim's scan evidence points to, moves into the
-room the claim is about when the scan's own room tags single out exactly one room, and pins one client-side label
-(Tag.add, never saved to the model) with what the listing says and what the scan shows.
+GET /tour/<run_id>?claim=<claim id>. The page embeds the scan the claim's scan evidence points to, stands at the
+panorama spot that shows the mismatch (picked by tools/scan/spots.py from the scan's room tags, else by a picture
+check; cached; "Finding the spot…" page while the first pick runs), turns toward it, and pins one client-side label
+(Tag.add, never saved to the model) there with what the listing says and what the scan shows. No spot found: the
+scan's start view, and the card says so.
 
 The Showcase SDK key is read at request time from the environment or the private .env and only ever written into
 the served page. No key: the page says the 3D view is not available.
@@ -12,14 +14,16 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from html import escape
 from pathlib import Path
 
+from tools.scan import spots
+
 MODEL_RE = re.compile(r"^[A-Za-z0-9]{6,24}$")
 CLAIM_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
-PANO_RE = re.compile(r"^[a-z0-9]{6,40}$")
+PANO_RE = re.compile(r"^[A-Za-z0-9]{6,40}$")
 SDK_BOOT = "https://api.matterport.com/sdk/bootstrap/3.1.0-0-g1cd7e0997a/sdk.es6.js"
-NOT_A_ROOM_TYPE = {"unfurnished", "furnished", "other", "void"}
 KIND_WORDS = {"bedrooms": "Bedrooms", "bathrooms": "Bathrooms", "area_sqft": "Size", "stories": "Floors",
               "amenity": "Amenity", "parking": "Parking", "laundry": "Laundry", "view": "View"}
 
@@ -123,57 +127,64 @@ def tour_target(run: dict, claim_id: str | None = None) -> dict | None:
     return None
 
 
-# ---------- which room ----------
+# ---------- which spot ----------
+# The pick runs once per (model, claim kind, claimed value) in a background thread and is cached on disk by
+# tools/scan/spots.py; the page shows "Finding the spot…" (and reloads itself) until it is ready.
 
-def _target_word(claim: dict, verdict: dict) -> str | None:
-    kind = claim.get("kind")
-    found = str(verdict.get("found") or "").lower()
-    if kind == "bedrooms":
-        return "den" if re.search(r"\bden\b", found) else "bedroom"
-    if kind == "bathrooms":
-        return "bathroom"
-    return None
-
-
-def _room_names(room: dict) -> list:
-    names = [room.get("label")] + list(room.get("tags") or []) \
-        + [c.get("label") for c in room.get("classifications") or [] if isinstance(c, dict)]
-    return [str(n).strip().lower() for n in names if n and str(n).strip()]
+PICKER = spots.pick_spot  # tests replace this
+WAIT_S = 1.5  # a pick that finishes this fast (cached scan geometry) is served without the waiting page
+_JOBS: dict[str, threading.Thread] = {}
+_RESULTS: dict[str, dict] = {}
+_LOCK = threading.Lock()
 
 
-def pick_room(model_id: str, claim: dict, verdict: dict, cache_root: Path | None) -> dict:
-    """Room from the scan's own cached room tags (saved when the run fetched the scan). Never guessed:
-    a room is picked only when exactly one room carries the word the claim is about."""
-    word = _target_word(claim, verdict)
-    if not word:
-        return {"word": None, "why": "This claim is about the whole unit, not one room."}
-    model = None
-    if cache_root is not None:
-        p = cache_root / "scan" / model_id / "summary.json"
-        try:
-            model = ((json.loads(p.read_text(encoding="utf-8")).get("data") or {}).get("model")) or None
-        except (OSError, ValueError, AttributeError):
-            model = None
-    if not model:
-        return {"word": word, "why": f"The scan's room list was not saved, so we can't tell which room is the {word}."}
-    rx = re.compile(rf"\b{re.escape(word)}s?\b")
-    hits = [r for r in model.get("rooms") or [] if isinstance(r, dict) and any(rx.search(n) for n in _room_names(r))]
-    if len(hits) != 1:
-        why = (f"No room in the scan is tagged {word}." if not hits
-               else f"{len(hits)} rooms in the scan are tagged {word}, so we can't tell which one the listing means.")
-        return {"word": word, "why": why}
-    room = hits[0]
-    other = [n for n in _room_names(room) if not rx.search(n) and n not in NOT_A_ROOM_TYPE]
-    if other:
-        return {"word": word, "why": f"The scan's only {word} shares one space with the {other[0]}, "
-                                     "so we can't stand you in it."}
-    panos = [p["id"] for p in model.get("panoLocations") or []
-             if isinstance(p, dict) and ((p.get("anchor") or {}).get("room") or {}).get("id") == room.get("id")
-             and PANO_RE.match(str(p.get("id") or ""))]
-    area = (room.get("dimensions") or {}).get("areaFloor")
-    return {"word": word, "room_id": str(room.get("id") or ""), "sweeps": panos,
-            "area_sqft": round(area * 10.7639) if isinstance(area, (int, float)) else None,
-            "why": f"This is the only room the scan tags as a {word}."}
+def reset_spots() -> None:
+    with _LOCK:
+        _JOBS.clear()
+        _RESULTS.clear()
+
+
+def _pick_job(key: str, model_id: str, claim: dict, verdict: dict) -> None:
+    try:
+        res = PICKER(model_id, claim, verdict)
+    except Exception as e:  # noqa: BLE001 - never surfaces details that could hold a URL
+        res = {"status": "none", "error": True, "why": f"The spot could not be looked up just now ({type(e).__name__})."}
+    with _LOCK:
+        _RESULTS[key] = res
+
+
+def spot_for(target: dict, wait_s: float | None = None) -> dict:
+    """The spot pick for a tour target: from cache, or started now. {"status": "pending"} while it runs."""
+    model_id, c, v = target["model_id"], target["claim"], target["verdict"]
+    plan = spots.plan_for(c, v)
+    if not plan.get("target"):
+        return {"status": "skip", "why": plan.get("why") or spots.WHOLE_UNIT}
+    hit = spots.cached_pick(model_id, c)
+    if hit is not None:
+        return hit
+    key = f"{model_id}/{spots.cache_key(c)}"
+    with _LOCK:
+        if key in _RESULTS:
+            return _RESULTS[key]
+        th = _JOBS.get(key)
+        if th is None:
+            th = threading.Thread(target=_pick_job, args=(key, model_id, c, v), daemon=True, name=f"spot-{key}")
+            _JOBS[key] = th
+            th.start()
+    th.join(WAIT_S if wait_s is None else wait_s)
+    with _LOCK:
+        return _RESULTS.get(key) or {"status": "pending"}
+
+
+def _spot_note(spot: dict) -> str:
+    """The card's plain line: what is visible at this spot, or why the tour stays at the start view."""
+    st = spot.get("status")
+    if st == "found" and spot.get("how") == "picture" and spot.get("seen"):
+        return f"At this spot: {spot['seen']}."
+    if st == "found":
+        return str(spot.get("why") or "")
+    why = str(spot.get("why") or "").strip()
+    return (why + " " if why else "") + "Showing the scan from its start position."
 
 
 # ---------- page ----------
@@ -220,48 +231,39 @@ try {
   T.sweeps = sweeps.length;
   let rooms = [];
   try { rooms = await coll(sdk.Room.data); } catch (e) {}
-  T.rooms = rooms.length; T.roomKeys = rooms[0] ? Object.keys(rooms[0]) : [];
-  let tags = [];
-  try { tags = await coll(sdk.Tag.data); } catch (e) {}
-  T.tags = tags.length;
-  // 1. the room the server picked from the scan's own room tags
-  let inRoom = [];
-  if (CFG.room && CFG.room.room_id) {
-    const ids = new Set(CFG.room.sweeps || []);
-    inRoom = sweeps.filter(s => ids.has(s.id) || ids.has(s.sid) || (s.roomInfo && s.roomInfo.id === CFG.room.room_id));
-    T.matchedSweeps = inRoom.length;
-  }
-  // 2. else a room or an existing label in the viewer that names the word exactly once
-  if (!inRoom.length && CFG.room && CFG.room.word) {
-    const rx = new RegExp('\\b' + CFG.room.word + 's?\\b', 'i');
-    const rl = rooms.filter(r => rx.test(String(r.label || r.name || '')));
-    const tl = tags.filter(t => rx.test(String(t.label || '')));
-    if (rl.length === 1) { inRoom = sweeps.filter(s => s.roomInfo && s.roomInfo.id === rl[0].id); T.how2 = 'viewer room label'; }
-    else if (!rl.length && tl.length === 1 && tl[0].anchorPosition) {
-      const a = tl[0].anchorPosition; inRoom = [sweeps.slice().sort((p, q) => dist(p.position, a) - dist(q.position, a))[0]];
-      T.how2 = 'existing label in the scan';
+  const S = CFG.spot || {};
+  let go = null, rot = null;
+  if (S.sweep) {
+    // a. the one spot the server picked (Model API panoLocation id = SDK sweep id), facing the view that shows it
+    go = sweeps.find(s => s.id === S.sweep || s.sid === S.sweep) || null;
+    if (go && Number.isInteger(S.face)) rot = {x: 0, y: (go.rotation.y || 0) + CFG.faceBase + CFG.faceStep * S.face};
+  } else if (S.sweeps && S.sweeps.length) {
+    // b. a room the scan's own tags single out: stand at its edge spot and look across to the middle of the room
+    const ids = new Set(S.sweeps);
+    const inRoom = sweeps.filter(s => ids.has(s.id) || ids.has(s.sid));
+    if (inRoom.length) {
+      const c = inRoom.reduce((m, s) => ({x: m.x + s.position.x / inRoom.length, y: m.y + s.position.y / inRoom.length,
+        z: m.z + s.position.z / inRoom.length}), {x: 0, y: 0, z: 0});
+      go = inRoom.slice().sort((p, q) => dist(q.position, c) - dist(p.position, c))[0];
+      const rid = go.roomInfo && go.roomInfo.id, rm = rooms.find(r => r.id === rid);
+      let look = c;
+      if (rm && rm.bounds && rm.bounds.min && rm.bounds.max) {
+        const b = rm.bounds; look = {x: (b.min.x + b.max.x) / 2, y: go.position.y, z: (b.min.z + b.max.z) / 2};
+      }
+      const dx = look.x - go.position.x, dz = look.z - go.position.z;
+      if (Math.hypot(dx, dz) > 0.4) rot = {x: 0, y: Math.atan2(-dx, -dz) * 180 / Math.PI};
     }
   }
-  if (inRoom.length) {
-    const c = inRoom.reduce((m, s) => ({x: m.x + s.position.x / inRoom.length, y: m.y + s.position.y / inRoom.length,
-      z: m.z + s.position.z / inRoom.length}), {x: 0, y: 0, z: 0});
-    const go = inRoom.slice().sort((p, q) => dist(p.position, c) - dist(q.position, c))[0];
-    // face the middle of that room (its bounds in the viewer), so the view looks into it, not out of it
-    const rid = go.roomInfo && go.roomInfo.id, rm = rooms.find(r => r.id === rid);
-    let look = c;
-    if (rm && rm.bounds && rm.bounds.min && rm.bounds.max) {
-      const b = rm.bounds; look = {x: (b.min.x + b.max.x) / 2, y: go.position.y, z: (b.min.z + b.max.z) / 2};
-    }
+  if (go) {
     const opts = {transition: sdk.Sweep.Transition.FLY, transitionTime: 1200};
-    const dx = look.x - go.position.x, dz = look.z - go.position.z;
-    if (Math.hypot(dx, dz) > 0.4) { opts.rotation = {x: 0, y: Math.atan2(-dx, -dz) * 180 / Math.PI}; T.faced = true; }
+    if (rot) { opts.rotation = rot; T.faced = true; }
     await sdk.Sweep.moveTo(go.id, opts);
     await wait(1800);
-    T.room = 'moved'; say(CFG.room.why || 'Moved into the room this claim is about.');
+    T.room = 'moved'; T.at = go.id; say(CFG.note);
   } else {
-    say((CFG.room && CFG.room.why ? CFG.room.why + ' ' : '') + 'Showing the scan from its start position; the label is placed in front of you.');
+    say(S.sweep || (S.sweeps && S.sweeps.length) ? 'The picked spot is not in this viewer, so this is the scan\'s start position.' : CFG.note);
   }
-  // label: in front of the current view, pulled back from the wall it hits
+  // label: on what the view looks at, pulled a little toward the camera so it does not sit inside a wall
   const pose = await sdk.Camera.getPose();
   let at = null;
   try { const w = await sdk.Renderer.getWorldPositionData({x: f.clientWidth / 2, y: f.clientHeight * 0.55}); at = w && w.position; } catch (e) {}
@@ -271,7 +273,7 @@ try {
     at = {x: p.x - Math.sin(yaw) * 2, y: p.y, z: p.z - Math.cos(yaw) * 2};
   }
   T.hitDist = Math.round(dist(at, p) * 10) / 10;
-  const k = Math.min(0.6, 1.6 / Math.max(dist(at, p), 0.01));
+  const k = Math.min(0.6, CFG.pull / Math.max(dist(at, p), 0.01));
   const anchor = {x: at.x + (p.x - at.x) * k, y: p.y - 0.35, z: at.z + (p.z - at.z) * k};
   const ids = await sdk.Tag.add({label: CFG.tag.label, description: CFG.tag.description, anchorPosition: anchor,
     stemVector: {x: 0, y: 0.25, z: 0}, color: {r: 0.70, g: 0.15, b: 0.12}});
@@ -301,19 +303,30 @@ def _first_sentence_after_listing(reason: str) -> str:
     return parts[0] if parts else ""
 
 
-def _page(title: str, body: str, script: str = "") -> str:
+def _page(title: str, body: str, script: str = "", refresh_s: int | None = None) -> str:
+    meta = f"<meta http-equiv=refresh content={int(refresh_s)}>" if refresh_s else ""
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            "<meta name=referrer content=no-referrer>"
+            f"<meta name=referrer content=no-referrer>{meta}"
             f"<title>{escape(title)}</title><style>{CSS}</style></head><body>{body}{script}</body></html>")
 
 
-def message_page(run_id: str | None, text: str, sub: str = "") -> str:
+def message_page(run_id: str | None, text: str, sub: str = "", refresh_s: int | None = None) -> str:
     back = f"<a class=back href='/report/{escape(run_id, True)}'>Back to the report</a>" if run_id else ""
-    return _page("3D view", f"{back}<div class=msg><h1>{escape(text)}</h1><p>{escape(sub)}</p></div>")
+    return _page("3D view", f"{back}<div class=msg><h1>{escape(text)}</h1><p>{escape(sub)}</p></div>",
+                 refresh_s=refresh_s)
 
 
-def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | None) -> str:
+def finding_page(run_id: str) -> str:
+    """Shown while the spot is being picked; reloads itself until the pick is ready."""
+    return message_page(run_id, "Finding the spot…",
+                        "Looking through the scan's photos for the spot that shows this. "
+                        "The first look takes about half a minute; after that it opens straight away.",
+                        refresh_s=3)
+
+
+def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | None = None,
+                spot: dict | None = None) -> str:
     run_id = str(run.get("run_id") or "")
     c, v = target["claim"], target["verdict"]
     claimed, found = _claimed_text(c, v), str(v.get("found") or "").strip()
@@ -325,8 +338,9 @@ def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | Non
         body = back + ("<div class=msg><h1>3D view not available</h1>"
                        "<p>The 3D viewer is not set up on this computer. The report still has the scan pictures.</p></div>")
         return _page("3D view not available", body)
-    room = pick_room(target["model_id"], c, v, cache_root)
-    note = room.get("why") or ""
+    spot = spot or {"status": "skip", "why": spots.WHOLE_UNIT}
+    found_spot = spot.get("status") == "found"
+    note = _spot_note(spot)
     card = ("<div class=card>"
             f"<p class=was>Listing says <s>{escape(claimed)}</s></p>"
             f"<p class=is>The 3D scan shows {escape(found)}</p>"
@@ -334,10 +348,15 @@ def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | Non
     why = _first_sentence_after_listing(v.get("reason") or "")
     if target.get("scan_title"):
         why = f"From the 3D scan titled “{target['scan_title']}”."
-    if room.get("room_id"):
-        why = room["why"]
-    cfg = {"model": target["model_id"], "key": key, "boot": SDK_BOOT,
-           "room": {k: room.get(k) for k in ("word", "room_id", "sweeps", "why") if room.get(k)},
+    if found_spot:
+        why = f"Here: {spot['seen']}." if spot.get("how") == "picture" and spot.get("seen") else str(spot.get("why") or why)
+    sweep = spot.get("sweep") if found_spot and PANO_RE.match(str(spot.get("sweep") or "")) else None
+    room_sweeps = [s for s in spot.get("sweeps") or [] if PANO_RE.match(str(s))] if found_spot and not sweep else []
+    face = spot.get("face") if isinstance(spot.get("face"), int) and 0 <= spot["face"] < 4 else None
+    cfg = {"model": target["model_id"], "key": key, "boot": SDK_BOOT, "note": note,
+           "spot": {"status": spot.get("status"), "sweep": sweep, "sweeps": room_sweeps, "face": face},
+           "faceBase": spots.FACE_YAW_BASE, "faceStep": spots.FACE_YAW_STEP,
+           "pull": 0.5 if sweep else 1.6,
            "tag": {"label": f"Listing says: {_strike(claimed)}. Really: {found}", "description": why}}
     cfg_js = json.dumps(cfg).replace("</", "<\\/")
     script = (f"<script>window.TOUR_CFG={cfg_js};</script>"

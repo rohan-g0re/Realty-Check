@@ -305,4 +305,8 @@ def tour_page(run_id: str, claim: str | None = None):
         return HTMLResponse(tour.message_page(run_id, "No 3D scan for this claim.",
                                               "Only claims checked against a 3D scan can be walked through."),
                             status_code=404, headers=headers)
-    return HTMLResponse(tour.render_tour(run, target, tour.sdk_key(), cache_dir()), headers=headers)
+    key = tour.sdk_key()
+    spot = tour.spot_for(target) if key else None  # cached, or picked once in the background
+    if spot is not None and spot.get("status") == "pending":
+        return HTMLResponse(tour.finding_page(run_id), headers=headers)
+    return HTMLResponse(tour.render_tour(run, target, key, cache_dir(), spot), headers=headers)

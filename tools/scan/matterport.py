@@ -41,6 +41,15 @@ STILLS_Q = """query Stills($id: ID!) { model(id: $id) {
   assets { floorplans(formats: ["png"], flags: [schematic]) { url floor { id } } }
 } }"""
 
+# Every panorama spot with its position and room, for picking the spot that shows a claim (tools/scan/spots.py).
+# The SDK's sweep id is this panoLocation id (checked on a real model); SDK position = (x, z, -y) of this one.
+SPOTS_Q = """query Spots($id: ID!) { model(id: $id) {
+  id name
+  rooms { id label tags classifications { label confidence } dimensions(units: metric) { areaFloor } }
+  panoLocations { id label position { x y z } anchor { room { id } floor { id } }
+    skybox(resolution: "low") { status children } }
+} }"""
+
 _SESSION: requests.Session | None = None
 
 
@@ -77,6 +86,24 @@ def _download(url: str) -> Image.Image:
     if r.status_code != 200:
         raise RuntimeError(f"image download answered HTTP {r.status_code}")
     return Image.open(io.BytesIO(r.content)).convert("RGB")
+
+
+def spot_query(model_id: str) -> dict | None:
+    """Fresh read-only query for rooms and panorama spots (positions, low-res skybox faces). Not cached here:
+    the result holds signed URLs that must stay in memory; callers store only scrub()-bed copies."""
+    if not _valid_id(model_id):
+        return None
+    return (_gql(SPOTS_Q, model_id).get("data") or {}).get("model")
+
+
+def download_image(url: str) -> Image.Image:
+    """One signed-URL download through the shared rate limit. The URL is never logged or stored."""
+    return _download(url)
+
+
+def scrub(obj: Any) -> Any:
+    """Copy of obj with every URL-looking string removed (safe to write to disk)."""
+    return _scrub(obj)
 
 
 # ---------- helpers ----------

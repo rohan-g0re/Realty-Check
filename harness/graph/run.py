@@ -7,7 +7,9 @@ every relevant check once, so the user always gets verdicts.
 from __future__ import annotations
 
 import json
+import re
 import threading
+import time
 import traceback
 import uuid
 from typing import Any, Callable
@@ -21,6 +23,8 @@ AGENT_ENABLED = True  # tests switch the deep agent off to exercise the fixed pl
 LAST_AGENT_STATS: dict = {}  # stats of the latest deep-agent run (model calls, delegations, trace)
 UNIT_KINDS = ("bedrooms", "bathrooms", "area_sqft")
 SEVERITY = ["bedrooms", "area_sqft", "bathrooms", "stories", "unit_count", "year_built"]
+RUN_BUDGET_S = 55.0     # whole-run target; vision calls are skipped once less than VISION_MIN_LEFT_S remains
+VISION_MIN_LEFT_S = 15.0
 
 
 class Run:
@@ -37,6 +41,11 @@ class Run:
         self._done: dict[str, str] = {}      # check key -> short text already returned
         self._lock = threading.RLock()       # subagents run in parallel threads
         self.agent_stats: dict = {}
+        self.t0 = time.monotonic()
+        self._stills: dict[str, str] = {}  # scan model id -> evidence id of its stills
+
+    def time_left(self) -> float:
+        return RUN_BUDGET_S - (time.monotonic() - self.t0)
 
     # ---- events -------------------------------------------------------------------------------
     def emit(self, event: dict) -> None:
@@ -105,6 +114,10 @@ class Run:
             for fp in fps:
                 if str(fp.get("name") or "").strip().lower() == p and fp.get("matterport_model_id"):
                     return fp["matterport_model_id"]
+            pre = re.compile(r"^" + re.escape(p) + r"(\b|\s|$)")
+            for fp in fps:
+                if pre.match(str(fp.get("name") or "").strip().lower()) and fp.get("matterport_model_id"):
+                    return fp["matterport_model_id"]
             for fp in fps:
                 if p in str(fp.get("name") or "").lower() and fp.get("matterport_model_id"):
                     return fp["matterport_model_id"]
@@ -112,7 +125,20 @@ class Run:
         ids = self.match.get("matterport_model_ids") or []
         return ids[0] if len(ids) == 1 else None
 
+    def canon_plan(self, plan: str) -> str:
+        """Map whatever plan name the agent passes (e.g. the kit's 'Plan E 1 Bedroom + Den') back to the claim
+        label that resolves to the same scan ('Plan E'), so evidence and claims share one plan tag."""
+        plan = (plan or "").strip()
+        mid = self.model_for(plan) if plan else None
+        if not mid:
+            return plan
+        for label in sorted({c.get("label") for c in self.claims if c.get("label")}):
+            if label.strip().lower() == plan.lower() or self.model_for(label) == mid:
+                return label
+        return plan
+
     def scan_rooms(self, plan: str = "", agent: str = "inside") -> str:
+        plan = self.canon_plan(plan)
         name = plan or "this unit"
 
         def body():
@@ -124,17 +150,24 @@ class Run:
         return self._check(f"scan_rooms:{plan.lower()}", agent, f"Checking the 3D scan for {name}.", body)
 
     def scan_photos(self, plan: str = "", claim: str = "", agent: str = "inside") -> str:
+        plan = self.canon_plan(plan)
         name = plan or "this unit"
 
         def body():
             mid = self.model_for(plan)
             if not mid:
                 return f"No 3D scan for {name}, so no photos."
-            stills = self._safe("scan", self.tb.scan_stills, mid, 4)
-            sid = self.add(stills, "scan", plan)
+            with self._lock:
+                sid = self._stills.get(mid)
+            if sid is None:  # one stills fetch per scan, however many photo checks ask for it
+                sid = self.add(self._safe("scan", self.tb.scan_stills, mid, 4), "scan", plan)
+                with self._lock:
+                    self._stills[mid] = sid
             paths = [im["path"] for im in self.evidence[sid]["images"] if im.get("path")][:4]
             if not paths:
                 return self.line(sid)
+            if (not claim or agent == "orchestrator") and any(self.has_ok(k, "scan", plan or None) for k in ("bedrooms", "bathrooms")):
+                return self.line(sid) + "\nThe scan already gave room counts, so the photos are kept as proof only."
             if claim:
                 res = self._vision(self.tb.check_room, paths, claim)
                 a = res.get("answer") or {}
@@ -156,6 +189,9 @@ class Run:
                            f"Looking at photos from the 3D scan of {name}.", body)
 
     def _vision(self, fn, *args) -> dict:
+        if self.time_left() < VISION_MIN_LEFT_S:
+            return {"status": "error", "answer": {}, "confidence": 0.0,
+                    "notes": "skipped: the run's time budget is nearly used up"}
         try:
             res = fn(*args)
             return res if isinstance(res, dict) else {"status": "error", "notes": "bad vision reply"}
@@ -182,7 +218,12 @@ class Run:
         return self._check("measure_building", agent, "Measuring the roof height from aerial imagery.", body)
 
     def count_floors_on_photo(self, agent: str = "outside") -> str:
+        """Illustrative only: a floor count read off a photo never decides the stories verdict (the vision model
+        miscounted the real demo building). Stored as observed.photo_floor_count, never observed.stories, and
+        skipped entirely once the roof height is measured."""
         def body():
+            if self.has_ok("stories", "aerial"):
+                return "The roof height is already measured; a photo count is not needed (it never decides floors)."
             self.aerial_photos(agent)
             imgs = [im for e in list(self.evidence.values()) if e["source"] == "aerial" and e["status"] == "ok"
                     for im in e["images"] if im.get("path")]
@@ -194,10 +235,12 @@ class Run:
             a = res.get("answer") or {}
             ok = res.get("status") == "ok" and isinstance(a.get("stories"), (int, float))
             ev = make_evidence("aerial", "ok" if ok else "error",
-                               f"Counting window rows on the angled aerial photo: {a.get('stories')} floors." if ok
+                               f"For illustration only: window rows on the angled aerial photo suggest about "
+                               f"{a.get('stories')} floors (a photo count never decides the verdict)." if ok
                                else "Floors could not be counted on the aerial photo.",
-                               {"stories": a.get("stories"), "how_counted": str(a.get("how_counted", ""))[:150]} if ok else {},
-                               use, f"vision model floor count, confidence {res.get('confidence')}")
+                               {"photo_floor_count": a.get("stories"), "illustrative": True,
+                                "how_counted": str(a.get("how_counted", ""))[:150]} if ok else {},
+                               use, f"vision model floor count (illustrative), confidence {res.get('confidence')}")
             return self.line(self.add(ev, "aerial"))
         return self._check("count_floors", agent, "Counting floors on the angled aerial photo.", body)
 
@@ -217,6 +260,14 @@ class Run:
             return self.line(self.add(ev, "record"))
         return self._check("record", agent, "Reading the building record.", body)
 
+    def proof_images(self) -> None:
+        """Cheap, cached stills for each claimed floor plan that has a scan, so verdicts carry a picture.
+        Runs after the agent too; checks already done are not repeated."""
+        plans = sorted({c.get("label") or "" for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS})
+        for plan in plans:
+            if self.model_for(plan) and self.time_left() > 5:
+                self.scan_photos(plan)
+
     # ---- fixed plan: every relevant check once, by claim kind -----------------------------------
     def has_ok(self, kind: str, source: str | None = None, plan: str | None = None) -> bool:
         for e in list(self.evidence.values()):
@@ -231,9 +282,8 @@ class Run:
         plans = sorted({c.get("label") or "" for c in checkable if c.get("kind") in UNIT_KINDS})
         for plan in plans:
             self.scan_rooms(plan)
-            room_kinds = kinds & {"bedrooms", "bathrooms"}
-            if room_kinds and not any(self.has_ok(k, "scan", plan or None) for k in room_kinds):
-                self.scan_photos(plan)
+            if self.model_for(plan):
+                self.scan_photos(plan)  # stills as proof images; vision only if the scan gave no room counts
         if "stories" in kinds:
             self.measure_building()
             if not self.has_ok("stories", "aerial"):
@@ -325,6 +375,10 @@ def run_check(snapshot: dict, emit: Callable[[dict], Any], toolbox: Toolbox | No
                 run.fixed_plan()
             except Exception as e:
                 run.error(f"standard checks failed: {type(e).__name__}: {e}")
+        try:
+            run.proof_images()
+        except Exception as e:
+            run.error(f"proof images failed: {type(e).__name__}: {e}")
     else:
         run.step("orchestrator", "Nothing on this page can be measured, so no checks are needed.")
 

@@ -27,7 +27,7 @@ def test_stories_aerial_beats_county_and_record():
                ev("aerial", {"stories": 6, "height_m": 23.1}),
                ev("aerial", {}, images=[{"path": "C:/x/oblique.jpg", "caption": "Angled"}])])
     assert v["verdict"] == "contradicted" and v["source"] == "aerial"
-    assert v["reason"].startswith("Listing says 5 floors. The aerial photo shows 6 floors.")
+    assert v["reason"].startswith("Listing says 5 floors. The aerial photo shows 6 floors (measured roof height 23.1 m")
     assert v["image"] == "C:/x/oblique.jpg"
 
 
@@ -67,3 +67,19 @@ def test_scope_and_plan_filters():
     v = judge(claim("bedrooms", 2, label="Plan E"),
               [ev("scan", {"bedrooms": 1, "plan": "Plan A"}), ev("record", {"bedrooms": 2})])
     assert v["verdict"] == "confirmed" and v["source"] == "record"
+
+
+def test_photo_floor_count_never_decides_stories():
+    photo = ev("aerial", {"photo_floor_count": 7, "illustrative": True})
+    unmeasured = ev("aerial", {"stories": 7})  # aerial floors without a roof height are not a measurement
+    assert judge(claim("stories", 5, scope="building"), [photo, unmeasured])["verdict"] == "cant_check"
+    v = judge(claim("stories", 5, scope="building"), [photo, unmeasured, ev("county", {"stories": 6})])
+    assert v["source"] == "county" and v["found"] == "6 floors"
+
+
+def test_short_plan_label_matches_kit_plan_name():
+    v = judge(claim("bedrooms", 2, label="Plan E"),
+              [ev("scan", {"bedrooms": 1, "model_name": "1BR W Den 1BA", "plan": "Plan E 1 Bedroom + Den"})])
+    assert v["verdict"] == "contradicted" and v["found"] == "1 bedroom + den"
+    assert judge(claim("bedrooms", 2, label="Plan E"),
+                 [ev("scan", {"bedrooms": 1, "plan": "Plan EF"})])["verdict"] == "cant_check"

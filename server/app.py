@@ -22,6 +22,7 @@ from server.report import render_report
 EVENT_TYPES = {"run_started", "step", "claims", "match", "evidence", "verdict", "done", "error"}
 PING_S = 10.0
 REPLAY_GAP = 0.4
+REPLAY_TOTAL_S = 6.0  # a replay never takes longer than this
 RUN_ID_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 TOKEN_RE = re.compile(r"^[a-f0-9]{16}$")
 
@@ -215,15 +216,18 @@ def _synth_done(events: list[dict]) -> dict:
             "headline": f"{counts['contradicted']} of {sum(counts.values())} claims did not hold up."}
 
 
-def replay(run: dict) -> queue.Queue:
+def replay(run: dict, base_url: str = "") -> queue.Queue:
     q: queue.Queue = queue.Queue()
     with _IMAGES_LOCK:
         _IMAGES.update(run.get("images") or {})
+    gap = min(REPLAY_GAP, REPLAY_TOTAL_S / max(1, len(run["events"])))
 
     def work() -> None:
         for i, ev in enumerate(run["events"]):
             if i:
-                time.sleep(REPLAY_GAP)
+                time.sleep(gap)
+            if ev.get("type") == "done" and base_url:
+                ev = {**ev, "report_url": f"{base_url}/report/{run['run_id']}"}  # this server, not the original
             q.put(ev)
         q.put(None)
 
@@ -254,7 +258,7 @@ def health():
 async def check(snapshot: dict, request: Request):
     base = str(request.base_url).rstrip("/")
     old = find_finished_run(snapshot.get("address_text")) if os.environ.get("RC_REPLAY") == "1" else None
-    q = replay(old) if old else start_run(snapshot, base)
+    q = replay(old, base) if old else start_run(snapshot, base)
     return StreamingResponse(sse(q), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

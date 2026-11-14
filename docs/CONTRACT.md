@@ -79,10 +79,17 @@ The server rewrites every image path in outgoing events to `/img/<token>` URLs i
 | `tools.aerial` | `aerial_images(lat: float, lon: float, half_m: int = 60) -> dict` | Evidence with top-down and oblique `images` |
 | `tools.aerial` | `building_height(lat: float, lon: float) -> dict` | Evidence: `observed.height_m`, `observed.stories` (estimate), method |
 | `tools.paper` | `county_record(address: str, lat: float or None, lon: float or None, city: str or None) -> dict` | Evidence, `source="county"`: stories, year_built, unit_count, building_sf where the county publishes them |
-| `tools.vision` | `look(image_paths: list[str], question: str, fields: dict[str, str]) -> dict` | `{"status": "ok" or "error", "answer": {field: value}, "confidence": 0-1, "notes": str}` |
-| `harness.claims` | `extract_claims(snapshot: dict) -> list[dict]` | list of Claim |
+| `tools.paper` | `geocode(address: str) -> dict or None` | `{"lat", "lon", ...}` for an address the kit did not match, else None |
+| `tools.vision` | `look(image_paths: list[str], question: str, fields: dict[str, str]) -> dict` | `{"status": "ok" or "error", "answer": {field: value}, "confidence": 0-1, "notes": str}`; cached under `rc_cache/vision` |
+| `tools.vision` | `count_floors(image_paths: list[str]) -> dict` | look() result, `answer`: `stories`, `how_counted`. Illustrative only: never decides a stories verdict |
+| `tools.vision` | `read_floorplan(image_paths: list[str]) -> dict` | look() result, `answer`: `bedrooms`, `bathrooms`, `has_den`, `room_labels` |
+| `tools.vision` | `check_room(image_paths: list[str], claim_text: str) -> dict` | look() result, `answer`: `room_type`, `has_window`, `supports_claim` |
+| `harness.claims` | `extract_claims(snapshot: dict, use_model: bool = True) -> list[dict]` | list of Claim; `use_model=False` = rules and JSON-LD only |
 | `harness.graph` | `judge(claim: dict, evidences: list[dict]) -> dict` | Verdict |
-| `harness.graph` | `run_check(snapshot: dict, emit) -> dict` | emits Events through `emit(event: dict)`; returns the `done` event |
+| `harness.graph` | `run_check(snapshot: dict, emit, toolbox=None) -> dict` | emits Events through `emit(event: dict)`; returns the `done` event. `toolbox=None` means `Toolbox.real()`; `Toolbox.fake()` is the synthetic one |
+
+- Floor plans: a claim label resolves to the kit floor plan whose name equals it, else starts with it at a word boundary (case-insensitive), else contains it: `"Plan E"` → `"Plan E 1 Bedroom + Den"`. Scan evidence is tagged with the claim's label in `observed.plan`.
+- Stories: decided only by measured roof height (aerial evidence with `observed.height_m`) and paper records. A vision floor count is stored as `observed.photo_floor_count` with `observed.illustrative: true` and is ignored by the judge.
 
 Each module re-exports its functions from its package `__init__.py` (e.g. `from tools.kit import match_address`).
 
@@ -96,7 +103,8 @@ Each module re-exports its functions from its package `__init__.py` (e.g. `from 
 - `POST /check` body PageSnapshot → `text/event-stream` of Events. `GET /health` → `{"ok": true}`.
 - `GET /img/<token>` serves a cached image. `GET /report/<run_id>` returns the full report page; `GET /runs/<run_id>.json` the saved events.
 - `RC_REPLAY=1`: a snapshot whose address was run before replays its saved events with short delays instead of re-running.
-- Binds `127.0.0.1:8787` only. CORS allows extension origins.
+- Binds `127.0.0.1` only, port `RC_PORT` (default `8787`). CORS allows extension origins.
+- `RC_FAKE=1` uses the canned fake runner instead of the harness.
 
 ## 6. Environment
 - `RC_PRIVATE_DIR` = private driver folder. Keys through `rc_common.secret(NAME)`: `MATTERPORT_API_KEY`, `MATTERPORT_API_TOKEN`, `VEXCEL_API_KEY`, `COSTAR_ZIP_PASSWORD`, `COSTAR_KIT_ZIP`.

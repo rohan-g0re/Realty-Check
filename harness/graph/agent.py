@@ -23,7 +23,7 @@ from harness.model import cli_chat_model as ccm
 PROVIDER = "reality_check_cli"
 MAX_MODEL_CALLS = 12      # hard cap across orchestrator + subagents
 ORCH_MAX_CALLS = 4        # orchestrator's own turns (langchain ModelCallLimitMiddleware)
-AGENT_BUDGET_S = 75.0     # after this, every model call returns a stop message
+AGENT_BUDGET_S = 35.0     # after this, every model call returns a stop message
 STOP_TEXT = "Stopped: the turn budget for this check is used up. Report what you have."
 
 # Strip what deepagents adds by default and we do not need: file tools and the general-purpose subagent.
@@ -82,7 +82,7 @@ Helpers (call them with the task tool):
 Rules:
 1. Skip claims with checkable=false and kinds no helper measures (amenities, views, parking...). If nothing is checkable, answer at once without tools.
 2. Send ALL independent tasks in ONE message as parallel task calls. Each task description: one sentence naming exactly what to check (for inside: the floor plan name) and asking for evidence ids and numbers.
-3. When the reports are back: if a claim still has no measured evidence (scan or aerial), or two sources disagree about the same number, make ONE follow-up look yourself: look_floors_on_photo (floors disagree or no height) or look_at_scan_photos (scan gave no room counts). Otherwise do not call more tools.
+3. When the reports are back, usually stop. Only if the scan gave no room counts for a room claim, make ONE follow-up look_at_scan_photos call. Floors are decided by the measured roof height and the county record, never by a photo; call look_floors_on_photo only if there is no roof height at all, and only as an illustration. A building record that disagrees with measured sources is expected and needs no follow-up.
 4. Every message that calls tools starts with one short plain sentence (at most 20 words) saying what you check and why.
 5. Final answer: one plain sentence on what was gathered. Hard budget: at most 3 of your own turns."""
 
@@ -92,8 +92,8 @@ SUB_RULES = ("Never guess numbers. Make your tool calls in one message where you
 INSIDE_PROMPT = ("You check the inside of one apartment floor plan. Call scan_rooms with the floor plan name from "
                  "your task. Only if it returns no bedroom/bathroom counts and the task asks about rooms, call "
                  "scan_photos once. " + SUB_RULES)
-OUTSIDE_PROMPT = ("You measure the building from the air. Call measure_building. Only if it gives no floor "
-                  "estimate, call count_floors_on_photo once. " + SUB_RULES)
+OUTSIDE_PROMPT = ("You measure the building from the air. Call measure_building. Only if it gives no roof height, "
+                  "call count_floors_on_photo once (illustration only). " + SUB_RULES)
 PAPER_PROMPT = "You read paper records. Call county_lookup and building_record together in one message. " + SUB_RULES
 
 

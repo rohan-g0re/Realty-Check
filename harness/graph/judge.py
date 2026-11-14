@@ -1,6 +1,7 @@
 """judge(claim, evidences) -> Verdict. Pure Python, deterministic (docs/CONTRACT.md section 4)."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 COUNT_KINDS = ("bedrooms", "bathrooms", "stories", "unit_count", "year_built")
@@ -63,15 +64,26 @@ def _usable(claim: dict, evidences: list[dict]) -> list[dict]:
         src = e.get("source")
         if src not in RANK:
             continue
+        if obs.get("illustrative"):
+            continue  # e.g. a vision-model floor count from a photo: shown, never decides
+        if kind == "stories" and src == "aerial" and _num(obs.get("height_m")) is None:
+            continue  # floors come only from measured roof height (and paper records), never a photo count
         if scope == "building" and src == "scan":
             continue  # a unit scan says nothing about the whole building
         if (scope == "unit" or kind in UNIT_KINDS) and src == "aerial":
             continue
         plan = obs.get("plan")
-        if label and plan and str(plan).strip().lower() != str(label).strip().lower():
+        if label and plan and not _same_plan(str(plan), str(label)):
             continue  # evidence about another floor plan
         out.append(e)
     return out
+
+
+def _same_plan(a: str, b: str) -> bool:
+    """'Plan E' and 'Plan E 1 Bedroom + Den' are the same plan; 'Plan E' and 'Plan EF' are not."""
+    a, b = a.strip().lower(), b.strip().lower()
+    short, long_ = sorted((a, b), key=len)
+    return a == b or bool(short) and re.match(re.escape(short) + r"(\s|$)", long_) is not None
 
 
 def _image(winner: dict, usable: list[dict], evidences: list[dict]) -> str | None:
@@ -102,7 +114,8 @@ def judge(claim: dict, evidences: list[dict]) -> dict:
     src = winner["source"]
     found_txt = phrase(kind, found)
     if kind == "bedrooms" and (obs.get("has_den") or any("den" == str(x).strip().lower()
-                                                        for x in obs.get("room_labels") or [])):
+                                                        for x in obs.get("room_labels") or [])
+                               or re.search(r"\bden\b", str(obs.get("model_name") or ""), re.I)):
         found_txt += " + den"
 
     if kind == "area_sqft":
@@ -116,6 +129,8 @@ def judge(claim: dict, evidences: list[dict]) -> dict:
             how = f"{_cap(SOURCE_NAME[src])} agree{'s' if VERB[src] != 'say' else ''}: {found_txt}."
         else:
             how = f"{_cap(SOURCE_NAME[src])} {VERB[src]} {found_txt}."
+        if kind == "stories" and src == "aerial" and _num(obs.get("height_m")) is not None:
+            how = how[:-1] + f" (measured roof height {_n(_num(obs['height_m']))} m above the ground)."
 
     # Mention other sources briefly so the reader sees agreement or the disagreement we overruled.
     others = []

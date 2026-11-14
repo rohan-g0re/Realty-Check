@@ -51,6 +51,37 @@ def _images() -> tuple[str, str]:
     return _placeholder("scan_plan.jpg", _scan_img), _placeholder("aerial_oblique.jpg", _aerial_img)
 
 
+def _fake_facts(scan_path: str, aerial_path: str) -> list[dict]:
+    """Invented "Fill me in" facts (docs/CONTRACT.md 2.7); every value is made up."""
+    rec = "From the building record, as of when it was last researched."
+    rent = "Asking rent on record as of 2026-11-12; today's prices may differ."
+
+    def f(fid, topic, label, value, source, note="", image=None):
+        return {"id": fid, "topic": topic, "label": label, "value": value, "source": source, "note": note,
+                "image": image}
+    return [
+        f("units", "Building", "Number of homes", "100", "record", rec),
+        f("class", "Building", "Building class", "Class B", "record",
+          "CoStar's quality grade within the local market (A is the top). As of when it was last researched."),
+        f("manager", "Building", "Management company", "Example Property Management LLC", "record",
+          "Company named in the building record or its rental listing."),
+        f("plan-a", "Homes & floor plans", "Plan A", "1 bed, 1 bath, 720 sq ft, 40 homes of this plan", "record",
+          "A floor plan the listing does not show. " + rec),
+        f("scan-rooms-plan-e", "Homes & floor plans", "Rooms in the 3D scan of Plan E",
+          "Bedroom, Den, Living, Kitchen", "scan", "Labelled automatically by the scan; labels can be wrong.",
+          scan_path),
+        f("rent-range", "Rent", "Asking rent across the building", "$1,400–$2,600 a month", "record", rent),
+        f("vacancy", "Rent", "Vacancy", "6% of homes empty", "record",
+          "Share of homes empty when the building was last researched."),
+        f("pets-dogs", "Rules", "Dogs", "Allowed, up to 2, $300 deposit, $25 a month pet rent", "record", rec),
+        f("parking-garage", "Rules", "Parking: garage", "$75 a month, assigned spaces available", "record", rec),
+        f("aerial-view", "Around it", "The block from above",
+          "Top-down aerial photo of the building and what sits next to it", "aerial", "", aerial_path),
+        f("county-parcel", "Records", "County parcel number", "0000000000000", "county",
+          "Look it up with the county appraisal district."),
+    ]
+
+
 def run_fake(snapshot: dict, emit) -> dict:
     scan_path, aerial_path = _images()
     address = snapshot.get("address_text") or "2111 Austin St, Houston, TX 77002"
@@ -116,7 +147,8 @@ def run_fake(snapshot: dict, emit) -> dict:
     ]
     for v in verdicts:
         say({"type": "verdict", "verdict": v})
-    done = {"type": "done", "run_id": run_id,
+    say({"type": "fill_in", "facts": _fake_facts(scan_path, aerial_path)})
+    done ={"type": "done", "run_id": run_id,
             "counts": {"confirmed": 1, "contradicted": 3, "close": 0, "cant_check": 1},
             "headline": "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den.",
             "report_url": f"/report/{run_id}"}

@@ -45,7 +45,7 @@ def _no_match(how: str, lat=None, lon=None) -> dict:
 
 def _matched(p: dict, confidence: float, how: str) -> dict:
     return {"status": "matched", "confidence": round(confidence, 2), "property_id": p["property_id"],
-            "name": p["name"], "address": p["address"], "city": p["city"], "state": p["state"],
+            "kind": p["kind"], "name": p["name"], "address": p["address"], "city": p["city"], "state": p["state"],
             "lat": p["lat"], "lon": p["lon"], "record": dict(p["record"]),
             "floorplans": [dict(f) for f in p["floorplans"]],
             "matterport_model_ids": list(p["matterport_model_ids"]), "how": how}

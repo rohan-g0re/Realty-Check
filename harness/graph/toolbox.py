@@ -33,10 +33,13 @@ class Toolbox:
     read_floorplan: Callable[[list], dict]
     check_room: Callable[[list, str], dict]
     find_features: Callable[..., dict] = None  # presence of amenities in photos; None = not available
+    kit_facts: Callable[[str], Any] = None     # extra kit facts for "Fill me in"; None = not available
 
     def __post_init__(self):
         if self.find_features is None:
             self.find_features = lambda *a, **k: _vision_error("find_features not provided")
+        if self.kit_facts is None:
+            self.kit_facts = lambda *a, **k: None
 
     @classmethod
     def real(cls) -> "Toolbox":
@@ -65,6 +68,7 @@ class Toolbox:
             read_floorplan=load("tools.vision", "read_floorplan", lambda msg: lambda *a, **k: _vision_error(msg)),
             check_room=load("tools.vision", "check_room", lambda msg: lambda *a, **k: _vision_error(msg)),
             find_features=load("tools.vision", "find_features", lambda msg: lambda *a, **k: _vision_error(msg)),
+            kit_facts=load("tools.kit", "kit_facts", lambda msg: lambda *a, **k: None),
         )
 
     @classmethod

@@ -581,6 +581,18 @@ class Run:
             if self.model_for(plan) and self.time_left() > 5:
                 self.scan_photos(plan)
 
+    # ---- "Fill me in": what our sources know that the listing does not say (no model, no network) ----
+    def fill_in(self) -> list[dict]:
+        from harness.fill_in import build_fill_in  # lazy: harness.fill_in imports harness.graph.plans
+        kit = None
+        if self.match.get("status") == "matched" and self.match.get("kind", "building") == "building":
+            try:
+                kit = self.tb.kit_facts(self.match.get("property_id"))
+            except Exception:
+                kit = None
+        return build_fill_in(self.match, list(self.evidence.values()), self.claims, kit,
+                             str(self.snapshot.get("text") or ""))
+
     # ---- fixed plan: every relevant check once, by claim kind -----------------------------------
     def has_ok(self, kind: str, source: str | None = None, plan: str | None = None) -> bool:
         for e in list(self.evidence.values()):
@@ -741,6 +753,12 @@ def run_check(snapshot: dict, emit: Callable[[dict], Any], toolbox: Toolbox | No
                  "image": None}
         verdicts.append(v)
         run.emit({"type": "verdict", "verdict": v})
+    try:
+        facts = run.fill_in()
+    except Exception as e:  # extra information only: never turn the check into an error
+        facts = []
+        LAST_AGENT_STATS["fill_in_error"] = f"{type(e).__name__}: {str(e)[:200]}"
+    run.emit({"type": "fill_in", "facts": facts})
     counts = {k: sum(v["verdict"] == k for v in verdicts) for k in ("confirmed", "contradicted", "close", "cant_check")}
     try:
         headline = _headline(verdicts, {c["id"]: c for c in run.claims})

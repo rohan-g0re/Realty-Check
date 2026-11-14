@@ -24,6 +24,13 @@ globalThis.RC_SAMPLE = (() => {
     { type: "verdict", verdict: v("c4", "confirmed", "built in 2016", "built in 2016", "county", "The county record lists 2016 as the year built.") },
     { type: "step", agent: "judge", text: "Writing up the results…" },
     { type: "verdict", verdict: v("c5", "cant_check", "resort-style pool", "no source covers this", "record", "None of our sources show the pool, so we can't check it.") },
+    { type: "fill_in", facts: [
+      { id: "plan-a", topic: "Homes & floor plans", label: "Plan A", value: "1 bed, 1 bath, 640–690 sq ft", source: "record", note: "From the building record, as of when it was last researched.", image: null },
+      { id: "pets", topic: "Rules", label: "Pets", value: "Cats and small dogs allowed, up to 2", source: "record", note: "", image: null },
+      { id: "manager", topic: "Building", label: "Managed by", value: "Example Property Management", source: "record", note: "", image: null },
+      { id: "lot", topic: "Records", label: "Lot size", value: "0.9 acres", source: "county", note: "From the county parcel record.", image: null },
+      { id: "roof", topic: "Around it", label: "Rooftop", value: "Shared roof deck on the top floor", source: "aerial", note: "Seen from above; not confirmed on site.", image: null },
+    ] },
     { type: "done", run_id: "sample", counts: { confirmed: 1, contradicted: 3, close: 0, cant_check: 1 },
       headline: "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den.", report_url: "/report/sample" },
   ];

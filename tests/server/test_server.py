@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 import server.app as srv
 import server.fake_run as fake
 
-TYPES = {"run_started", "step", "claims", "match", "evidence", "verdict", "done", "error"}
+TYPES = {"run_started", "step", "claims", "match", "evidence", "verdict", "fill_in", "done", "error"}
 SNAP = {"url": "https://example.com/l/1", "title": "Test listing",
         "address_text": "2111 Austin St, Houston, TX 77002", "text": "2 Beds", "jsonld": []}
 
@@ -151,14 +151,15 @@ def test_report_tabs(client):
 
     _, events = post(client)
     html = client.get(f"/report/{events[0]['run_id']}").text
-    # exactly three tabs with counts; every verdict lands in one tab
-    assert re.findall(r"<a href='#([a-z-]+)'", html) == ["mismatch", "match", "cant-verify"]
+    # three verdict tabs with counts (every verdict lands in one), then "Not on the listing"
+    assert re.findall(r"<a href='#([a-z-]+)'", html) == ["mismatch", "match", "cant-verify", "extra"]
     for word, n in (("Mismatch", 3), ("Match", 1), ("Can't verify", 1)):
         assert f"{word} ({n})" in html.replace("&#x27;", "'")
     for pid in ("mismatch", "match", "cant-verify"):
         assert f"<section class=panel id='{pid}'>" in html
-    # pictures only through /img/<token>, never repeated across items
-    srcs = re.findall(r"<img src='([^']+)'", html)
+    # pictures only through /img/<token>, never repeated across verdict items
+    assert all(re.fullmatch(r"/img/[a-f0-9]{16}", s) for s in re.findall(r"<img src='([^']+)'", html))
+    srcs = re.findall(r"<img src='([^']+)'", html.split("<section class=panel id='extra'>")[0])
     assert srcs and all(re.fullmatch(r"/img/[a-f0-9]{16}", s) for s in srcs)
     assert len(srcs) == len(set(srcs))
     # plan claims grouped under one item, headline claim first, visuals for area and floors
@@ -198,3 +199,27 @@ def test_report_empty_tab():
     html = render_report(run)
     assert html.count("Nothing here.") == 2
     assert "Nothing in our data measures this" in html and "Pool" in html
+
+
+def test_fill_in_event_saved_and_replayed(client, monkeypatch):
+    """Fake mode sends a fill_in event (invented facts) before done; its images become /img/ tokens; the saved
+    run keeps it in events and at top level; a replay sends it again; the report shows the tab."""
+    import re
+
+    raw, events = post(client)
+    types = [e["type"] for e in events]
+    assert types.count("fill_in") == 1 and types.index("fill_in") == len(types) - 2
+    facts = events[types.index("fill_in")]["facts"]
+    assert facts and all({"id", "topic", "label", "value", "source", "note", "image"} <= set(f) for f in facts)
+    imgs = [f["image"] for f in facts if f["image"]]
+    assert imgs and all(re.fullmatch(r"/img/[a-f0-9]{16}", u) for u in imgs)
+    assert all(client.get(u).status_code == 200 for u in imgs)
+    run_id = events[0]["run_id"]
+    saved = client.get(f"/runs/{run_id}.json").json()
+    assert saved["fill_in"] == facts
+    assert [e for e in saved["events"] if e["type"] == "fill_in"][0]["facts"] == facts
+    html = client.get(f"/report/{run_id}").text
+    assert "Not on the listing" in html and facts[0]["label"].split()[0] in html
+    monkeypatch.setenv("RC_REPLAY", "1")
+    _, again = post(client)
+    assert [e for e in again if e["type"] == "fill_in"][0]["facts"] == facts

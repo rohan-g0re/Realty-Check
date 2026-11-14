@@ -10,6 +10,8 @@
   const verdicts = {};
   events.filter((e) => e.type === "verdict").forEach((e) => (verdicts[e.verdict.claim_id] = e.verdict));
   const done = events.find((e) => e.type === "done") || { counts: {}, headline: "" };
+  const facts = (events.find((e) => e.type === "fill_in") || {}).facts || [];
+  const SRC = { scan: "3D scan", aerial: "Aerial measurement", county: "County record", record: "Building record" };
   const order = ["contradicted", "close", "confirmed", "cant_check"];
   const sorted = claims.slice().sort((a, b) => order.indexOf((verdicts[a.id] || {}).verdict) - order.indexOf((verdicts[b.id] || {}).verdict));
   document.getElementById("main").innerHTML = `
@@ -26,6 +28,9 @@
         <div class="q">${esc(c.quote)}${c.label ? `<small>${esc(c.label)}</small>` : ""}</div>
         <dl><dt>Listing says</dt><dd>${esc(v.claimed)}</dd><dt>We found</dt><dd>${esc(v.found)}</dd></dl>
         <p class="reason">${esc(v.reason)}</p></div><span class="vl" style="color:${VC[v.verdict]}">${VL[v.verdict]}</span></div>`;
-    }).join("")}`;
+    }).join("")}
+    ${facts.length ? `<h2 id="extra">Not on the listing</h2>
+    <dl class="extra">${facts.map((f) => `<dt>${esc(f.label)}</dt><dd>${esc(f.value)}<small style="color:#6b6b6b;margin-left:8px">${esc(SRC[f.source] || f.source || "")}</small>${f.note ? `<span style="display:block;color:#6b6b6b;font-size:12.5px">${esc(f.note)}</span>` : ""}</dd>`).join("")}</dl>` : ""}`;
+  if (location.hash === "#extra" && document.getElementById("extra")) document.getElementById("extra").scrollIntoView();
   document.title = "Reality Check report · " + address;
 })();

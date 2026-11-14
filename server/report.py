@@ -1,7 +1,8 @@
 """Full report page: one self-contained, minimalist HTML document built from a saved run.
 
-Three tabs: Mismatch (contradicted + close), Match (confirmed), Can't verify (cant_check and anything unknown).
-Every verdict lands in exactly one tab. Claims about one floor plan are grouped into one item; building-level
+Four tabs: Mismatch (contradicted + close), Match (confirmed), Can't verify (cant_check and anything unknown),
+and Not on the listing (fill_in facts: what our sources know that the page does not say; not a fact-check).
+Every verdict lands in exactly one of the first three tabs. Claims about one floor plan are grouped into one item; building-level
 claims are their own items. Pictures lead each mismatch item and are never repeated across items.
 """
 from __future__ import annotations
@@ -21,6 +22,10 @@ KIND_FMT = {"stories": ("floor", "floors"), "bedrooms": ("bedroom", "bedrooms"),
             "bathrooms": ("bathroom", "bathrooms"), "unit_count": ("apartment", "apartments")}
 IMG_RE = re.compile(r"^/img/[a-f0-9]{16}$")
 GENERIC_CANT = ("none of our sources", "no data", "not checked")
+EXTRA = ("extra", "Not on the listing")
+TOPICS = ["Building", "Homes & floor plans", "Rent", "Rules", "Around it", "Records"]
+FACT_FROM = {"record": "From the building record", "scan": "From the 3D scan", "aerial": "From aerial photos",
+             "county": "From county records"}  # same wording as _source_line
 
 CSS = """
 :root{--ink:#16181a;--muted:#6b6f73;--line:#e6e6e3;--bg:#fff;--soft:#fafaf8;--accent:#2f5d8a;
@@ -100,6 +105,8 @@ align-items:center;justify-content:center;padding:56px 16px 24px;cursor:zoom-out
 .lb p{color:#e6e6e3;font-size:13px;margin:10px 0 0;text-align:center;max-width:720px}.lb p:empty{display:none}
 .lb button{position:fixed;top:14px;right:16px;background:#fff;color:#17181A;border:0;border-radius:10px;
 font:inherit;font-size:14px;font-weight:600;padding:7px 13px;cursor:pointer}
+.intro{margin:0 0 24px}
+.row.fact{grid-template-columns:1.2fr 1.4fr 1fr}.row.fact .pic{grid-column:1/-1}
 .cv{list-style:none;margin:0;padding:0}
 .cv li{display:flex;gap:10px;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line);font-size:15px}
 .cv .dot{margin:0}
@@ -119,12 +126,13 @@ ol .ag{display:inline-block;min-width:64px;color:var(--ink)}
 .thumbs,.thumbs.col1{grid-template-columns:repeat(3,1fr)}.thumbs img,.thumbs.col1 img{aspect-ratio:1}
 .vs{gap:12px}.vs dd{font-size:21px}
 .row{grid-template-columns:16px 1fr 1fr}.row .from{grid-column:2/-1;margin-top:-6px}.rowlabels span:last-child{display:none}
-.cv li{flex-wrap:wrap}.cv .reason{flex-basis:100%;text-align:left;padding-left:18px}}
+.cv li{flex-wrap:wrap}.cv .reason{flex-basis:100%;text-align:left;padding-left:18px}
+.row.fact{grid-template-columns:1fr 1fr}.row.fact .from{grid-column:1/-1}}
 """
 
 SCRIPT = """
 (function(){var d=document.documentElement;d.className+=' js';
-var ids=['mismatch','match','cant-verify'];
+var ids=['mismatch','match','cant-verify','extra'];
 function show(id){if(ids.indexOf(id)<0)id='mismatch';
 ids.forEach(function(k){var p=document.getElementById(k),t=document.getElementById('tab-'+k);
 if(p)p.hidden=k!==id;if(t)t.className=k===id?'on':'';});}
@@ -667,6 +675,43 @@ def _cant(run: Run, verdicts: list) -> str:
     return "<ul class=cv>" + "".join(rows) + "</ul>"
 
 
+def _fill_in(run: Run) -> list:
+    """Valid fill_in facts: run["fill_in"] if present, else the last fill_in event. Malformed entries dropped."""
+    facts = run.raw.get("fill_in")
+    if not isinstance(facts, list):
+        ev = [e for e in run.events if isinstance(e, dict) and e.get("type") == "fill_in"]
+        facts = ev[-1].get("facts") if ev else None
+    if not isinstance(facts, list):
+        return []
+    return [f for f in facts if isinstance(f, dict) and str(f.get("label") or "").strip()
+            and f.get("value") not in (None, "")]
+
+
+def _extra(facts: list) -> str:
+    if not facts:
+        return "<p class=empty>Our sources have nothing to add beyond the listing.</p>"
+    topics: dict = {}
+    for f in facts:
+        topics.setdefault(str(f.get("topic") or "Other"), []).append(f)
+    order = sorted(topics, key=lambda t: TOPICS.index(t) if t in TOPICS else len(TOPICS))  # stable: first-seen
+    h = ["<p class='quiet intro'>Things our sources know about this place that the listing does not say. "
+         "Not a fact-check.</p><div class=rows>"]
+    for t in order:
+        h.append(f"<p class=rowh>{escape(t)}</p>")
+        for f in topics[t]:
+            label, value = str(f["label"]), str(f["value"])
+            note = str(f.get("note") or "")
+            found = escape(value) + (f"<small>{escape(note)}</small>" if note else "")
+            img = f.get("image")
+            pic = (f"<a class=pic href='{escape(img, True)}' data-cap='{escape(label, True)}'>"
+                   f"<img src='{escape(img, True)}' alt='{escape(label, True)}' loading=lazy></a>"
+                   if isinstance(img, str) and IMG_RE.match(img) else "")
+            h.append(f"<div class='row fact'><span>{escape(label)}</span><span class=found>{found}</span>"
+                     f"<span class=from>{escape(FACT_FROM.get(f.get('source'), ''))}</span>{pic}</div>")
+    h.append("</div>")
+    return "".join(h)
+
+
 # ---------- page ----------
 
 def _meta(run: Run) -> str:
@@ -708,12 +753,15 @@ def render_report(run_dict: dict) -> str:
     for i, (k, word) in enumerate(TABS):
         h.append(f"<a href='#{k}' id='tab-{k}' class='{'on' if i == 0 else ''}'>"
                  f"<i class='dot {dots[k]}'></i>{word} ({len(split[k])})</a>")
+    facts = _fill_in(run)
+    h.append(f"<a href='#{EXTRA[0]}' id='tab-{EXTRA[0]}' class=''><i class='dot'></i>{EXTRA[1]} ({len(facts)})</a>")
     h.append("</nav>")
 
     body = {"mismatch": _mismatch(run, split["mismatch"]), "match": _match(run, split["match"]),
             "cant-verify": _cant(run, split["cant-verify"])}
     for k, word in TABS:
         h.append(f"<section class=panel id='{k}'><h2>{word} ({len(split[k])})</h2>{body[k]}</section>")
+    h.append(f"<section class=panel id='{EXTRA[0]}'><h2>{EXTRA[1]} ({len(facts)})</h2>{_extra(facts)}</section>")
 
     steps = [e for e in run.events if e.get("type") == "step" and e.get("text")]
     if steps:

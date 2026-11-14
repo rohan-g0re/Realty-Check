@@ -5,7 +5,7 @@ Everything is a plain JSON-serializable dict. Names here are exact. Shared helpe
 ## 1. Flow
 1. Extension sends a `PageSnapshot` to the local server: `POST /check`.
 2. Server starts a run and streams `Event`s (server-sent events).
-3. Harness: extract claims → match address to a property → gather evidence (record, scan, aerial, county) → judge each claim → finish.
+3. Harness: extract claims → match address to a property → gather evidence (record, scan, aerial, county) → judge each claim → "Fill me in" facts → finish.
 
 ## 2. Shapes
 
@@ -31,7 +31,7 @@ Everything is a plain JSON-serializable dict. Names here are exact. Shared helpe
  "lat": 29.75, "lon": -95.37,
  "record": {"stories": 5, "year_built": 2016, "unit_count": 100, "building_sf": 123456},
  "floorplans": [{"name": "Plan E", "beds": 2, "baths": 2, "sqft": 1100, "matterport_model_id": "abc"}],
- "matterport_model_ids": ["abc"], "how": "street number + street name + zip"}
+ "matterport_model_ids": ["abc"], "how": "street number + street name + zip", "kind": "building"}
 ```
 - `status`: `matched | no_match`. On `no_match` only `status`, `confidence`, `how` are required; `lat`/`lon` may still be filled from geocoding.
 - Missing record fields are `null`, never guessed.
@@ -63,10 +63,22 @@ Everything is a plain JSON-serializable dict. Names here are exact. Shared helpe
 | `match` | `match`: Match |
 | `evidence` | `evidence`: Evidence |
 | `verdict` | `verdict`: Verdict |
+| `fill_in` | `facts`: list of Fact (2.7), in display order. Sent once, after the last `verdict` and before `done`; may be empty |
 | `done` | `run_id`, `counts` `{confirmed, contradicted, close, cant_check}`, `headline` (one sentence), `report_url` |
 | `error` | `message` |
 
-The server rewrites every image path in outgoing events to `/img/<token>` URLs it serves itself.
+The server rewrites every image path in outgoing events (evidence images, verdict `image`, fact `image`) to `/img/<token>` URLs it serves itself. The saved run keeps the `fill_in` event in `events` and its facts also at top level as `fill_in`; replays (`RC_REPLAY=1`) resend it, and the fake runner (`RC_FAKE=1`) sends invented facts.
+
+### 2.7 Fact ("Fill me in": what our sources know that the listing does not say)
+```json
+{"id": "plan-b2", "topic": "Homes & floor plans", "label": "Plan B2",
+ "value": "2 bed, 2 bath, 1,050–1,120 sq ft, 24 homes of this plan", "source": "record",
+ "note": "A floor plan the listing does not show. From the building record, as of when it was last researched.",
+ "image": null}
+```
+- Not a fact-check: nothing is right or wrong. Built by `harness.fill_in.build_fill_in(match, evidences, claims, kit=None, page_text="")` from the match, the run's Evidence and the kit's extra facts; no model call, no network call.
+- `id`: stable within a run (`year-built`, `plan-b2`, `rent-<plan>-<id>`, `scan-rooms-<plan>`, `county-parcel`, …). `topic`: `Building | Homes & floor plans | Rent | Rules | Around it | Records`; facts come sorted by that order. `label`: short plain words. `value`: human-readable string. `source`: `record | scan | aerial | county`. `note`: "" or one plain sentence (record values say "as of when it was last researched"; asking rents say "as of 2026-11-12", the kit's listing date). `image`: cache path (an `/img/<token>` URL once sent) or null.
+- Left out: anything the page already says (claim kinds and plan labels/sizes, plus keyword checks of the page text for rent, pets, parking, schools, management, availability, vacancy, lease terms, utilities, style, …); blank, 0 or unknown values (never stated as "none"); people's names, phones, emails; free text; complaint text.
 
 ## 3. Tool signatures (plain Python functions)
 
@@ -74,6 +86,7 @@ The server rewrites every image path in outgoing events to `/img/<token>` URLs i
 |---|---|---|
 | `tools.kit` | `match_address(address: str, lat: float or None = None, lon: float or None = None) -> dict` | Match |
 | `tools.kit` | `record_evidence(match: dict) -> dict` | Evidence, `source="record"` |
+| `tools.kit` | `kit_facts(property_id: str) -> dict or None` | Extra kit facts of a building for "Fill me in" (class, rating, style, pets, parking, schools, management company, every floor plan, asking rent per plan as of the listing date), read from `rc_cache/kit/facts/<id>.json`; built offline once by `python -m tools.kit.facts`; None when not built. Never a network call |
 | `tools.scan` | `scan_summary(model_id: str) -> dict` | Evidence, `source="scan"`: room labels, bedroom/bathroom counts from labels, floor area, floors |
 | `tools.scan` | `scan_stills(model_id: str, max_n: int = 6) -> dict` | Evidence with `images` saved to cache |
 | `tools.aerial` | `aerial_images(lat: float, lon: float, half_m: int = 60) -> dict` | Evidence with top-down and oblique `images` |

@@ -20,7 +20,7 @@ from rc_common import cache_dir
 from server.report import render_report
 from server import tour
 
-EVENT_TYPES = {"run_started", "step", "claims", "match", "evidence", "verdict", "done", "error"}
+EVENT_TYPES = {"run_started", "step", "claims", "match", "evidence", "verdict", "fill_in", "done", "error"}
 PING_S = 10.0
 REPLAY_GAP = 0.4
 REPLAY_TOTAL_S = 6.0  # a replay never takes longer than this
@@ -81,6 +81,13 @@ def rewrite_images(ev: dict, images: dict[str, str]) -> dict:
         v["image"] = _register(old)
         if old and v["image"] != old:
             images[v["image"][5:]] = old
+    if ev.get("type") == "fill_in":
+        ev["facts"] = [f for f in ev.get("facts") or [] if isinstance(f, dict)]
+        for f in ev["facts"]:
+            old = f.get("image")
+            f["image"] = _register(old) if old else None
+            if old and f["image"] != old:
+                images[f["image"][5:]] = old
     return ev
 
 
@@ -170,6 +177,8 @@ def start_run(snapshot: dict, base_url: str) -> queue.Queue:
             if ev["type"] == "done":
                 ev["report_url"] = f"{base_url}/report/{run_id}"
             ev = rewrite_images(ev, run["images"])
+            if ev["type"] == "fill_in":
+                run["fill_in"] = ev["facts"]  # also kept top level, for the report and later readers
             run["events"].append(ev)
             run["event_times"].append(time.time())
             if ev["type"] in ("done", "error"):

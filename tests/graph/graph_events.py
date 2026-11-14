@@ -42,6 +42,16 @@ def check_verdict(v):
     assert isinstance(v["reason"], str) and v["reason"]
 
 
+TOPICS = {"Building", "Homes & floor plans", "Rent", "Rules", "Around it", "Records"}
+
+
+def check_fact(f):
+    _keys(f, ["id", "topic", "label", "value", "source", "note", "image"], "fact")
+    assert f["topic"] in TOPICS and f["source"] in ("record", "scan", "aerial", "county")
+    assert isinstance(f["label"], str) and f["label"] and isinstance(f["value"], str) and f["value"]
+    assert isinstance(f["note"], str) and (f["image"] is None or isinstance(f["image"], str))
+
+
 def check_event(ev):
     t = ev.get("type")
     if t == "run_started":
@@ -64,6 +74,9 @@ def check_event(ev):
         _keys(ev["counts"], sorted(VERDICTS), "counts")
         assert ev["report_url"] == f"/report/{ev['run_id']}"
         assert isinstance(ev["headline"], str) and ev["headline"]
+    elif t == "fill_in":
+        ids = [check_fact(f) or f["id"] for f in ev["facts"]]
+        assert len(ids) == len(set(ids)), "fact ids repeat"
     elif t == "error":
         _keys(ev, ["message"], t)
     else:
@@ -82,7 +95,10 @@ def check_run(events):
     assert [v["claim_id"] for v in verdicts] == [c["id"] for c in claims]
     first_verdict = types.index("verdict") if verdicts else len(types) - 1
     assert all(i > types.index("match") and i < first_verdict for i, t in enumerate(types) if t == "evidence")
-    assert all(t == "verdict" or t == "done" or t == "step" for t in types[first_verdict:])
+    assert all(t in ("verdict", "fill_in", "done", "step") for t in types[first_verdict:])
+    if "fill_in" in types:  # after the verdicts, before done
+        fi = types.index("fill_in")
+        assert types.count("fill_in") == 1 and all(i < fi for i, t in enumerate(types) if t in ("verdict", "evidence"))
     done = events[-1]
     assert sum(done["counts"].values()) == len(claims)
     for k, n in done["counts"].items():

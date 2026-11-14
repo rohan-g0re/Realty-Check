@@ -57,6 +57,8 @@
   const expanded = new Set();
   const ORDER = { contradicted: 0, close: 1, confirmed: 2, cant_check: 9 };
   let ccOpen = false;
+  let fiOpen = false; // "Fill me in" section expanded
+  const FI_TOP = 4;
   const imgCache = new Map();
 
   const overlay = RC.createOverlay(root, host, {
@@ -187,13 +189,14 @@
     const v = $("srv").value.trim().replace(/\/+$/, "") || "http://127.0.0.1:8787";
     try { chrome.storage.local.set({ rcServer: v }, () => { $("srvHint").textContent = "Saved."; setTimeout(() => { $("srvHint").textContent = "Where the local checker runs."; }, 1500); }); } catch (e) { /* no storage */ }
   });
-  const openReport = () => {
+  const openReport = (hash) => {
     if (!run || !run.done) return;
+    hash = typeof hash === "string" ? hash : "";
     if (run.mode === "sample") send({ type: "openSampleReport", address: run.address.full });
-    else send({ type: "openReport", report_url: run.done.report_url });
+    else send({ type: "openReport", report_url: (run.done.report_url || "/") + hash });
   };
-  $("btnReport").addEventListener("click", openReport);
-  $("btnFull").addEventListener("click", openReport);
+  $("btnReport").addEventListener("click", () => openReport());
+  $("btnFull").addEventListener("click", () => openReport());
   $("btnAnother").addEventListener("click", () => { stopRun(); run = null; expanded.clear(); rebuildMarks(); overlay.setSelected(null); render(); });
 
   // ---------- run ----------
@@ -206,7 +209,8 @@
     stopRun();
     expanded.clear();
     ccOpen = false;
-    run = { address: a, mode: "server", claims: [], verdicts: {}, step: "Connecting to the local checker…", steps: [], t0: Date.now(), done: null, unreachable: false, error: null, token: {} };
+    fiOpen = false;
+    run = { address: a, mode: "server", claims: [], verdicts: {}, step: "Connecting to the local checker…", steps: [], t0: Date.now(), fillIn: [], done: null, unreachable: false, error: null, token: {} };
     overlay.setSelected(a.text);
     rebuildMarks();
     render();
@@ -231,7 +235,8 @@
   function startSample() {
     stopRun();
     const a = run.address;
-    run = { address: a, mode: "sample", claims: [], verdicts: {}, step: "Starting…", steps: [], t0: Date.now(), done: null, unreachable: false, error: null, token: {} };
+    fiOpen = false;
+    run = { address: a, mode: "sample", claims: [], verdicts: {}, step: "Starting…", steps: [], t0: Date.now(), fillIn: [], done: null, unreachable: false, error: null, token: {} };
     const me = run;
     render();
     RC_SAMPLE.events(a.full).forEach((ev, i) => setTimeout(() => { if (run === me && me.token) handle(ev); }, (i + 1) * RC_SAMPLE.delayMs));
@@ -249,6 +254,7 @@
       }
       case "claims": run.claims = ev.claims || []; break;
       case "verdict": run.verdicts[ev.verdict.claim_id] = ev.verdict; rebuildMarks(); if (ev.verdict.image && run.mode === "server") loadImg(ev.verdict.image); break;
+      case "fill_in": run.fillIn = Array.isArray(ev.facts) ? ev.facts : []; break;
       case "done": run.done = ev; run.step = ""; break;
       case "error": run.error = ev.message || "Something went wrong."; break;
       default: return; // run_started, match, evidence: nothing to draw
@@ -314,9 +320,21 @@
         if (ccOpen) h += `<ul class="claims cc">` + cc.map((c) => claimHTML(c, r.verdicts[c.id])).join("") + `</ul>`;
       }
     }
+    if (r.done && r.fillIn && r.fillIn.length) h += fillInHTML(r.fillIn);
     body.innerHTML = h;
     const us = $("useSample"); if (us) us.addEventListener("click", startSample);
     const rt = $("retry"); if (rt) rt.addEventListener("click", () => startRun(r.address));
+  }
+  function fillInHTML(facts) {
+    // Extra things the listing doesn't mention. Not a fact-check: neutral, no verdict colours.
+    const n = facts.length;
+    let h = `<button class="filine${fiOpen ? " open" : ""}" id="fiToggle" aria-expanded="${fiOpen}"><span class="fit">Fill me in · ${n} ${n === 1 ? "thing the listing doesn't say" : "things the listing doesn't say"}</span><span class="go">${CHEV}</span></button>`;
+    if (!fiOpen) return h;
+    h += `<ul class="facts" id="fiList">` + facts.slice(0, FI_TOP).map((f) => `<li class="fact" data-id="${esc(f.id)}">
+      <div class="fq"><span class="fl">${esc(f.label)}</span><span class="fs">${esc(SRC[f.source] || f.source || "")}</span></div>
+      <div class="fv">${esc(f.value)}</div>${f.note ? `<div class="fn">${esc(f.note)}</div>` : ""}</li>`).join("") + `</ul>`;
+    h += `<button class="textbtn fiall" id="fiAll">See all in the full report</button>`;
+    return h;
   }
   function said(c) {
     const n = Number(String(c.value).replace(/,/g, "")), s = (w) => (n === 1 ? w : w + "s");
@@ -349,6 +367,8 @@
       return;
     }
     if (e.target.closest("#ccToggle")) { ccOpen = !ccOpen; render(); return; }
+    if (e.target.closest("#fiToggle")) { fiOpen = !fiOpen; render(); return; }
+    if (e.target.closest("#fiAll")) { openReport("#extra"); return; }
     const pick = e.target.closest(".pick");
     if (pick) startRun(addresses[+pick.dataset.i]);
   });
@@ -467,6 +487,20 @@
   .ccline.open .go{transform:rotate(90deg)}
   .ccline:hover{color:#111}
   .claims.cc{border-top:1px solid #e6e6e6}
+  .filine{width:100%;display:flex;gap:12px;align-items:center;margin-top:18px;padding:12px 0;border-top:1px solid #e6e6e6;font-size:13px;color:#444;text-align:left}
+  .filine .fit{flex:1}
+  .filine .go{display:grid;color:#b5b5b5;transition:transform .15s ease}
+  .filine.open .go{transform:rotate(90deg)}
+  .filine:hover{color:#111}
+  .facts{list-style:none;margin:0;padding:0}
+  .fact{padding:10px 0;border-top:1px solid #f0f0f0}
+  .fq{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+  .fl{font-size:13.5px;color:#111}
+  .fs{flex:none;font-size:11.5px;color:#a3a3a3}
+  .fv{font-size:13px;color:#444;margin-top:1px}
+  .fn{font-size:12px;color:#8a8a8a;margin-top:2px}
+  .fiall{font-size:13px;color:#2563eb;padding:8px 0 0}
+  .fiall:hover{color:#1d4ed8}
   .more{display:none;padding:0 0 14px 20px}
   .claim.open .more{display:block}
   .kv{display:grid;grid-template-columns:92px 1fr;gap:4px 12px;margin:0;font-size:13px}

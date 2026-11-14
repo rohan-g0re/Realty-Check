@@ -134,10 +134,27 @@ def find_features(image_paths, features, setting="aerial"):
                        for k in features}}
 
 
+KIT_FACTS = {  # invented extra kit facts for "Fill me in"
+    "version": 1, "property_id": "SYN-0001", "building_class": "B", "building_rating": 3, "style": "Mid-rise",
+    "manager": "Example Property Management LLC", "vacancy_percent": 6,
+    "pets": {"policies": [{"type": "Dogs", "max": 2, "deposit": 300}]},
+    "parking": {"policies": [{"type": "Garage", "fee_min": 75, "fee_max": 75}]},
+    "plans": [{"name": "Plan A", "beds": 1, "baths": 1, "sqft_min": 720, "units": 40},
+              {"name": "Plan E", "beds": 2, "baths": 2, "sqft_min": 1100, "units": 20}],
+    "listing": {"as_of": "2026-11-12", "rent_min": 1400, "rent_max": 2600, "units": 100, "available": 4,
+                "plans": [{"id": 1, "name": "Plan A", "beds": 1, "baths": 1, "rent_min": 1400, "rent_max": 1500}]},
+}
+
+
+def kit_facts(property_id):
+    _log("kit_facts")
+    return dict(KIT_FACTS) if property_id == MATCH["property_id"] else None
+
+
 FAKE_FUNCTIONS = {
     "extract_claims": extract_claims, "match_address": match_address, "geocode": geocode,
     "record_evidence": record_evidence, "scan_summary": scan_summary, "scan_stills": scan_stills,
     "aerial_images": aerial_images, "building_height": building_height, "county_record": county_record,
     "count_floors": count_floors, "read_floorplan": read_floorplan, "check_room": check_room,
-    "find_features": find_features,
+    "find_features": find_features, "kit_facts": kit_facts,
 }

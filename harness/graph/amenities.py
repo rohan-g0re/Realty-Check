@@ -9,7 +9,7 @@ import re
 
 FEATURE_KINDS = ("amenity", "parking", "laundry", "view", "other")
 SEEN_MIN = 0.7       # seen with at least this confidence -> confirmed
-NOT_SEEN_MIN = 0.8   # clearly not there with at least this confidence -> close (never contradicted)
+NOT_SEEN_MIN = 0.8   # clearly not seen with at least this confidence ("close" outcome) -> the judge says cant_check
 
 # (pattern, key, plain description for the vision model, where to look: "aerial" | "scan")
 FEATURES = [

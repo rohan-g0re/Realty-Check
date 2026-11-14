@@ -158,7 +158,7 @@ def test_amenity_missing_from_the_record_is_never_a_mismatch():
     assert judge(roof, [REC])["verdict"] == "cant_check"
     photo = evidence("aerial", "ok", "x", {"feature_check": True, "claim_ids": ["a3"], "feature": "rooftop_deck",
                                             "presence": "not_seen", "presence_confidence": 0.9})
-    assert judge(roof, [REC, photo])["verdict"] == "close"  # the photo check still applies, softly
+    assert judge(roof, [REC, photo])["verdict"] == "cant_check"  # not seen in a photo is absence: couldn't check
     both = claim("a4", "amenity", "Pool and rooftop deck", scope="building")
     assert judge(both, [REC])["verdict"] == "cant_check"  # every named amenity must be on record
     assert judge(claim("a5", "amenity", "Resort-style pool", scope="building", checkable=False), [REC])["verdict"] \

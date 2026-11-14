@@ -404,16 +404,13 @@ def test_property_data_confirmation_in_the_vexcel_cell():
     assert state(claim_field(run), "r1", "aerial") == "none"
 
 
-def test_two_vexcel_rows_share_one_cell():
+def test_not_seen_and_not_in_data_is_couldnt_check():
+    # neither "not seen in the photo" nor "not in property data" proves absence
     c = claim("p1", "amenity", "pool", "Pool")
     rec = ev("record", {"property_id": "900001", "amenities": ["Fitness center"]}, summary="Amenities.")
     run = judged_run([c], [rec, look("p1", "not_seen"), prop_data(pool={"present": False, "stable": True})])
-    conf = claim_field(run)["claims"][0]["confidence"]
-    assert sum(1 for s in conf["sources"] if s["source"] == "aerial") == 2
-    row = _rows(compare_table(run))[0]
-    assert row[0] == "close"
-    vex = _vexcel(row[2])
-    assert "Photo: not seen · Data: not shown" in vex and "lt-dec" in vex and vex.count("not seen") == 1
+    assert claim_field(run)["claims"][0]["verdict"] == "cant_check"
+    assert _rows(compare_table(run))[0][0] == "cant_check"
     html = compare_table(run).lower()
     for bad in ("fake", " lie", "scam", "fraud"):
         assert bad not in html

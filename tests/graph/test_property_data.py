@@ -98,17 +98,14 @@ def test_property_no_alone_keeps_the_old_verdict():
     assert judge(c, [unclear])["verdict"] == judge(c, [unclear, no])["verdict"] == "cant_check"
 
 
-def test_property_no_with_vision_not_seen_stays_close_and_raises_the_aerial_weight_a_little():
+def test_property_no_with_vision_not_seen_is_couldnt_check():
+    # not seen in the photo and not in the property data: still only absence, so couldn't check (never close)
     c = claim("p1", "Pool")
     alone = judge(c, [REC_GYM, look("p1", "not_seen", 0.9)])
     both = judge(c, [REC_GYM, look("p1", "not_seen", 0.9), prop_ev(prop(pool={"present": False, "stable": True}))])
-    assert alone["verdict"] == both["verdict"] == "close"  # never a hard mismatch
-    w_alone, w_both = alone["confidence"]["sources"][0]["weight"], both["confidence"]["sources"][0]["weight"]
-    assert w_both > w_alone
-    assert both["confidence"]["score"] >= alone["confidence"]["score"]
-    assert both["confidence"]["band"] != "high"
-    assert any(s["says"] == "not in property data" for s in both["confidence"]["sources"])
-    assert "Vexcel property data does not show it either" in both["confidence"]["why"]
+    assert alone["verdict"] == both["verdict"] == "cant_check"
+    assert "confidence" not in alone and "confidence" not in both
+    assert "Vexcel property data does not show a pool either" in both["reason"]
     soft(both)
 
 
@@ -208,7 +205,7 @@ def test_run_completes_when_the_fetch_fails(monkeypatch):
         events, done = _go(_tb(fn, _not_seen))
         assert not [e for e in events if e["type"] == "evidence" and "property" in e["evidence"]["observed"]]
         v = next(e["verdict"] for e in events if e["type"] == "verdict")
-        assert v["verdict"] == "close"  # as before: the photo look alone, a soft near-miss
+        assert v["verdict"] == "cant_check"  # the photo look alone did not see it: absence, couldn't check
         assert done["type"] == "done"
 
 

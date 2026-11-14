@@ -1315,12 +1315,12 @@ class Run:
         verdicts = self.judge_all(by)
         self.send_fill_in(by)
         counts = {k: sum(v["verdict"] == k for v in verdicts) for k in ("confirmed", "contradicted", "close", "cant_check")}
-        try:
-            headline = _headline(verdicts, {c["id"]: c for c in self.claims})
-        except Exception:
-            headline = "The check finished."
         stopped = (self.agent_stats or {}).get("stopped")
         top = self.top_mismatch(verdicts)
+        try:  # the headline leads with the same mismatch the report leads with (top_mismatch's pick)
+            headline = _headline(verdicts, {c["id"]: c for c in self.claims}, lead=(top or {}).get("claim_id"))
+        except Exception:
+            headline = "The check finished."
         done = {"type": "done", "run_id": self.run_id, "counts": counts, "headline": headline,
                 "report_url": f"/report/{self.run_id}",
                 "harness": {"path": self.path, "judged_by": self.judged_by,
@@ -1963,10 +1963,13 @@ def _overstated(v: dict, claim: dict) -> bool:
     return bool(m) and claimed > float(m.group().replace(",", ""))
 
 
-def _headline(verdicts: list[dict], claims: dict[str, dict]) -> str:
+def _headline(verdicts: list[dict], claims: dict[str, dict], lead: Any = None) -> str:
+    """lead: the claim id harness.top_mismatch picked; a contradicted verdict for it leads the headline. Without
+    one, the old order (kind severity, then overstated first) picks."""
     bad = [v for v in verdicts if v["verdict"] == "contradicted"]
     if bad:
-        bad.sort(key=lambda v: (SEVERITY.index(claims[v["claim_id"]]["kind"])
+        bad.sort(key=lambda v: (0 if lead is not None and v["claim_id"] == lead else 1,
+                                SEVERITY.index(claims[v["claim_id"]]["kind"])
                                 if claims[v["claim_id"]]["kind"] in SEVERITY else 99,
                                 0 if _overstated(v, claims[v["claim_id"]]) else 1))
         v = bad[0]

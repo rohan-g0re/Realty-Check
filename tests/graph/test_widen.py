@@ -83,7 +83,7 @@ def test_feature_verdicts():
     v = judge(c, [feat("aerial", "c1", "seen", 0.9)])
     assert v["verdict"] == "confirmed" and v["found"] == "Visible in the Vexcel aerial photo" and v["image"] == "C:/x/top.jpg"
     v = judge(c, [feat("aerial", "c1", "not_seen", 0.85)])
-    assert v["verdict"] == "close" and v["found"] == "Not visible in the Vexcel aerial photo"
+    assert v["verdict"] == "cant_check" and v["found"] == "Not seen in the Vexcel aerial photo"
     assert "cannot prove" in v["reason"]
     assert judge(c, [feat("aerial", "c1", "not_seen", 0.6)])["verdict"] == "cant_check"
     assert "don't show this clearly" in judge(c, [feat("aerial", "c1", "seen", 0.5)])["reason"]
@@ -130,7 +130,7 @@ def test_run_with_size_matched_plan_and_pictures(monkeypatch):
     assert v["c1"]["verdict"] == "confirmed" and v["c1"]["source"] == "record" and "A2s by size" in v["c1"]["reason"]
     assert v["c2"]["verdict"] == "confirmed"
     assert v["c3"]["verdict"] == "confirmed" and v["c3"]["source"] == "aerial"
-    assert v["c4"]["verdict"] == "close"
+    assert v["c4"]["verdict"] == "cant_check"  # not seen from above: absence, couldn't check
     assert v["c5"]["verdict"] == "confirmed" and v["c5"]["source"] == "scan"
     assert v["c6"]["verdict"] == "cant_check" and "Nothing in our data" in v["c6"]["reason"]
     assert "not in the building's records" in v["c7"]["reason"]

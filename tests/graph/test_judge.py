@@ -24,15 +24,22 @@ def test_bedrooms_2_vs_scan_1_is_contradicted_by_scan():
 
 
 def test_stories_county_decides_over_the_aerial_estimate():
-    # floors: county and the building record are the better sources (trust.py), the roof height an estimate;
-    # county and record tie on trust, so the old fixed order (county before record) decides
+    # floors: county and the building record are the better sources (trust.py), the roof height an estimate.
+    # The building record backs the listing and the county does not: the sources differ, so it is not a
+    # mismatch (couldn't check), and the roof height does not break the tie.
     v = judge(claim("stories", 5, scope="building"),
               [ev("record", {"stories": 5}), ev("county", {"stories": 6}),
                ev("aerial", {"stories": 6, "height_m": 23.1}),
                ev("aerial", {}, images=[{"path": "C:/x/oblique.jpg", "caption": "Angled"}])])
+    assert v["verdict"] == "cant_check" and v["source"] is None and "confidence" not in v
+    assert v["reason"].startswith("Listing says 5 floors. CoStar lists 5 floors, the county record lists 6, so "
+                                  "the sources differ.")
+    assert v["image"] == "C:/x/oblique.jpg"  # the aerial picture is still shown
+    # with no record backing the listing, the county decides over the roof-height estimate as before
+    v = judge(claim("stories", 5, scope="building"),
+              [ev("county", {"stories": 6}), ev("aerial", {"stories": 7, "height_m": 26.0})])
     assert v["verdict"] == "contradicted" and v["source"] == "county"
     assert v["reason"].startswith("Listing says 5 floors. County records say 6 floors.")
-    assert v["image"] == "C:/x/oblique.jpg"  # the aerial picture is still shown
     assert v["confidence"]["decided_by"] == "county"
 
 
@@ -72,7 +79,8 @@ def test_scan_title_size_beats_measured_area():
         return judge(claim("area_sqft", listed, label="Plan E"),
                      [ev("scan", {"area_sqft": measured, "model_name": title, "plan": "Plan E"})])
     v = at(815, 744, "1BR W Den 1BA - 815 SF")
-    assert v["verdict"] == "confirmed" and v["source"] == "scan" and v["found"] == "815 sq ft (scan title)"
+    assert v["verdict"] == "confirmed" and v["source"] == "scan" and v["found"] == "815 sq ft"
+    assert v["found_from"] == "scan_title"  # provenance kept apart from the words people read
     assert v["reason"] == ("Listing says 815 sq ft. The 3D scan of this plan is titled "
                            "'1BR W Den 1BA - 815 SF', which gives 815 sq ft.")
     assert at(712, 640, "1BR 1BA - 735 SF")["verdict"] == "confirmed"

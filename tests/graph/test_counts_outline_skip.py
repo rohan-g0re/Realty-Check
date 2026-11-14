@@ -178,7 +178,7 @@ def test_outlined_photo_never_on_other_features_or_absent_ones():
     assert v["verdict"] == "confirmed" and v["image"] == "C:/x/top.jpg"
     no = [outline_ev(), PHOTOS, prop_ev(prop(pool=pool(present=False))), look("p1", "not_seen", 0.9)]
     v = judge(claim("p1", "Pool"), no)
-    assert v["verdict"] == "close" and v["image"] != OUTLINED
+    assert v["verdict"] == "cant_check" and v["image"] != OUTLINED  # not seen: absence, so couldn't check
 
 
 # ---- the run --------------------------------------------------------------------------------------------

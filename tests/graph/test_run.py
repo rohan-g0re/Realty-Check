@@ -12,7 +12,8 @@ from harness.graph.run import helpers_needed
 
 SNAP = {"url": "https://example.test/listing", "title": "Synthetic Lofts",
         "address_text": "100 Example St, Houston, TX 77002", "text": "2 Beds 1,100 sq ft", "jsonld": []}
-EXPECTED = {"c1": "contradicted", "c2": "contradicted", "c3": "confirmed", "c4": "confirmed", "c5": "cant_check"}
+# c2 (5 stories): the building record says 5, the county 6, so the sources differ: couldn't check
+EXPECTED = {"c1": "contradicted", "c2": "cant_check", "c3": "confirmed", "c4": "confirmed", "c5": "cant_check"}
 ALL_CANT = {k: "cant_check" for k in EXPECTED}
 
 
@@ -119,7 +120,7 @@ def test_model_call_cap_stops_and_judges_what_exists(monkeypatch):
     events, done = go(Toolbox.fake())
     assert len(seen) == 2
     # turn 1 ran (claims, match): the close itself measures the roof and reads the county and building records
-    assert verdicts(events) == {**ALL_CANT, "c2": "contradicted", "c4": "confirmed"}
+    assert verdicts(events) == {**ALL_CANT, "c4": "confirmed"}  # c2: record 5 vs county 6, the sources differ
     assert done["harness"]["stopped"] == "model-call cap 2" and done["harness"]["direct"] == ["outside", "paper"]
     assert any(x["agent"] == "orchestrator" and "stopped before judging" in x["text"] for x in steps(events))
 

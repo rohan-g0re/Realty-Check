@@ -33,6 +33,23 @@ def shots_dir() -> Path:
     return d
 
 
+def text_of(page, sel) -> str:
+    """Inner text of the first match, '' when there is none (never waits)."""
+    loc = page.locator(sel)
+    return loc.first.inner_text().replace("\n", " ").strip() if loc.count() else ""
+
+
+def drawer_counts(page) -> dict:
+    """The drawer's counts: the headline number (things that don't match) and the meta line (#counts span[data-k]:
+    "3 true", "1 close", "4 couldn't check")."""
+    out = {"doesnt_match": page.locator("#rc-host #headline").first.get_attribute("data-n")}
+    for k, t in page.locator("#rc-host #counts span[data-k]").evaluate_all(
+            "els => els.map(e => [e.dataset.k, e.innerText])"):
+        if k in ("confirmed", "close", "cant_check"):
+            out[k] = t.split(" ", 1)[0]
+    return out
+
+
 def run_page(ctx, base, server, name, out, tag, timeout_s):
     stem = f"{tag}_{Path(name).stem}"
     page = ctx.new_page()
@@ -62,10 +79,14 @@ def run_page(ctx, base, server, name, out, tag, timeout_s):
     page.wait_for_timeout(1500)  # proof images arrive as data URLs
     page.screenshot(path=str(out / f"{stem}_b_drawer.png"))
 
-    headline = page.locator("#rc-host #headline").inner_text()
-    counts = dict(zip(["contradicted", "close", "confirmed", "cant_check"], page.locator("#rc-host .cnt b").all_inner_texts()))
-    rows = page.locator("#rc-host .claim").evaluate_all(
-        "els => els.map(e => [e.dataset.verdict, e.querySelector('.q').innerText.replace(/\\n/g,' '), e.querySelector('.sub').innerText])")
+    headline = page.locator("#rc-host #headline").inner_text().replace("\n", " ")
+    counts = drawer_counts(page)
+    # the drawer lists only what doesn't match (.finds .find: listing words, what we found, which source settled it);
+    # every claim is a column of the claim field (#cols .col, title "<quote> — <verdict>")
+    rows = page.locator("#rc-host .finds .find").evaluate_all(
+        "els => els.map(e => [e.dataset.verdict, (e.querySelector('.wt') || {}).innerText || '', "
+        "(e.querySelector('.is') || {}).innerText || '', (e.querySelector('.by') || {}).innerText || ''])")
+    cols = page.locator("#rc-host #cols .col:not(.ghost)").evaluate_all("els => els.map(e => e.title)")
 
     # (c) page marks scrolled into view (first contradicted mark if any)
     cm = page.locator('#rc-host .claim-mark[data-verdict="contradicted"]')
@@ -84,23 +105,13 @@ def run_page(ctx, base, server, name, out, tag, timeout_s):
         page.wait_for_timeout(400)
     page.screenshot(path=str(out / f"{stem}_c_marks.png"))
 
-    # (d) one expanded claim with its proof image (contradicted first)
-    proof = False
-    order = page.locator('#rc-host .claim[data-verdict="contradicted"], #rc-host .claim[data-verdict="close"], #rc-host .claim[data-verdict="confirmed"]')
-    lis = [order.nth(i) for i in range(order.count())]
-    said = headline.split("Listing says ", 1)[-1].split(",")[0].strip().lower()
-    lis.sort(key=lambda li: 0 if li.locator(".q").inner_text().lower().startswith(said) else 1)  # the headline claim first
-    for li in lis:
-        li.locator(".row1").click()
-        try:
-            li.locator(".proof").wait_for(timeout=4000)
-            proof = True
-        except Exception:
-            li.locator(".row1").click()  # collapse again, try the next one
-            continue
-        li.scroll_into_view_if_needed()
+    # (d) the first finding with its "how sure" panel open, and whether any finding shows its proof picture
+    proof = page.locator("#rc-host .finds .find .pic img").count() > 0
+    cfb = page.locator("#rc-host .finds li .cfb")
+    if cfb.count():
+        cfb.first.scroll_into_view_if_needed()
+        cfb.first.click()
         page.wait_for_timeout(400)
-        break
     page.screenshot(path=str(out / f"{stem}_d_claim.png"))
 
     # (e) the full report tab
@@ -133,13 +144,16 @@ def run_page(ctx, base, server, name, out, tag, timeout_s):
         print(f"  (could not read saved events: {type(e).__name__})")
 
     print(f"\n== {name}: {secs:.1f} s")
-    print(f"address:  {page.locator('#rc-host .addr').inner_text()}")
+    print(f"address:  {text_of(page, '#rc-host #chkLine') or text_of(page, '#rc-host #where')}")
     print(f"headline: {headline}")
     print(f"counts:   {counts}")
     print(f"page marks: {n_marks}; proof image shown in drawer: {proof}; report images loaded: {sum(rep_imgs)}/{len(rep_imgs)}")
-    print("drawer rows (in order):")
-    for v, q, sub in rows:
-        print(f"  [{v}] {q} -> {sub}")
+    print("drawer findings (in order):")
+    for v, was, found, by in rows:
+        print(f"  [{v}] {was} -> {found} ({by})")
+    print(f"claim field: {len(cols)} columns")
+    for t in cols:
+        print(f"  {t}")
     if detail:
         print("verdicts (kind | label | quote | verdict | claimed | found | source | image):")
         for cid, d in detail.items():

@@ -79,16 +79,11 @@ def test_pool_named_by_record_beats_aerial_not_seen():
     assert trust.named_weight(c, True) > trust.weight(evs[1], c)
 
 
-def test_pool_only_not_seen_is_a_low_confidence_near_miss():
+def test_pool_only_not_seen_is_couldnt_check():
     c = claim("amenity", "resort-style pool", "building")
     v = judge(c, [record(amenities=["Fitness center"]), feature("aerial", "not_seen", 0.9)])
-    assert v["verdict"] == "close" and v["source"] == "aerial"  # absence is never a hard mismatch
-    conf = v["confidence"]
-    keys_ok(conf)
-    assert conf["band"] == "low" and conf["decided_by"] == "aerial"
-    assert [s["source"] for s in conf["sources"]] == ["aerial", "record"]
-    assert conf["sources"][1]["says"] == "not named"
-    assert "Vexcel" in conf["why"] and "proves little" in conf["why"]
+    assert v["verdict"] == "cant_check" and v["source"] is None  # absence is never a mismatch, not even close
+    assert "confidence" not in v and "cannot prove" in v["reason"]
 
 
 def test_a_sighting_is_never_outvoted_by_not_seeing():
@@ -223,9 +218,9 @@ def test_verdicts_unchanged_where_sources_agree():
 def test_near_miss_year_with_record_siding_with_listing_is_low():
     v = judge(claim("year_built", 2020, "building"),
               [ev("county", {"year_built": 2019}), record(year_built=2020)])
-    assert v["verdict"] == "close" and v["source"] == "county"  # tie on trust: the old order (county) decides
-    keys_ok(v["confidence"])
-    assert v["confidence"]["band"] == "low"
+    # the building record backs the listing, the county does not: the sources differ, so not a mismatch
+    assert v["verdict"] == "cant_check" and "confidence" not in v
+    assert "CoStar lists 2020 as the year built, the county record lists 2019, so the sources differ." in v["reason"]
 
 
 # ---- 6. the field travels in the verdict events of a whole run ------------------------------------------------

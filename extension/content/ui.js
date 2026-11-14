@@ -292,13 +292,20 @@
       }
       case "match": run.match = ev.match || null; break;
       case "evidence": if (ev.evidence && typeof ev.evidence === "object") run.evidence.push(ev.evidence); break;
-      case "verdict": run.verdicts[ev.verdict.claim_id] = ev.verdict; rebuildMarks(); break;
+      case "verdict": run.verdicts[ev.verdict.claim_id] = cleanVerdict(ev.verdict); rebuildMarks(); break;
       case "fill_in": run.fillIn = Array.isArray(ev.facts) ? ev.facts : []; break;
       case "done": run.done = ev; run.field = fieldOf(ev); run.t1 = Date.now(); run.step = ""; break;
       case "error": run.error = ev.message || "Something went wrong."; break;
       default: return;
     }
     render();
+  }
+
+  // Older runs tagged where a value came from inside `found` ("630 sq ft (scan title)"): never show such a tag.
+  const PROVENANCE_TAG = /\s*\((?:scan title|record|county|aerial|scan|property data)\)\s*$/i;
+  function cleanVerdict(v) {
+    if (!v || typeof v.found !== "string" || !PROVENANCE_TAG.test(v.found)) return v;
+    return { ...v, found: v.found.replace(PROVENANCE_TAG, "") };
   }
 
   // ---------- the claim field: one column per claim, one row per source ----------

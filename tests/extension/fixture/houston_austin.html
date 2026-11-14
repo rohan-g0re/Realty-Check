@@ -1,0 +1,143 @@
+<!doctype html>
+<!-- Synthetic demo page. Copy and numbers are invented; only the street address is a real public address. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Larkspur on Austin | Bayou Lease</title>
+<link rel="icon" href="data:,">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"ApartmentComplex","name":"Larkspur on Austin","address":{"@type":"PostalAddress","streetAddress":"2111 Austin St","addressLocality":"Houston","addressRegion":"TX","postalCode":"77002"},"numberOfAccommodationUnits":216}
+</script>
+<style>
+  :root { --ink:#2b2a28; --muted:#6d6a64; --bg:#f6f3ee; --card:#fff; --line:#e2ddd4; --accent:#7a5c3e; --hero:#3f4a44; --hero2:#5c6b62; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  a { color:var(--accent); text-decoration:none; }
+  header.site { background:#fff; border-bottom:1px solid var(--line); }
+  header.site .wrap { display:flex; align-items:center; justify-content:space-between; padding:14px 32px; max-width:1240px; margin:0 auto; }
+  .brand { font:600 22px/1 Georgia, "Times New Roman", serif; color:var(--ink); letter-spacing:.3px; }
+  .brand span { color:var(--accent); }
+  header.site nav a { margin-left:22px; color:var(--muted); font-size:14px; }
+  .hero { background:linear-gradient(120deg, var(--hero), var(--hero2)); color:#f4efe6; padding:64px 32px 52px; }
+  .hero .wrap { max-width:1240px; margin:0 auto; }
+  .hero .eyebrow { text-transform:uppercase; letter-spacing:2px; font-size:12px; opacity:.8; }
+  .hero h1 { font:500 46px/1.15 Georgia, "Times New Roman", serif; margin:8px 0 6px; }
+  .hero h2.addr-line { font-weight:400; font-size:20px; margin:0 0 18px; opacity:.92; }
+  .hero .pills span { display:inline-block; border:1px solid rgba(244,239,230,.45); border-radius:999px; padding:4px 14px; margin-right:8px; font-size:14px; }
+  .subnav { position:sticky; top:0; z-index:5; background:#fbf9f5; border-bottom:1px solid var(--line); }
+  .subnav .wrap { max-width:1240px; margin:0 auto; padding:0 32px; display:flex; gap:30px; }
+  .subnav a { display:block; padding:14px 0; color:var(--ink); font-size:15px; border-bottom:2px solid transparent; }
+  .subnav a:hover { border-bottom-color:var(--accent); }
+  main { max-width:1240px; margin:0 auto; padding:36px 32px 20px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:28px 32px; margin-bottom:26px; }
+  section h3 { font:500 26px/1.2 Georgia, "Times New Roman", serif; margin:0 0 14px; }
+  .facts { display:grid; grid-template-columns:1fr 1fr; gap:0 40px; margin-top:20px; }
+  .facts div { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px dashed var(--line); }
+  .facts div b { font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  th, td { text-align:left; padding:12px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:.8px; }
+  td.price { font-weight:600; color:var(--accent); }
+  ul.amen { columns:2; list-style:none; padding:0; margin:0; }
+  ul.amen li { padding:8px 0 8px 22px; position:relative; break-inside:avoid; }
+  ul.amen li::before { content:""; position:absolute; left:0; top:16px; width:9px; height:9px; background:var(--accent); border-radius:2px; }
+  .loc { display:grid; grid-template-columns:1.3fr 1fr; gap:28px; }
+  .map { height:260px; border-radius:4px; background:
+      linear-gradient(90deg, transparent 48%, #d9d2c4 48%, #d9d2c4 52%, transparent 52%),
+      linear-gradient(0deg, transparent 46%, #d9d2c4 46%, #d9d2c4 50%, transparent 50%),
+      #e9e4da; position:relative; }
+  .map::after { content:""; position:absolute; left:calc(50% - 9px); top:calc(48% - 9px); width:18px; height:18px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 6px rgba(122,92,62,.25); }
+  .contact { display:flex; align-items:center; justify-content:space-between; background:#efe8dc; border-color:#e0d5c3; }
+  .contact .phone { font:500 24px/1.2 Georgia, serif; }
+  .btn { background:var(--accent); color:#fff; border:0; border-radius:4px; padding:13px 26px; font-size:16px; cursor:pointer; }
+  footer { text-align:center; color:var(--muted); font-size:13px; padding:26px 0 40px; }
+</style>
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="#">Bayou<span>Lease</span></a>
+    <nav><a href="#">Search</a><a href="#">Saved</a><a href="#">Renter Guides</a><a href="#">Sign in</a></nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Houston &middot; Apartments for rent</div>
+    <h1>Larkspur on Austin</h1>
+    <h2 class="addr-line">2111 Austin St, Houston, TX 77002</h2>
+    <div class="pills"><span>Studio &ndash; 3 Beds</span><span>$1,395 &ndash; $3,240</span><span>Pet friendly</span></div>
+  </div>
+</div>
+
+<div class="subnav">
+  <div class="wrap">
+    <a href="#overview">Overview</a><a href="#floorplans">Floor Plans</a><a href="#amenities">Amenities</a><a href="#location">Location</a>
+  </div>
+</div>
+
+<main>
+  <section id="overview">
+    <h3>Overview</h3>
+    <p>Larkspur on Austin is a 5-story building on the edge of Midtown and downtown Houston, set back from the street behind a planted courtyard. Built in 2019, the community has 216 apartments ranging from efficient studios to three-bedroom homes, each with wide-plank flooring, quartz counters, and in-unit washers and dryers.</p>
+    <p>Residents get a quiet home base within walking distance of light rail, coffee shops, and the parks along the bayou. Our on-site leasing team can help you find a floor plan that fits your schedule and budget.</p>
+    <div class="facts">
+      <div><span>Stories</span><b>5</b></div>
+      <div><span>Year built</span><b>2019</b></div>
+      <div><span>Apartments</span><b>216</b></div>
+      <div><span>Lease terms</span><b>6&ndash;15 months</b></div>
+      <div><span>Pets</span><b>Cats and dogs welcome</b></div>
+      <div><span>Utilities</span><b>Water and trash billed separately</b></div>
+    </div>
+  </section>
+
+  <section id="floorplans">
+    <h3>Floor Plans</h3>
+    <table>
+      <thead><tr><th>Plan</th><th>Beds</th><th>Baths</th><th>Size</th><th>Starting at</th><th>Availability</th></tr></thead>
+      <tbody>
+        <tr><td>Plan A</td><td>Studio</td><td>1 Bath</td><td>520 sq ft</td><td class="price">$1,395/mo</td><td>Available now</td></tr>
+        <tr><td>Plan B</td><td>1 Bed</td><td>1 Bath</td><td>745 sq ft</td><td class="price">$1,720/mo</td><td>2 units</td></tr>
+        <tr><td>Plan C</td><td>2 Beds</td><td>2 Baths</td><td>1,080 sq ft</td><td class="price">$2,460/mo</td><td>Next month</td></tr>
+        <tr><td>Plan D</td><td>3 Beds</td><td>2 Baths</td><td>1,350 sq ft</td><td class="price">$3,240/mo</td><td>Join waitlist</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="amenities">
+    <h3>Amenities</h3>
+    <ul class="amen">
+      <li>Resort-style pool</li>
+      <li>24-hour fitness center</li>
+      <li>Garage parking</li>
+      <li>Rooftop lounge with grilling stations</li>
+      <li>Co-working library with private call rooms</li>
+      <li>Pet wash station and fenced dog run</li>
+    </ul>
+  </section>
+
+  <section id="location">
+    <h3>Location</h3>
+    <div class="loc">
+      <div class="map" role="img" aria-label="Map placeholder"></div>
+      <div>
+        <p>Set where downtown meets Midtown, the neighborhood mixes converted warehouses, new mid-rise homes, and a steady lineup of restaurants and bars within a few blocks.</p>
+        <p>The light rail runs nearby for quick trips to the Museum District and the Medical Center, and the convention center and ballpark are an easy walk. Grocery, pharmacy, and dry cleaning are all close by.</p>
+        <p><b>Walk score:</b> Very walkable &middot; <b>Transit:</b> Excellent</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="contact">
+    <div>
+      <div style="color:var(--muted);font-size:14px;">Leasing office &middot; Open daily 9am&ndash;6pm</div>
+      <div class="phone">(713) 555-0142</div>
+    </div>
+    <button class="btn" type="button">Schedule a tour</button>
+  </section>
+</main>
+
+<footer>&copy; 2026 Bayou Lease (fictional). All listing details are for demonstration only.</footer>
+</body>
+</html>

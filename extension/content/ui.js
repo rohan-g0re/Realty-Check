@@ -7,6 +7,7 @@
   const VC = { contradicted: "#dc2626", close: "#d97706", confirmed: "#16a34a", cant_check: "#a3a3a3" };
   const VL = { contradicted: "Contradicted", close: "Close", confirmed: "Confirmed", cant_check: "Can't check" };
   const SRC = { scan: "3D scan", aerial: "Aerial photo", county: "County record", record: "Building record" };
+  const AG = { orchestrator: "Lead", claims: "Claims", matcher: "Match", inside: "Inside", outside: "Outside", paper: "Records", judge: "Judge" };
   const LOGO = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="#2563eb" stroke-width="2"/><path d="M7.8 12.4l2.9 2.9 5.6-5.9" fill="none" stroke="#2563eb" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const GEAR = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`;
   const CHEV = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
@@ -189,7 +190,7 @@
   function startRun(a) {
     stopRun();
     expanded.clear();
-    run = { address: a, mode: "server", claims: [], verdicts: {}, step: "Connecting to the local checker…", done: null, unreachable: false, error: null, token: {} };
+    run = { address: a, mode: "server", claims: [], verdicts: {}, step: "Connecting to the local checker…", steps: [], t0: Date.now(), done: null, unreachable: false, error: null, token: {} };
     overlay.setSelected(a.text);
     rebuildMarks();
     render();
@@ -214,7 +215,7 @@
   function startSample() {
     stopRun();
     const a = run.address;
-    run = { address: a, mode: "sample", claims: [], verdicts: {}, step: "Starting…", done: null, unreachable: false, error: null, token: {} };
+    run = { address: a, mode: "sample", claims: [], verdicts: {}, step: "Starting…", steps: [], t0: Date.now(), done: null, unreachable: false, error: null, token: {} };
     const me = run;
     render();
     RC_SAMPLE.events(a.full).forEach((ev, i) => setTimeout(() => { if (run === me && me.token) handle(ev); }, (i + 1) * RC_SAMPLE.delayMs));
@@ -222,7 +223,14 @@
   function handle(ev) {
     if (!run) return;
     switch (ev.type) {
-      case "step": run.step = ev.text; break;
+      case "step": {
+        // One line per agent, newest text wins; the line keeps its first position so the list never jumps.
+        run.step = ev.text;
+        const k = ev.agent || "orchestrator", s = run.steps.find((x) => x.agent === k);
+        if (s) { s.text = ev.text; s.t = Date.now(); } else run.steps.push({ agent: k, text: ev.text, t: Date.now() });
+        run.last = k;
+        break;
+      }
       case "claims": run.claims = ev.claims || []; break;
       case "verdict": run.verdicts[ev.verdict.claim_id] = ev.verdict; rebuildMarks(); if (ev.verdict.image && run.mode === "server") loadImg(ev.verdict.image); break;
       case "done": run.done = ev; run.step = ""; break;
@@ -238,6 +246,22 @@
       chrome.runtime.sendMessage({ type: "img", path }, (r) => { void chrome.runtime.lastError; if (r && r.dataUrl) { imgCache.set(path, r.dataUrl); render(); } });
     } catch (e) { /* extension reloaded */ }
   }
+
+  // ---------- progress (a long run must never look frozen) ----------
+  const elapsed = (r) => Math.floor((Date.now() - r.t0) / 1000) + " s";
+  function pct(r) {
+    // Before claims arrive: creep slowly toward 14% with time. After: 15% + share of verdicts in.
+    const n = r.claims.length, nv = Object.keys(r.verdicts).length, t = (Date.now() - r.t0) / 1000;
+    const v = n ? 15 + (85 * nv) / n : 3 + 11 * (1 - Math.exp(-t / 25));
+    r.pmax = Math.max(r.pmax || 0, v);
+    return r.pmax.toFixed(1);
+  }
+  setInterval(() => {
+    if (!open || !run || run.done || run.error || run.unreachable) return;
+    const el = $("elapsed"), bf = $("barFill");
+    if (el) el.textContent = elapsed(run);
+    if (bf) bf.style.width = pct(run) + "%";
+  }, 1000);
 
   // ---------- render ----------
   function render() {
@@ -256,8 +280,11 @@
       h += `<p class="headline" id="headline">${esc(r.done.headline)}</p><div class="counts">` +
         ["contradicted", "close", "confirmed", "cant_check"].map((k) => `<div class="cnt"><b>${c[k] || 0}</b><span><i class="d" style="background:${VC[k]}"></i>${VL[k]}</span></div>`).join("") + `</div>`;
     } else {
-      const pct = n ? 15 + (85 * nv) / n : 8;
-      h += `<div class="prog"><div class="bar"><i style="width:${pct}%"></i></div><div class="step" id="step">${esc(r.step)}</div></div>`;
+      h += `<div class="prog"><div class="bar"><i id="barFill" style="width:${pct(r)}%"></i></div>` +
+        `<div class="pmeta"><span>${r.steps.length ? "Working" : esc(r.step)}</span><span class="el" id="elapsed">${elapsed(r)}</span></div>` +
+        (r.steps.length ? `<ul class="steps" id="step">` + r.steps.map((s) =>
+          `<li class="${s.agent === r.last ? "now" : ""}"><span class="d"></span><span class="ag">${esc(AG[s.agent] || s.agent)}</span><span class="tx">${esc(s.text)}</span></li>`).join("") + `</ul>` : "") +
+        `</div>`;
     }
     if (n) {
       h += `<div class="sec">What the listing says</div><ul class="claims">` + r.claims.map((c) => claimHTML(c, r.verdicts[c.id])).join("") + `</ul>`;
@@ -352,7 +379,16 @@
   .prog{margin-top:18px}
   .bar{height:2px;background:#eef0f3;border-radius:2px;overflow:hidden}
   .bar i{display:block;height:100%;background:#2563eb;transition:width .2s ease}
-  .step{margin-top:8px;font-size:13px;color:#444}
+  .pmeta{display:flex;justify-content:space-between;margin-top:8px;font-size:13px;color:#444}
+  .pmeta .el{color:#a3a3a3;font-variant-numeric:tabular-nums}
+  .steps{list-style:none;margin:8px 0 0;padding:0}
+  .steps li{display:flex;gap:10px;align-items:baseline;padding:3px 0;font-size:13px;color:#6b6b6b}
+  .steps .d{width:6px;height:6px;margin:0;align-self:center;background:#d4d4d4}
+  .steps .ag{flex:none;width:56px;color:#a3a3a3;font-size:12px}
+  .steps .tx{flex:1;min-width:0}
+  .steps li.now{color:#111}
+  .steps li.now .d{background:#2563eb;animation:rcpulse 1.2s ease-in-out infinite}
+  @keyframes rcpulse{50%{opacity:.25}}
   .headline{margin:16px 0 0;font-size:15px;line-height:1.45;font-weight:500;color:#111}
   .counts{display:grid;grid-template-columns:repeat(4,1fr);margin-top:16px;border:1px solid #e6e6e6;border-radius:10px}
   .cnt{padding:10px 10px 9px;border-left:1px solid #e6e6e6}

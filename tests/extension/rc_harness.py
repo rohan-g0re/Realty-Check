@@ -54,8 +54,9 @@ def _png() -> bytes:
 STUB_HEADLINE = "Stub check: listed as 2 bedrooms, the scan shows 1."
 
 
-def stub_events(address: str) -> list[dict]:
-    return [
+def stub_events(address: str, quotes=None) -> list[dict]:
+    """Contract Events for one run. `quotes` (3 strings) replaces the quotes of claims c1..c3."""
+    evs = [
         {"type": "run_started", "run_id": "r1", "address": address},
         {"type": "step", "agent": "orchestrator", "text": "Reading the listing…"},
         {"type": "claims", "claims": [
@@ -73,10 +74,14 @@ def stub_events(address: str) -> list[dict]:
         {"type": "done", "run_id": "r1", "counts": {"confirmed": 1, "contradicted": 1, "close": 1, "cant_check": 0},
          "headline": STUB_HEADLINE, "report_url": "/report/r1"},
     ]
+    if quotes:
+        for c, q in zip(evs[2]["claims"], quotes):
+            c["quote"] = q
+    return evs
 
 
 class StubChecker:
-    def __init__(self, delay: float = 0.15):
+    def __init__(self, delay: float = 0.15, quotes=None):
         self.requests: list[dict] = []
         outer = self
         png = _png()
@@ -122,7 +127,7 @@ class StubChecker:
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
-                for ev in stub_events(snap.get("address_text", "")):
+                for ev in stub_events(snap.get("address_text", ""), quotes):
                     self.wfile.write(f"data: {json.dumps(ev)}\n\n".encode())
                     self.wfile.flush()
                     time.sleep(delay)

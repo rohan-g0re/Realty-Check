@@ -179,3 +179,42 @@ def test_stub_server_through_service_worker(env):
         page.close()
     finally:
         stub.close()
+
+
+DEMO = {  # page -> (full address, claim quotes the stub returns, phrases the snapshot text must contain)
+    "houston_austin.html": ("2111 Austin St, Houston, TX 77002", ["5-story building", "Built in 2019", "216 apartments"],
+                            ["5-story building", "Built in 2019", "216 apartments", "Resort-style pool", "Garage parking"]),
+    "la_sepulveda.html": ("3700 Sepulveda Blvd, Los Angeles, CA 90034", ["2 Beds · 1 Bath · 855 sq ft", "Plan E", "Saltwater pool"],
+                          ["Plan E", "2 Beds · 1 Bath · 855 sq ft", "Saltwater pool"]),
+}
+
+
+def test_demo_pages_detect_full_address(env):
+    for name, (full, _, _) in DEMO.items():
+        page, errors = open_page(env, name)
+        assert page.locator("#rc-host").get_attribute("data-count") == "1"
+        page.locator("#rc-host #tabFace").click()
+        assert page.locator("#rc-host .pick .pa").all_inner_texts() == [full]
+        assert not errors, errors
+        page.close()
+
+
+def test_demo_pages_snapshot_and_marks(env):
+    for name, (full, quotes, phrases) in DEMO.items():
+        stub = H.StubChecker(delay=0.05, quotes=quotes)
+        try:
+            H.set_server(env["sw"], stub.url)
+            page, errors = open_page(env, name)
+            page.locator("#rc-host .addr-mark").first.click()
+            page.locator("#rc-host .pill").click()
+            page.locator("#rc-host #headline").wait_for(timeout=15000)
+            snap = stub.requests[-1]
+            assert snap["address_text"] == full
+            for ph in phrases:
+                assert ph in snap["text"], ph
+            verdicts = set(page.locator("#rc-host .claim-mark").evaluate_all("els => els.map(e => e.dataset.verdict)"))
+            assert verdicts == {"contradicted", "close", "confirmed"}, verdicts  # every stub quote got a mark on the page
+            assert not errors, errors
+            page.close()
+        finally:
+            stub.close()

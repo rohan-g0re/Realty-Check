@@ -72,7 +72,10 @@
       "(?:,?\\s+(?:Apt|Unit|Suite|Ste|#)\\.?\\s*[A-Za-z0-9-]+)?" +
       "(?:,\\s*" + CITY + ")?", "g");
   const HAS_CITY = /,\s*[A-Z]{2}\b|\d{5}$/;
-  const TAIL_RE = new RegExp("^[\\s,·|–-]{0,4}(" + CITY + ")");
+  // City line after a street-only match. Text nodes are joined without separators and whitespace-only nodes
+  // are dropped, so "<span>CA</span> <span>90034</span>" reads "CA90034": allow no space before the ZIP.
+  const TAIL_RE = new RegExp("^[\\s,·|–-]{0,4}([A-Z][A-Za-z.'-]+(?:\\s[A-Z][A-Za-z.'-]+){0,3},?\\s*[A-Z]{2}\\s*\\d{5}(?:-\\d{4})?)(?!\\d)");
+  const normTail = (t) => norm(t).replace(/,?\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/, ", $1 $2");
   const norm = (s) => s.replace(/\s+/g, " ").replace(/[\s,.]+$/, "").trim();
 
   // All parsed application/ld+json objects on the page.
@@ -114,7 +117,7 @@
         if (!HAS_CITY.test(full)) {
           // Street only: join "City, ST 12345" that follows within the next ~80 chars (often the next element).
           const t = TAIL_RE.exec(flat.str.slice(b, b + 80));
-          if (t && /[A-Z]{2}\s+\d{5}/.test(t[1])) { full = full + ", " + norm(t[1]); b = b + t[0].length; }
+          if (t) { full = full + ", " + normTail(t[1]); b = b + t[0].length; }
         }
         const key = norm(raw).toLowerCase();
         if (!map.has(key)) map.set(key, { text: norm(raw), full, ranges: [], src: "page" });

@@ -14,10 +14,11 @@ Honesty rules:
 - Blank, 0 or unknown values are "not recorded" and are skipped, never stated as "none".
 - Record values say they are as of when the building was last researched; rents give the listing date.
 - Company names only (cleaned in tools/kit/facts.py); never people, phones, emails or free text.
-- No complaint data is available offline, so none is shown (Houston 311 text would never be shown anyway).
+- Complaint data (Houston 311) only as counts, from county Evidence that carries them; never their text.
 """
 from __future__ import annotations
 
+import datetime
 import re
 from typing import Any
 
@@ -165,7 +166,7 @@ def _ok(evs: list[dict], source: str) -> list[dict]:
 
 def _building(f: _Facts, page: _Page, rec: dict, kit: dict) -> None:
     if not page.says("year_built") and _n(rec.get("year_built")):
-        f.add("year-built", "Building", "Year built", f"{_n(rec['year_built']):.0f}", "record", RECORD_NOTE)
+        f.add("year-built", "Building", "Year built", _year_and_age(rec["year_built"]), "record", RECORD_NOTE)
     if not page.says("stories") and _n(rec.get("stories")):
         s = _n(rec["stories"])
         f.add("floors", "Building", "Floors", f"{s:g} floor{'s' if s != 1 else ''} above ground", "record", RECORD_NOTE)
@@ -206,6 +207,36 @@ def _building(f: _Facts, page: _Page, rec: dict, kit: dict) -> None:
         v = _n(lot["size"])
         f.add("lot", "Building", "Lot size", f"{v:,.2f}".rstrip("0").rstrip(".") + f" {lot['unit']}"
               if lot["unit"] == "acres" else f"{v:,.0f} sq ft", "record", RECORD_NOTE)
+
+
+def _year_and_age(year) -> str:
+    """'2016, about 10 years old' (the age from today's year; a building from this year or later: the year alone)."""
+    y = int(_n(year))
+    age = datetime.date.today().year - y
+    if age >= 2:
+        return f"{y}, about {age} years old"
+    return str(y)
+
+
+def _amenities(f: _Facts, page: _Page, match: dict, kit: dict) -> None:
+    """Amenities the building record lists that the page never mentions (kit `amenities` or the match's, a list of
+    plain names). Nothing when the record has none."""
+    names = kit.get("amenities") or match.get("amenities") or []
+    if not isinstance(names, list):
+        return
+    text = page.text.lower()
+    left = []
+    for a in names:
+        a = str(a or "").strip()
+        if not a or len(a) > 40 or a.lower() in (x.lower() for x in left):
+            continue
+        words = [w for w in re.findall(r"[a-z]{4,}", a.lower()) if w not in ("room", "area", "center", "centre")]
+        if words and any(re.search(r"\b" + re.escape(w), text) for w in words):
+            continue  # the page talks about it: the fact-check covers it
+        left.append(a)
+    if left:
+        f.add("amenities", "Building", "Amenities on record, not on the listing",
+              ", ".join(left[:12]) + (f" and {len(left) - 12} more" if len(left) > 12 else ""), "record", RECORD_NOTE)
 
 
 # ---------- Homes & floor plans ----------
@@ -268,6 +299,29 @@ def _homes(f: _Facts, page: _Page, match: dict, kit: dict) -> None:
         if any(p.get("short_term") for p in kit_plans):
             f.add("short-term", "Homes & floor plans", "Short-term leases", "Offered for some floor plans", "record",
                   RECORD_NOTE)
+
+
+def _type_sizes(f: _Facts, kit_plans: list[dict]) -> None:
+    """Typical size per kind of home across the building's plans ('1 bed: 650–900 sq ft across 4 plans'), when the
+    building has at least two plans with a size on record."""
+    sized = []
+    for p in kit_plans:
+        lo = _n(p.get("sqft_min") or p.get("sqft"))
+        hi = _n(p.get("sqft_max")) or lo
+        b = _n(p.get("beds"))
+        if lo and lo > 100 and b is not None and 0 <= b <= 8:
+            sized.append((int(b), lo, max(lo, hi or lo)))
+    if len(sized) < 2:
+        return
+    by: dict[int, list] = {}
+    for b, lo, hi in sized:
+        by.setdefault(b, []).append((lo, hi))
+    for b in sorted(by):
+        rows = by[b]
+        lo, hi = min(x[0] for x in rows), max(x[1] for x in rows)
+        kind = "studio" if b == 0 else f"{b} bed"
+        value = f"{_range(lo, hi)} sq ft" + (f" across {len(rows)} plans" if len(rows) > 1 else ", one plan")
+        f.add(f"size-{b}bed", "Homes & floor plans", f"Typical size, {kind}", value, "record", RECORD_NOTE)
 
 
 def _scans(f: _Facts, page: _Page, evs: list[dict], lookup: list[dict]) -> None:
@@ -469,6 +523,12 @@ def _records(f: _Facts, page: _Page, evs: list[dict]) -> None:
             f.add("county-homes", "Records", "Homes (county)", _int(o["unit_count"]), "county", note)
         if _n(o.get("building_sf")):
             f.add("county-size", "Records", "Building size (county)", f"{_int(o['building_sf'])} sq ft", "county", note)
+        for k, v in o.items():  # 311 and complaint records: the count only, never what they say
+            n = len(v) if isinstance(v, (list, dict)) else v if isinstance(v, int) and not isinstance(v, bool) else None
+            if n and re.search(r"311|complaint", str(k), re.I):
+                what = "311 service requests" if "311" in str(k) else "Complaints"
+                f.add("county-311" if "311" in str(k) else "county-complaints", "Records", f"{what} on record",
+                      f"{n:,}", "county", f"A count from {who}; what they say is not shown.")
         if o.get("parcel_id"):
             f.add("county-parcel", "Records", "County parcel number", str(o["parcel_id"]), "county",
                   f"Look it up with {who}.")
@@ -486,7 +546,9 @@ def build_fill_in(match: dict | None, evidences: list[dict] | None, claims: list
     f = _Facts()
     if matched:
         _building(f, page, match.get("record") or {}, kit)
+        _amenities(f, page, match, kit)
         _homes(f, page, match, kit)
+        _type_sizes(f, _kit_plans(match, kit))
     _scans(f, page, evs, _lookup(_kit_plans(match, kit)) if matched else [])
     if matched:
         _rent(f, page, kit)

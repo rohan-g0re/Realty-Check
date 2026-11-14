@@ -1,4 +1,4 @@
-// Reality Check: on-page overlays (address highlights, claim marks, pill, tooltip).
+// Realty Check: on-page overlays (address highlights, claim marks, pill, tooltip).
 // Drawn as absolutely positioned boxes inside our shadow root from Range.getClientRects(); page text is never touched.
 (() => {
   const RC = (globalThis.RC = globalThis.RC || {});

@@ -18,6 +18,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Redirec
                                StreamingResponse)
 
 from rc_common import cache_dir
+from server.address_pick import pick_address
 from server.report import render_report
 from server.report_a import render_report as render_report_a
 from server import tour
@@ -28,8 +29,10 @@ REPLAY_GAP = 0.4
 REPLAY_TOTAL_S = 6.0  # a replay never takes longer than this
 RUN_ID_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 TOKEN_RE = re.compile(r"^[a-f0-9]{16}$")
+SNAPSHOT_KEYS = ("url", "title", "address_text", "address_locked", "address_candidates", "address_pick")
+FIELD_SOURCES = ("record", "scan", "aerial", "county")
 
-app = FastAPI(title="Reality Check")
+app = FastAPI(title="Realty Check")
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-z0-9]+|https?://(localhost|127\.0\.0\.1)(:\d+)?)$",
@@ -152,15 +155,81 @@ def find_finished_run(address: str) -> dict | None:
     return best
 
 
+# ---------- address pick, cache switch, drawer field ----------
+
+def no_cache() -> bool:
+    """RC_NO_CACHE=1: a fresh run every time (the cache helpers honour it; here it turns replays off)."""
+    try:
+        from tools.cachectl import enabled
+        return not enabled()
+    except Exception:  # noqa: BLE001  the cache switch module is missing: read the variable the same way
+        return os.environ.get("RC_NO_CACHE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def public_pick(pick) -> dict | None:
+    """The address pick as the browser may see it: no Match, no property ids."""
+    if not isinstance(pick, dict) or not pick.get("chosen"):
+        return None
+    alts = [{"text": str(a.get("text") or ""), "name": a.get("name") or None, "why": str(a.get("why") or "")}
+            for a in pick.get("alternatives") or [] if isinstance(a, dict) and a.get("text")]
+    conf = pick.get("confidence")
+    return {"chosen": str(pick["chosen"]), "why": str(pick.get("why") or ""),
+            "confidence": round(float(conf), 2) if isinstance(conf, (int, float)) else None, "alternatives": alts}
+
+
+def apply_pick(snapshot: dict) -> dict:
+    """Cross-check the page's address candidates against the kit (server/address_pick.py) and check the chosen
+    one. Returns a new snapshot; `address_pick` on it is the full pick. Any failure keeps the snapshot as sent."""
+    snapshot = dict(snapshot or {})
+    try:
+        pick = pick_address(snapshot)
+    except Exception:  # noqa: BLE001  a broken kit lookup must never stop a check
+        return snapshot
+    if isinstance(pick, dict) and pick.get("chosen"):
+        snapshot["address_text"] = pick["chosen"]
+        snapshot["address_pick"] = pick
+    return snapshot
+
+
+def drawer_field(run: dict) -> dict | None:
+    """The claim field's cell states (server/claim_field.py, the report's own rules) for the drawer's mini grid:
+    {"claims": [{"id", "cells": {record|scan|aerial|county: match|contra|close|data|none}, "image"}]}.
+    `image`: the best proof picture (an /img/<token> URL) for a claim that does not match, else null."""
+    try:
+        from server.claim_field import IMG_RE, claim_field
+        field = claim_field(run)
+    except Exception:  # noqa: BLE001
+        return None
+    verdicts = {}
+    for e in run.get("events") or []:
+        if isinstance(e, dict) and e.get("type") == "verdict" and isinstance(e.get("verdict"), dict):
+            verdicts[e["verdict"].get("claim_id")] = e["verdict"]
+    out = []
+    for c in field.get("claims") or []:
+        cells = c.get("cells") or {}
+        img = None
+        if c.get("highlight"):
+            v = verdicts.get(c.get("id")) or {}
+            pool = [v.get("image"), (cells.get(v.get("source")) or {}).get("image")]
+            pool += [(cells.get(k) or {}).get("image") for k in FIELD_SOURCES
+                     if (cells.get(k) or {}).get("state") in ("contra", "close")]
+            img = next((p for p in pool if isinstance(p, str) and IMG_RE.match(p)), None)
+        out.append({"id": c.get("id"), "cells": {k: (cells.get(k) or {}).get("state") or "none" for k in FIELD_SOURCES},
+                    "image": img})
+    return {"claims": out}
+
+
 # ---------- running ----------
 
 def start_run(snapshot: dict, base_url: str) -> queue.Queue:
-    """Run in a worker thread; events go to the returned queue (None = end). Run is saved either way."""
+    """Run in a worker thread; events go to the returned queue (None = end). Run is saved either way.
+    `run_started` carries the browser-safe address pick and whether the cache is on (CONTRACT 2.6)."""
     q: queue.Queue = queue.Queue()
     run_id = time.strftime("%Y%m%d-%H%M%S-").lower() + uuid.uuid4().hex[:6]
     name, runner = pick_runner()
     run = {"run_id": run_id, "harness": name,
-           "snapshot": {k: snapshot.get(k) for k in ("url", "title", "address_text")},
+           "snapshot": {**{k: snapshot.get(k) for k in SNAPSHOT_KEYS},
+                        "address_pick": public_pick(snapshot.get("address_pick"))},
            "address_key": norm_address(snapshot.get("address_text")),
            "started_at": time.time(), "finished_at": None, "finished": False,
            "events": [], "event_times": [], "images": {}}
@@ -178,6 +247,9 @@ def start_run(snapshot: dict, base_url: str) -> queue.Queue:
                 ev = {**ev, "run_id": run_id}
             if ev["type"] == "done":
                 ev["report_url"] = f"{base_url}/report/{run_id}"
+                field = drawer_field({"run_id": run_id, "events": run["events"]})
+                if field is not None:
+                    ev["field"] = field
             ev = rewrite_images(ev, run["images"])
             if ev["type"] == "fill_in":
                 run["fill_in"] = ev["facts"]  # also kept top level, for the report and later readers
@@ -195,7 +267,8 @@ def start_run(snapshot: dict, base_url: str) -> queue.Queue:
             tour.prewarm(run)
 
     def work() -> None:
-        push({"type": "run_started", "run_id": run_id, "address": snapshot.get("address_text") or ""})
+        push({"type": "run_started", "run_id": run_id, "address": snapshot.get("address_text") or "",
+              "address_pick": public_pick(snapshot.get("address_pick")), "cache": "off" if no_cache() else "on"})
         try:
             result = runner({**snapshot, "run_id": run_id}, push)
             if not run["finished"]:
@@ -242,6 +315,10 @@ def replay(run: dict, base_url: str = "") -> queue.Queue:
                 time.sleep(gap)
             if ev.get("type") == "done" and base_url:
                 ev = {**ev, "report_url": f"{base_url}/report/{run['run_id']}"}  # this server, not the original
+            if ev.get("type") == "done" and "field" not in ev:  # runs saved before the drawer field existed
+                field = drawer_field({"run_id": run["run_id"], "events": run["events"][:i]})
+                if field is not None:
+                    ev = {**ev, "field": field}
             q.put(ev)
         q.put(None)
 
@@ -271,7 +348,9 @@ def health():
 @app.post("/check")
 async def check(snapshot: dict, request: Request):
     base = str(request.base_url).rstrip("/")
-    old = find_finished_run(snapshot.get("address_text")) if os.environ.get("RC_REPLAY") == "1" else None
+    snapshot = await asyncio.to_thread(apply_pick, snapshot)  # before the replay lookup: replay the chosen address
+    replay_on = os.environ.get("RC_REPLAY") == "1" and not no_cache()
+    old = find_finished_run(snapshot.get("address_text")) if replay_on else None
     q = replay(old, base) if old else start_run(snapshot, base)
     return StreamingResponse(sse(q), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -294,6 +373,16 @@ def run_json(run_id: str):
         return JSONResponse({"error": "not found"}, status_code=404)
     run.pop("images", None)  # token -> local path stays private
     return run
+
+
+@app.get("/field/{run_id}")
+def field_json(run_id: str):
+    """The drawer's claim field for a saved run: the report's cell states (server/claim_field.py)."""
+    run = load_run(run_id)
+    if run is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    field = drawer_field(run)
+    return field if field is not None else JSONResponse({"error": "unavailable"}, status_code=500)
 
 
 @app.get("/report/{run_id}", response_class=HTMLResponse)

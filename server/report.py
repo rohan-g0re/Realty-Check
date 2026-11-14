@@ -254,6 +254,59 @@ def _img_rank(cap: str) -> int:
     return 2
 
 
+def drop_dead_images(run: dict) -> dict:
+    """The run with every picture whose cached file is gone taken out (older runs: the scan caches were cleared, so
+    those /img/<token> URLs would 404 and show a broken picture). A token the run's own `images` map does not name is
+    kept (the page hides it in the browser if it fails). Returns a copy when anything changed; never raises."""
+    import os
+    try:
+        paths = run.get("images") if isinstance(run, dict) else None
+        if not isinstance(paths, dict) or not paths:
+            return run
+        dead: dict = {}
+
+        def gone(url) -> bool:
+            if not isinstance(url, str) or not IMG_RE.match(url):
+                return False
+            tok = url[5:]
+            if tok not in paths:
+                return False
+            if tok not in dead:
+                p = paths.get(tok)
+                dead[tok] = not (isinstance(p, str) and os.path.isfile(p))
+            return dead[tok]
+
+        out_events, changed = [], False
+        for e in run.get("events") or []:
+            if not isinstance(e, dict):
+                out_events.append(e)
+                continue
+            t = e.get("type")
+            if t == "evidence" and isinstance(e.get("evidence"), dict):
+                imgs = e["evidence"].get("images") or []
+                keep = [im for im in imgs if not (isinstance(im, dict) and gone(im.get("path")))]
+                if len(keep) != len(imgs):
+                    e = {**e, "evidence": {**e["evidence"], "images": keep}}
+                    changed = True
+            elif t == "verdict" and isinstance(e.get("verdict"), dict) and gone(e["verdict"].get("image")):
+                e = {**e, "verdict": {**e["verdict"], "image": None}}
+                changed = True
+            elif t == "fill_in" and isinstance(e.get("facts"), list):
+                if any(isinstance(f, dict) and gone(f.get("image")) for f in e["facts"]):
+                    e = {**e, "facts": [{**f, "image": None} if isinstance(f, dict) and gone(f.get("image")) else f
+                                        for f in e["facts"]]}
+                    changed = True
+            out_events.append(e)
+        out = dict(run, events=out_events) if changed else run
+        top = run.get("fill_in")
+        if isinstance(top, list) and any(isinstance(f, dict) and gone(f.get("image")) for f in top):
+            out = dict(out, fill_in=[{**f, "image": None} if isinstance(f, dict) and gone(f.get("image")) else f
+                                     for f in top])
+        return out
+    except Exception:  # noqa: BLE001  a report must render even if this check fails
+        return run
+
+
 # ---------- run model ----------
 
 class Run:
@@ -739,8 +792,8 @@ def render_report(run_dict: dict) -> str:
 
     h = ["<!doctype html><html lang=en><head><meta charset=utf-8>",
          "<meta name=viewport content='width=device-width,initial-scale=1'>",
-         f"<title>Reality Check: {escape(address)}</title><style>{CSS}</style></head><body><main>",
-         "<p class=eyebrow>Reality Check</p>", f"<h1>{escape(address)}</h1>"]
+         f"<title>Realty Check: {escape(address)}</title><style>{CSS}</style></head><body><main>",
+         "<p class=eyebrow>Realty Check</p>", f"<h1>{escape(address)}</h1>"]
     if url.startswith(("http://", "https://")):
         h.append(f"<p class=page><a href='{escape(url, True)}' target=_blank rel=noopener>{escape(title)}</a></p>")
     meta = _meta(run)

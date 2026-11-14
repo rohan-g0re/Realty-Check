@@ -75,7 +75,7 @@ class BudgetedCLIModel(ccm.ClaudeCLIChatModel):
         return self._hit
 
 
-ORCHESTRATOR_PROMPT = """You are the lead fact-checker of Reality Check. A rental listing makes claims about an apartment and its building. You decide which checks are worth running for THESE claims, delegate them, and stop. You never judge claims yourself: a separate judge compares the stored evidence afterwards.
+ORCHESTRATOR_PROMPT = """You are the lead fact-checker of Realty Check. A rental listing makes claims about an apartment and its building. You decide which checks are worth running for THESE claims, delegate them, and stop. You never judge claims yourself: a separate judge compares the stored evidence afterwards.
 
 Helpers (call them with the task tool):
 - inside: checks floor plans (bedrooms, bathrooms, area): matches each listing plan to the building's plans by name or size, then reads its 3D scan or the building record. Give it ALL floor plan names in ONE task.

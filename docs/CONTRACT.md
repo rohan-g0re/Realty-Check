@@ -83,6 +83,7 @@ The server rewrites every image path in outgoing events (evidence images, verdic
 ```
 - Not a fact-check: nothing is right or wrong. Built by `harness.fill_in.build_fill_in(match, evidences, claims, kit=None, page_text="")` from the match, the run's Evidence and the kit's extra facts; no model call, no network call.
 - `id`: stable within a run (`year-built`, `plan-b2`, `rent-<plan>-<id>`, `scan-rooms-<plan>`, `county-parcel`, …). `topic`: `Building | Homes & floor plans | Rent | Rules | Around it | Records`; facts come sorted by that order. `label`: short plain words. `value`: human-readable string. `source`: `record | scan | aerial | county`. `note`: "" or one plain sentence (record values say "as of when it was last researched"; asking rents say "as of 2026-11-12", the kit's listing date). `image`: cache path (an `/img/<token>` URL once sent) or null.
+- Additive ids: `size-<n>bed` (typical size per kind of home across the record's plans), `amenities` (record amenities the page never mentions, from kit `amenities` when present), `county-311` / `county-complaints` (counts only). `year-built` value carries the age ("2016, about 10 years old").
 - Left out: anything the page already says (claim kinds and plan labels/sizes, plus keyword checks of the page text for rent, pets, parking, schools, management, availability, vacancy, lease terms, utilities, style, …); blank, 0 or unknown values (never stated as "none"); people's names, phones, emails; free text; complaint text.
 
 ### 2.8 Claim field (report only; `server.claim_field.claim_field(run)`)
@@ -91,9 +92,9 @@ The server rewrites every image path in outgoing events (evidence images, verdic
  claims:  [{id, kind, label, quote, claimed, verdict, verdict_words, found, reason, highlight,
             cells: {<source key>: {state: match|contra|close|data|none, verdict, found, reason,
                                    summary, summaries, facts, observed, raw, image, images, tour?, tour_page?}}}],
- counts}
+ counts, source_rows}
 ```
-A cell is the judge run on that one source's evidence alone. `tour` (Matterport cells whose claim has a 3D scan) is the inline viewer's embed URL (`/tour/<run_id>?claim=<id>&embed=1`); `tour_page` the standalone page. `claim_field_section(run, tours=False)` leaves both out (copies with no server). `claim_field_section(run)` returns the ready HTML section (`cf-` prefixed CSS and JS).
+A cell is the judge run on that one source's evidence alone. `tour` (Matterport cells whose claim has a 3D scan) is the inline viewer's embed URL (`/tour/<run_id>?claim=<id>&embed=1`); `tour_page` the standalone page. `claim_field_section(run, tours=False)` leaves both out (copies with no server). `claim_field_section(run)` returns the ready HTML section (`cf-` prefixed CSS and JS). `source_rows` (additive): `{aerial: [[label, value]], county: [[label, value]]}`, plain rows of what those sources saw in the run (`claim_field.source_rows(evidence)`): owner only as "A company" / "An individual", 311 and complaints only as counts; a source with nothing is left out. `facts` rows are plain labels and values, never raw keys. Pictures whose cached file is gone are left out (`server.report.drop_dead_images`).
 
 ## 3. Tool signatures (plain Python functions)
 
@@ -159,3 +160,10 @@ Each module re-exports its functions from its package `__init__.py` (e.g. `from 
 - `RC_PRIVATE_DIR` = private driver folder. Keys through `rc_common.secret(NAME)`: `MATTERPORT_API_KEY`, `MATTERPORT_API_TOKEN`, `VEXCEL_API_KEY`, `COSTAR_ZIP_PASSWORD`, `COSTAR_KIT_ZIP`.
 - Cache root: `rc_common.cache_dir("<module>")`.
 - `RC_LEGACY=1`: the earlier run path (`harness/graph/legacy.py`, `legacy_agent.py`): claims and match as plain code, picture checks in a background thread, the old agent (35 s), then a fixed plan as a completion pass; 60 s budget. Default (unset): everything inside the deep agent; agent budget 75 s, run hard limit 100 s.
+- `RC_NO_CACHE=1`: no result cache is read (claims, scan data and stills, aerial, vision answers, spot picks, geocode and county lookups; `tools/cachectl.py`), so the work is redone and a run can be timed; results are still written in place. The kit dataset, HCAD bulk data and saved runs are not caches and are unaffected.
+
+## 7. Address pick, drawer field, cache mark (2026-11-14, additive)
+- `POST /check`: before the replay lookup the server calls `server.address_pick.pick_address(snapshot)`; when it chooses, `address_text` becomes the chosen address and the full pick rides on the snapshot as `address_pick` (the runner sees it). `address_locked: true` (the person clicked an address on the page or picked one in the drawer) keeps `address_text`. The generic "Check this listing" button sends no lock. A failing pick leaves the snapshot as sent.
+- Saved run `snapshot` keys: `url, title, address_text, address_locked, address_candidates, address_pick` (`address_pick` saved in the browser-safe form below; `/runs/<id>.json` is served to the browser).
+- `run_started` gains `address_pick`: `{chosen, why, confidence, alternatives: [{text, name, why}]}` or null — no Match, no `property_id` — and `cache`: `"on" | "off"` (`"off"` when `RC_NO_CACHE=1`; the drawer shows a small "fresh run" mark). With `RC_NO_CACHE=1`, `RC_REPLAY` is ignored.
+- `done` gains `field`: `{claims: [{id, cells: {record|scan|aerial|county: match|contra|close|data|none}, image}]}` — the report's claim field states (`server.claim_field.claim_field`, 2.8) in its column order; `image` = the best proof picture (`/img/<token>`) of a claim that does not match (verdict image, else that source's cell image, else any contra/close cell's), else null. Replays of runs saved before this add it. `GET /field/<run_id>` returns the same object for a saved run (404 unknown).

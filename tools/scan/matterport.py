@@ -17,6 +17,7 @@ from PIL import Image
 
 import rc_common
 from rc_common import evidence
+from tools import cachectl
 
 API = "https://api.matterport.com/api/models/graph"
 M2_TO_SQFT = 10.7639
@@ -167,7 +168,7 @@ def _baths_from_name(name: str) -> float | None:
 def _model(model_id: str, query: str, cache_name: str | None) -> tuple[dict | None, list[str]]:
     """Fetch (or load cached) model dict. Returns (model or None, error messages)."""
     path = rc_common.cache_dir("scan", model_id) / cache_name if cache_name else None
-    if path and path.exists():
+    if cachectl.hit(path):
         body = json.loads(path.read_text(encoding="utf-8"))
     else:
         body = _gql(query, model_id)
@@ -272,7 +273,7 @@ def scan_stills(model_id: str, max_n: int = 6) -> dict:
     max_n = max(1, int(max_n))
     folder = rc_common.cache_dir("scan", model_id)
     manifest_path = folder / "stills.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if cachectl.hit(manifest_path) else None
     if manifest and _manifest_covers(folder, manifest, max_n):
         return _stills_evidence(model_id, folder, manifest["images"][:max_n], cached=True)
 
@@ -298,7 +299,7 @@ def scan_stills(model_id: str, max_n: int = 6) -> dict:
         fname = f"{kind}_{key}.jpg"
         path = folder / fname
         try:
-            if not path.exists():
+            if not cachectl.hit(path):
                 img = _download(url_or_faces) if kind == "floorplan" else _grid(url_or_faces)
                 img.thumbnail((MAX_SIDE, MAX_SIDE))
                 img.save(path, "JPEG", quality=85)

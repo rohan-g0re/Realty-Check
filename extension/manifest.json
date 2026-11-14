@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Reality Check",
+  "name": "Realty Check",
   "version": "0.2.0",
   "description": "Finds the address on a rental listing and checks what the page claims about it against a 3D scan, aerial photos and county records.",
   "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
-  "action": { "default_title": "Reality Check", "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" } },
+  "action": { "default_title": "Realty Check", "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" } },
   "background": { "service_worker": "background/sw.js" },
   "permissions": ["storage"],
   "host_permissions": ["http://127.0.0.1:8787/*", "http://127.0.0.1/*", "http://localhost/*"],

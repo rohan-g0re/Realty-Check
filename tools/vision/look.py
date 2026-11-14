@@ -17,6 +17,7 @@ from PIL import Image
 
 import rc_common
 from harness.model import ask
+from tools import cachectl
 
 MAX_IMAGES = 6
 MAX_SIDE = 1568
@@ -101,7 +102,7 @@ def look(image_paths: list[str], question: str, fields: dict[str, str]) -> dict:
         cache = _cache_file(paths, question, fields)
     except Exception as e:  # unreadable image or cache folder
         return _error(fields, f"Could not read images: {e}")
-    if cache and cache.exists():
+    if cachectl.hit(cache):
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
         except (OSError, ValueError):

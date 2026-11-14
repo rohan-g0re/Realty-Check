@@ -14,6 +14,14 @@ btn.textContent='Copied';setTimeout(function(){btn.textContent=o;},1600);};
 function old(){var t=document.createElement('textarea');t.value=text;t.setAttribute('readonly','');t.style.position='fixed';
 t.style.opacity='0';document.body.appendChild(t);t.select();try{document.execCommand('copy');done();}catch(e){}document.body.removeChild(t);}
 if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(done,old);}else{old();}}
+/* a picture whose file is gone never shows a broken-image icon: hide its slot; an emptied proof shows its text */
+document.addEventListener('error',function(e){var t=e.target;if(!t||t.tagName!=='IMG'||!t.closest)return;
+if(t.closest('.lb'))return;if(t.closest('.stage')){t.classList.add('gone');return;}
+var a=t.closest('a.pic');(a||t).classList.add('gone');
+var pics=t.closest('.pics');if(pics&&!pics.querySelector('a.pic:not(.gone)'))pics.classList.add('gone');
+var fig=t.closest('figure.proof');if(fig&&!fig.querySelector('a.pic:not(.gone),.walk,.draw,.cards,.nopic')){
+[].forEach.call(fig.querySelectorAll('figcaption'),function(c){c.classList.add('gone');});
+var alt=fig.getAttribute('data-alt');if(alt){var d=document.createElement('div');d.className='nopic';d.textContent=alt;fig.appendChild(d);}}},true);
 var lb=document.getElementById('lb'),li=lb.querySelector('img'),lc=lb.querySelector('p');
 function shut(){lb.hidden=true;li.removeAttribute('src');}
 lb.addEventListener('click',shut);

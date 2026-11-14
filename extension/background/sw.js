@@ -1,4 +1,4 @@
-// Reality Check service worker: talks to the local checker (content scripts can't reliably reach localhost
+// Realty Check service worker: talks to the local checker (content scripts can't reliably reach localhost
 // from https pages) and relays its server-sent Events back to the tab over a port. Holds no keys.
 const DEFAULT_SERVER = "http://127.0.0.1:8787";
 const server = async () => {

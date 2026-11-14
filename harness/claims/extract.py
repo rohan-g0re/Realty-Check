@@ -488,7 +488,8 @@ def _ask_cached(prompt: str) -> Any:
         try:
             import rc_common
             path = rc_common.cache_dir("claims") / (hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:32] + ".json")
-            if path.exists():
+            from tools import cachectl
+            if cachectl.hit(path):
                 return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             path = None

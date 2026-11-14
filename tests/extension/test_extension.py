@@ -1,4 +1,4 @@
-"""End-to-end tests for the Reality Check extension (headless bundled Chromium, local fixture pages only).
+"""End-to-end tests for the Realty Check extension (headless bundled Chromium, local fixture pages only).
 
 Run: .venv/Scripts/python.exe -m pytest tests/extension -q
 """
@@ -163,7 +163,7 @@ def test_sample_report_page_anchors_and_panel(env):
     rep = env["ctx"].new_page()
     errors = watch_errors(rep)
     rep.goto(base + "#extra")
-    assert rep.title() == "Reality Check: 77 Example Lane, Testville, ZZ 00000"
+    assert rep.title() == "Realty Check: 77 Example Lane, Testville, ZZ 00000"
     assert rep.locator(".hero .where").inner_text().splitlines() ==["77 Example Lane", "Testville, ZZ 00000"]
     at_top(rep, "extra")
     # hover a cell: preview; click it: the evidence panel slides in
@@ -215,8 +215,12 @@ def test_stub_server_through_service_worker(env):
         assert headline(page) == "2 things don't match."  # one not true, one close
 
         snap = stub.requests[-1]
-        assert set(snap) == {"url", "title", "address_text", "text", "jsonld"}
+        assert set(snap) == {"url", "title", "address_text", "text", "jsonld", "address_candidates", "address_locked"}
         assert snap["address_text"] == "418 Linden Grove Ave, Houston, TX 77006"
+        assert snap["address_locked"] is True  # clicked on the page: the person chose it
+        cand = snap["address_candidates"]
+        assert 1 <= len(cand) <= 5 and set(cand[0]) == {"text", "score", "where", "why"}
+        assert cand[0]["text"] == snap["address_text"]
         assert snap["url"].endswith("/listing.html") and 0 < len(snap["text"]) <= 60000
         assert snap["jsonld"][0]["@type"] == "ApartmentComplex"
         assert page.locator("#rc-host .claim-mark").count() >= 3

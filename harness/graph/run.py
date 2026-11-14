@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from rc_common import evidence as make_evidence
+from tools import cachectl
 
 from . import amenities, plans
 from .judge import SOURCE_NAME, VERB, judge
@@ -1027,15 +1028,15 @@ def _type_parts():
 
 def _scan_cached(model_id: str) -> bool:
     try:
-        return (Path(os.environ["RC_PRIVATE_DIR"]) / "rc_cache" / "scan" / model_id / "summary.json").exists()
+        return cachectl.hit(Path(os.environ["RC_PRIVATE_DIR"]) / "rc_cache" / "scan" / model_id / "summary.json")
     except Exception:
         return False
 
 
 def _stills_cached(model_id: str | None) -> bool:
     try:
-        return bool(model_id) and (Path(os.environ["RC_PRIVATE_DIR"]) / "rc_cache" / "scan" / model_id
-                                   / "stills.json").exists()
+        return bool(model_id) and cachectl.hit(Path(os.environ["RC_PRIVATE_DIR"]) / "rc_cache" / "scan" / model_id
+                                               / "stills.json")
     except Exception:
         return False
 

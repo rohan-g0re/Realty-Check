@@ -15,7 +15,7 @@ from html import escape
 
 SOURCES = [("record", "CoStar"), ("scan", "Matterport"), ("aerial", "Aerial"), ("county", "County")]
 SOURCE_NAME = dict(SOURCES)
-STATE_WORDS = {"match": "Matches the listing", "contra": "Contradicts it", "close": "Close, not exact",
+STATE_WORDS = {"match": "Matches the listing", "contra": "Doesn't match the listing", "close": "Close, not exact",
                "data": "Has data, not compared", "none": "Nothing from this source"}
 VERDICT_WORDS = {"confirmed": "Holds up", "contradicted": "Doesn't match", "close": "Close, not exact",
                  "cant_check": "Couldn't check"}
@@ -31,17 +31,8 @@ _PHONE = re.compile(r"\(?\b\d{3}\)?[-. ]\d{3}[-. ]\d{4}\b")
 _PATHLIKE = re.compile(r"^[A-Za-z]:[\\/]|rc_cache|^/(?!img/)|^\\\\")
 _LIST_KEEP = {"floorplans": ("name", "beds", "baths", "sqft"),
               "rooms": ("label", "name", "area_sqft", "area_m2")}
-KEY_WORDS = {"bedrooms": "Bedrooms", "bathrooms": "Bathrooms", "area_sqft": "Area (sq ft)", "area_m2": "Area (m²)",
-             "stories": "Floors", "year_built": "Year built", "unit_count": "Homes", "height_m": "Roof height (m)",
-             "building_sf": "Building (sq ft)", "model_name": "Scan title", "scan_title": "Scan title",
-             "plan": "Plan on the listing", "kit_plan": "Plan in the record", "counts_from": "Counts from",
-             "presence": "Seen?", "presence_confidence": "Confidence", "feature": "Looked for",
-             "looked_at": "Looked at", "room_labels": "Room labels", "floorplans": "Floor plans",
-             "parcel_id": "Parcel", "parcel_address": "Parcel address", "source_name": "Source",
-             "capture_date": "Captured", "floors": "Levels", "panoramas": "Panoramas", "model_id": "Scan id",
-             "stories_range": "Floors method", "plan_match": "Plan match", "how": "How"}
 PRIORITY = ["plan", "kit_plan", "model_name", "scan_title", "height_m", "stories", "bedrooms", "bathrooms",
-            "area_sqft", "year_built", "unit_count", "building_sf", "presence", "presence_confidence", "feature",
+            "area_sqft", "year_built", "unit_count", "building_sf", "presence", "feature",
             "counts_from", "room_labels", "floorplans", "parcel_id", "source_name"]
 
 
@@ -198,29 +189,108 @@ def _same_plan(a, b) -> bool:
     return bool(a and b) and same(str(a), str(b))
 
 
-def _facts(obs: dict, kind: str) -> list:
-    """Up to 5 (label, value) pairs, the claim's own kind first."""
-    keys = [kind] + [k for k in PRIORITY if k != kind] + sorted(k for k in obs if k not in PRIORITY and k != kind)
-    out = []
-    for k in keys:
-        if k not in obs or k == "model_id":
+FEATURE_WORDS = {"washer_dryer": "washer and dryer", "walk_in_closet": "walk-in closet", "ev_charging": "EV charging",
+                 "rooftop_deck": "rooftop deck", "bbq": "grills", "dog_park": "dog park"}
+PRESENCE_WORDS = {"seen": "Seen", "not_seen": "Not seen", "unclear": "Not clear in the photos"}
+NOISE_ROOMS = {"void", "other", "unknown", ""}
+
+
+def feature_words(key) -> str:
+    """'walk_in_closet' -> 'walk-in closet': a plain name for a picture-check key."""
+    k = str(key or "").strip().lower()
+    return FEATURE_WORDS.get(k, k.replace("_", " "))
+
+
+def _n_words(v, unit: str = "") -> str:
+    n = _num(v)
+    if n is None:
+        return ""
+    s = f"{n:,.0f}" if float(n).is_integer() else f"{n:,.1f}"
+    return f"{s} {unit}".strip()
+
+
+def _rooms_words(labels) -> str:
+    counts: dict = {}
+    for x in labels or []:
+        name = str((x.get("label") or x.get("name")) if isinstance(x, dict) else x).strip()
+        if name.lower() in NOISE_ROOMS:
             continue
-        v = obs[k]
-        if isinstance(v, list):
-            if k == "floorplans":
-                v = f"{len(v)} plans"
-            elif k == "rooms":
-                v = f"{len(v)} rooms"
-            else:
-                v = ", ".join(str(x) for x in v[:8]) + (" …" if len(v) > 8 else "")
-        elif isinstance(v, dict):
+        counts[name] = counts.get(name, 0) + 1
+    return ", ".join(f"{k} ×{n}" if n > 1 else k for k, n in counts.items())
+
+
+def _facts(obs: dict, kind: str, source: str = "", plan: str = "") -> list:
+    """Up to 6 (label, value) pairs in plain words, the claim's own kind first. Internal keys and values (scan ids,
+    method names, confidences, counts of pictures) are never shown; a key with no plain label is left out."""
+    obs = obs or {}
+    scan_of = f"the 3D scan of {plan}" if plan else "the 3D scan"
+    rows: dict = {}
+
+    def put(key, label, value):
+        if value not in (None, "") and key not in rows:
+            rows[key] = [label, str(value)]
+
+    stories_label = "Floors, measured from above" if source == "aerial" else "Floors"
+    for k in [kind] + [x for x in PRIORITY if x != kind]:
+        v = obs.get(k)
+        if v in (None, "", []):
             continue
-        elif isinstance(v, float):
-            v = f"{v:,.2f}".rstrip("0").rstrip(".")
-        elif isinstance(v, int) and not isinstance(v, bool) and k not in ("year_built",) and abs(v) >= 10000:
-            v = f"{v:,}"
-        out.append([KEY_WORDS.get(k, k.replace("_", " ").capitalize()), str(v)])
-    return out
+        if k == "bedrooms":
+            put(k, "Bedrooms", _n_words(v))
+        elif k == "bathrooms":
+            put(k, "Bathrooms", _n_words(v))
+        elif k == "area_sqft":
+            put(k, "Floor area", _n_words(v, "sq ft"))
+        elif k == "stories":
+            rng = obs.get("stories_range")
+            extra = ""
+            if isinstance(rng, list) and len(rng) == 2 and rng[0] != rng[1]:
+                extra = f" (between {_n_words(rng[0])} and {_n_words(rng[1])})"
+            put(k, stories_label, ("About " if source == "aerial" else "") + _n_words(v) + extra)
+        elif k == "height_m":
+            put(k, "Roof height", _n_words(v, "m"))
+        elif k == "year_built":
+            put(k, "Year built", str(int(_num(v))) if _num(v) else "")
+        elif k == "unit_count":
+            put(k, "Homes in the building", _n_words(v))
+        elif k == "building_sf":
+            put(k, "Building size", _n_words(v, "sq ft"))
+        elif k in ("model_name", "scan_title"):
+            put("title", "3D scan title", f"“{v}”")
+        elif k == "plan":
+            put(k, "Floor plan", v)
+        elif k == "kit_plan" and str(v) != str(obs.get("plan") or ""):
+            put(k, "Plan in the CoStar record", v)
+        elif k == "counts_from":
+            put(k, "Counted from", f"The title of {scan_of}" if v == "model_name" else f"The room labels in {scan_of}")
+        elif k == "presence":
+            put(k, "In the photos", PRESENCE_WORDS.get(str(v), ""))
+        elif k == "feature":
+            put(k, "Looked for", _cap(feature_words(v)))
+        elif k == "room_labels":
+            put(k, "Rooms the scan labels", _rooms_words(v))
+        elif k == "floorplans" and isinstance(v, list):
+            put(k, "Floor plans on record", str(len(v)))
+        elif k == "parcel_id":
+            put(k, "County parcel", v)
+        elif k == "source_name":
+            put(k, "Published by", v)
+    if "area_sqft" not in rows and _num(obs.get("area_m2")):
+        put("area_m2", "Floor area", _n_words(round(_num(obs["area_m2"]) * 10.7639), "sq ft"))
+    if source == "scan" and _num(obs.get("floors")) and _num(obs["floors"]) > 1:
+        put("floors", "Levels in the scan", _n_words(obs["floors"]))
+    if obs.get("looked_at"):
+        put("looked_at", "Looked at", _cap(str(obs["looked_at"])))
+    if obs.get("plan_match"):
+        put("plan_match", "How the plan was linked", obs["plan_match"])
+    if obs.get("capture_date"):
+        put("capture_date", "Photo taken", obs["capture_date"])
+    return list(rows.values())[:6]
+
+
+def _cap(s: str) -> str:
+    s = str(s or "")
+    return s[:1].upper() + s[1:]
 
 
 def _cell(claim: dict, evs: list) -> dict:
@@ -233,11 +303,12 @@ def _cell(claim: dict, evs: list) -> dict:
     kind = str(claim.get("kind") or "")
     prim = _primary(rel, kind, v.get("found"), v.get("image"))
     obs = clean_observed(prim.get("observed"))
+    plan = str((prim.get("observed") or {}).get("plan") or claim.get("label") or "")
     summaries = list(dict.fromkeys(s for s in (_clean_summary(e.get("summary")) for e in rel) if s))[:3]
     imgs = _images(claim, prim, rel, evs, v.get("image"))
     return {"state": state, "verdict": v.get("verdict"), "found": _clean_summary(v.get("found")),
             "reason": _clean_summary(v.get("reason")), "summary": summaries[0] if summaries else "",
-            "summaries": summaries, "facts": _facts(obs, kind), "observed": obs,
+            "summaries": summaries, "facts": _facts(obs, kind, str(prim.get("source") or ""), plan), "observed": obs,
             "raw": [clean_observed(e.get("observed")) for e in rel[:4]],
             "image": imgs[0]["url"] if imgs else None, "images": imgs}
 
@@ -248,6 +319,8 @@ def claim_field(run: dict) -> dict:
 
     state: match | contra | close | data (source has relevant evidence but the judge could not compare) | none.
     """
+    from server.report import drop_dead_images
+    run = drop_dead_images(run or {})
     claims, order, verdicts, evidence = _parts(run)
     by_src = {k: [e for e in evidence if e.get("source") == k] for k, _ in SOURCES}
     out_claims, counts = [], {s: 0 for s in STATE_WORDS}
@@ -270,7 +343,114 @@ def claim_field(run: dict) -> dict:
                            "highlight": verdict in ("contradicted", "close"), "cells": cells})
     sources = [{"key": k, "name": n, "count": sum(1 for c in out_claims if c["cells"][k]["state"] != "none")}
                for k, n in SOURCES]
-    return {"sources": sources, "claims": out_claims, "counts": counts}
+    return {"sources": sources, "claims": out_claims, "counts": counts, "source_rows": source_rows(evidence)}
+
+
+_LAND_USE = re.compile(r"land_?use|property_?use|use_desc|zoning_desc", re.I)
+_FOOTPRINT = re.compile(r"footprint", re.I)
+_COMPANY = re.compile(r"\b(llc|l\.l\.c|inc|corp|corporation|company|lp|l\.p|llp|ltd|trust|partners|partnership|"
+                      r"holdings|properties|property|realty|residential|apartments|management|group|fund|reit|"
+                      r"association|housing|authority|city of|county|state of)\b", re.I)
+
+
+def owner_type(value) -> str:
+    """'company' or 'individual' from an owner field; never the name itself. '' when unknown."""
+    v = str(value or "").strip()
+    if not v:
+        return ""
+    if v.lower() in ("company", "individual"):
+        return v.lower()
+    try:
+        from tools.kit.facts import is_company
+        if is_company(v):
+            return "company"
+    except Exception:  # noqa: BLE001
+        pass
+    return "company" if _COMPANY.search(v) else "individual"
+
+
+def _count_of(v) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return int(v)
+    if isinstance(v, (list, dict)):
+        return len(v)
+    return None
+
+
+def source_rows(evidence: list) -> dict:
+    """What aerial imagery and county records saw in this run, as plain (label, value) rows for the grid:
+    {"aerial": [[label, value]], "county": [[label, value]]}; a source with nothing is left out.
+    Aerial: roof height, floors measured from above, footprint, things seen or not seen in the photos (never a photo
+    floor count). County: year built, building size, homes, floors, land use, owner type (company / individual, never
+    a name), 311 requests as a count only (never their text). Only what the evidence really carries."""
+    rows: dict = {"aerial": {}, "county": {}}
+
+    def put(src, key, label, value):
+        if value not in (None, "") and key not in rows[src]:
+            rows[src][key] = [label, str(value)]
+
+    for e in evidence or []:
+        if not isinstance(e, dict) or e.get("status") != "ok" or e.get("source") not in rows:
+            continue
+        src, obs = e["source"], e.get("observed") or {}
+        if not isinstance(obs, dict):
+            continue
+        if src == "aerial":
+            if obs.get("feature_check"):
+                pres, feat = obs.get("presence"), obs.get("feature")
+                if feat and pres in ("seen", "not_seen"):
+                    key = "feature:" + str(feat)
+                    if pres == "seen":
+                        rows[src].pop(key, None)  # seen in one photo set beats not seen in another
+                    put(src, key, _cap(feature_words(feat)),
+                        "Seen from above" if pres == "seen" else "Not seen from above")
+                continue
+            if obs.get("illustrative"):
+                continue  # a photo floor count never decides floors
+            if _num(obs.get("height_m")):
+                put(src, "height", "Roof height", _n_words(obs["height_m"], "m"))
+            if _num(obs.get("stories")):
+                rng = obs.get("stories_range")
+                extra = ""
+                if isinstance(rng, list) and len(rng) == 2 and rng[0] != rng[1]:
+                    extra = f" (between {_n_words(rng[0])} and {_n_words(rng[1])})"
+                put(src, "stories", "Floors, measured from above", f"About {_n_words(obs['stories'])}{extra}")
+            for k, v in obs.items():
+                if _FOOTPRINT.search(str(k)) and _num(v):
+                    low = str(k).lower()
+                    sq = _num(v) * (10.7639 if ("m2" in low or "sqm" in low) else 1)
+                    put(src, "footprint", "Building footprint", _n_words(round(sq), "sq ft"))
+            if obs.get("capture_date"):
+                put(src, "date", "Photos taken", _clean_str(obs["capture_date"]))
+        else:
+            if _num(obs.get("year_built")):
+                put(src, "year", "Year built", str(int(_num(obs["year_built"]))))
+            if _num(obs.get("building_sf")):
+                put(src, "size", "Building size", _n_words(obs["building_sf"], "sq ft"))
+            if _num(obs.get("unit_count")):
+                put(src, "units", "Homes", _n_words(obs["unit_count"]))
+            if _num(obs.get("stories")):
+                put(src, "stories", "Floors", _n_words(obs["stories"]))
+            for k, v in obs.items():
+                k = str(k)
+                if _COUNT_KEY.search(k):
+                    n = _count_of(v)
+                    if n is not None and n >= 0:
+                        label = "311 requests" if "311" in k else "Complaints on record"
+                        put(src, "count:" + label, label, f"{n:,}")
+                elif _LAND_USE.search(k) and isinstance(v, str):
+                    lu = _clean_str(v)
+                    if lu and len(lu) <= 60:
+                        put(src, "land", "Land use", _cap(lu.lower()) if lu.isupper() else lu)
+                elif re.search(r"owner", k, re.I) and isinstance(v, str):
+                    t = owner_type(v)
+                    if t:
+                        put(src, "owner", "Owner", "A company" if t == "company" else "An individual")
+            if obs.get("source_name"):
+                put(src, "pub", "Published by", _clean_str(obs["source_name"]))
+    return {k: list(v.values()) for k, v in rows.items() if v}
 
 
 def _tour_links(run: dict, field: dict) -> None:
@@ -316,7 +496,7 @@ grid-auto-columns:minmax(var(--cf-min),1fr);gap:var(--cf-gap)}
 background:var(--cf-grey);transition:transform .22s var(--cf-ease),box-shadow .22s var(--cf-ease),opacity .2s;
 animation:cf-in .5s var(--cf-ease) both;animation-delay:calc(var(--cf-i) * 9ms + 60ms)}
 .cf-cell.cf-match{background:var(--cf-ink)}
-.cf-cell.cf-contra,.cf-cell.cf-close{background:var(--cf-blue)}
+.cf-cell.cf-contra{background:var(--cf-blue)}.cf-cell.cf-close{background:#a9baf2}
 .cf-cell.cf-data{background:#fff;box-shadow:inset 0 0 0 2px var(--cf-ink)}
 .cf-cell.cf-none{cursor:default}
 .cf-cell:not(.cf-none):hover,.cf-cell:not(.cf-none):focus-visible{transform:translateY(-3px)}
@@ -334,12 +514,13 @@ transition:color .15s}
 .cf-mark::before{content:"";width:3px;height:12px;background:var(--cf-blue)}
 .cf-mark.cf-flip{align-items:flex-end}
 .cf-mark.cf-tick{font-size:0;gap:0}
+.cf-mark.cf-near{color:#5f78c9}.cf-mark.cf-near::before{background:#a9baf2}
 .cf-mark.cf-q{color:var(--cf-muted)}.cf-mark.cf-q::before{background:#c4c4c4}
 .cf-nojs .cf-mark{position:static;display:inline-flex;margin-right:16px}
 .cf-legend{display:flex;flex-wrap:wrap;gap:8px 28px;font-size:15px;color:var(--cf-muted);margin:14px 0 0}
 .cf-legend span{display:inline-flex;align-items:center;gap:8px}
 .cf-legend i{width:12px;height:12px;background:var(--cf-grey);flex:none}
-.cf-legend i.cf-k{background:var(--cf-ink)}.cf-legend i.cf-b{background:var(--cf-blue)}
+.cf-legend i.cf-k{background:var(--cf-ink)}.cf-legend i.cf-n{background:#a9baf2}.cf-legend i.cf-b{background:var(--cf-blue)}
 .cf-legend i.cf-o{background:#fff;box-shadow:inset 0 0 0 2px var(--cf-ink)}
 .cf-tip{position:fixed;z-index:60;width:260px;height:250px;overflow:hidden;background:#fff;color:var(--cf-ink);
 border:1px solid var(--cf-line);box-shadow:0 14px 36px rgba(17,17,17,.14);padding:12px 14px;pointer-events:none;
@@ -375,10 +556,20 @@ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
 .cf-body p{margin:0 0 6px;font-size:17px;line-height:1.45}
 .cf-body .cf-state{font-size:19px}.cf-body .cf-state.cf-b{color:var(--cf-blue)}
 .cf-body .cf-dim{color:var(--cf-muted);font-size:15px}
-.cf-pics{display:grid;gap:8px;margin:4px 0 0}
-.cf-pics a{display:block}.cf-pics img{display:block;width:100%;max-height:340px;object-fit:contain;background:#f6f6f4;
+.cf-pics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0 4px}
+.cf-pics.cf-one{grid-template-columns:minmax(0,1fr)}.cf-pics[hidden],.cf-pics figure[hidden]{display:none}
+.cf-pics a{display:block;cursor:zoom-in}.cf-pics img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#f6f6f4;
 border:1px solid var(--cf-line)}
-.cf-pics figure{margin:0}.cf-pics figcaption{font-size:13px;color:var(--cf-muted);margin-top:3px}
+.cf-pics.cf-one img{aspect-ratio:16/10}
+.cf-pics figure{margin:0}.cf-pics figcaption{font-size:13px;color:var(--cf-muted);margin-top:3px;line-height:1.3}
+.cf-saw{display:grid;gap:10px;margin:22px 0 0;padding-top:16px;border-top:1px solid var(--cf-line)}
+.cf-saw-row{display:flex;align-items:baseline;gap:6px 8px;font-size:15px;line-height:1.3}
+.cf-chips{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:6px 8px}
+.cf-saw-row>b{font-weight:400;flex:none;width:clamp(104px,13%,150px);font-size:17px}
+.cf-chip{display:inline-flex;gap:6px;align-items:baseline;background:#f4f4f2;padding:5px 10px;
+animation:cf-in .5s var(--cf-ease) both;animation-delay:calc(var(--cf-i) * 40ms + 200ms)}
+.cf-chip i{font-style:normal;color:var(--cf-muted)}
+.cf-saw .cf-credit{font-size:13px;color:var(--cf-muted);margin:2px 0 0}
 .cf-kv{display:grid;grid-template-columns:minmax(110px,auto) 1fr;gap:0;margin:0;font-size:15px}
 .cf-kv dt,.cf-kv dd{margin:0;padding:6px 0;border-bottom:1px solid var(--cf-line)}
 .cf-kv dt{color:var(--cf-muted);padding-right:16px}.cf-kv dd{overflow-wrap:anywhere}
@@ -390,7 +581,7 @@ text-decoration:none;font-size:15px}
 .cf-body .cf-go:hover{background:#333}
 .cf-body button.cf-go{border:0;font:inherit;cursor:pointer}.cf-3dhost .see3d-box{margin-top:12px}
 @media(max-width:640px){.cf-field{--cf-h:44px;--cf-min:18px;--cf-gap:4px}
-.cf-rows{width:96px;font-size:15px}.cf-legend{font-size:14px;gap:6px 18px}.cf-body{padding:18px 16px 32px}
+.cf-rows{width:96px;font-size:15px}.cf-saw-row{flex-wrap:wrap}.cf-saw-row>b{width:100%;font-size:16px}.cf-legend{font-size:14px;gap:6px 18px}.cf-body{padding:18px 16px 32px}
 .cf-body h3{font-size:26px}}
 @media(prefers-reduced-motion:reduce){.cf-field *,.cf-tip,.cf-panel,.cf-back{animation:none!important;transition:none!important}
 .cf-cell:not(.cf-none):hover,.cf-cell:not(.cf-none):focus-visible{transform:none}}
@@ -409,6 +600,12 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function at(c,r){return grid.querySelector('.cf-cell[data-c="'+c+'"][data-r="'+r+'"]');}
 function data(b){var c=C[+b.getAttribute('data-c')],s=S[+b.getAttribute('data-r')];return{c:c,s:s,cell:c.cells[s.key]};}
 function blue(st){return st==='contra'||st==='close';}
+/* a soft caption: the part before any colon, at most 60 characters */
+function soft(c){c=String(c||'').split(':')[0].trim();return c.length>60?c.slice(0,58)+'…':c;}
+/* a picture whose file is gone (older runs) is hidden, never a broken-image icon */
+document.addEventListener('error',function(e){var t=e.target;if(!t||t.tagName!=='IMG')return;
+ var f=t.closest&&t.closest('.cf-pics figure');if(f){f.hidden=true;var p=f.parentNode;if(p&&!p.querySelector('figure:not([hidden])'))p.hidden=true;}
+ else if(t.closest&&t.closest('.cf-tip'))t.style.display='none';},true);
 /* under-column marks: stack labels into lanes so none overlap */
 function lanes(){var box=root.querySelector('.cf-marks'),marks=Array.prototype.slice.call(box.querySelectorAll('.cf-mark')),ends=[],lh=-1;
  var base=grid.getBoundingClientRect().left,W=grid.getBoundingClientRect().width,MAX=3;
@@ -474,9 +671,9 @@ function fill(b){var d=data(b),st=d.cell.state,c=d.c,cell=d.cell,h='';drop3d();c
  else{if(cell.reason&&st!=='data'&&(c.reason||'').indexOf(cell.reason.split('. ').slice(0,2).join('. '))<0)h+='<p class="cf-dim">'+esc(cell.reason)+'</p>';
   (cell.summaries||[]).forEach(function(s){h+='<p>'+esc(s)+'</p>';});
   if(cell.tour)h+='<button type="button" class="cf-go cf-3d" data-claim="'+esc(c.id)+'">See it in 3D</button><div class="cf-3dhost"></div>';
-  if(cell.images&&cell.images.length){h+='<div class="cf-pics">'+cell.images.map(function(im){return'<figure><a href="'+esc(im.url)+'" target="_blank" rel="noopener"><img loading="lazy" alt="'+esc(im.caption||'Evidence picture')+'" src="'+esc(im.url)+'"></a>'+(im.caption?'<figcaption>'+esc(im.caption)+'</figcaption>':'')+'</figure>';}).join('')+'</div>';}
+  if(cell.images&&cell.images.length){h+='<div class="cf-pics'+(cell.images.length===1?' cf-one':'')+'">'+cell.images.map(function(im){var cap=soft(im.caption);return'<figure><a class="pic" href="'+esc(im.url)+'" data-cap="'+esc(cap)+'"><img loading="lazy" decoding="async" alt="'+esc(cap||'Proof picture')+'" src="'+esc(im.url)+'"></a>'+(cap?'<figcaption>'+esc(cap)+'</figcaption>':'')+'</figure>';}).join('')+'</div>';}
   if(cell.facts&&cell.facts.length)h+='<p class="cf-lbl">What we pulled</p><dl class="cf-kv">'+cell.facts.map(function(p){return'<dt>'+esc(p[0])+'</dt><dd>'+esc(p[1])+'</dd>';}).join('')+'</dl>';
-  if(cell.raw&&cell.raw.length)h+='<details><summary>Raw data</summary><pre>'+esc(JSON.stringify(cell.raw,null,1))+'</pre></details>';}
+  }
  body.innerHTML=h;body.scrollTop=0;}
 function open(b){if(b.classList.contains('cf-none'))return;opener=b;clearTimeout(closeT);hide();fill(b);
  back.hidden=false;panel.hidden=false;void panel.offsetWidth;back.classList.add('cf-show');panel.classList.add('cf-show');
@@ -507,6 +704,24 @@ document.addEventListener('keydown',function(e){if(panel.hidden)return;
   else if(!e.shiftKey&&document.activeElement===z){a.focus();e.preventDefault();}}});
 })();
 """
+
+
+def _saw_html(rows: dict) -> str:
+    """'What aerial and county records saw': one line of short facts per source that has any, plus the plain-text
+    source credit."""
+    lines = []
+    for key, name in SOURCES:
+        items = rows.get(key) or []
+        if not items:
+            continue
+        chips = "".join(f"<span class=cf-chip style='--cf-i:{i}'><i>{escape(lab)}</i>{escape(val)}</span>"
+                        for i, (lab, val) in enumerate(items[:8]))
+        lines.append(f"<div class=cf-saw-row><b>{escape(name)}</b><span class=cf-chips>{chips}</span></div>")
+    credit = ("<p class=cf-credit>Rows: CoStar building record, Matterport 3D scans, aerial imagery, county public "
+              "records.</p>")
+    if not lines:
+        return f"<div class=cf-saw>{credit}</div>"
+    return "<div class=cf-saw aria-label='What aerial imagery and county records saw'>" + "".join(lines) + credit + "</div>"
 
 
 def _json_script(obj) -> str:
@@ -542,15 +757,17 @@ def claim_field_section(run: dict, tours: bool = True) -> str:
     h.append("</div><div class=cf-sweep aria-hidden=true></div><div class=cf-marks>")
     for ci, c in enumerate(claims):
         if c["highlight"]:
-            h.append(f"<span class=cf-mark data-c={ci}>“{escape(c['quote'])}”</span>")
+            near = " cf-near" if c["verdict"] == "close" else ""
+            h.append(f"<span class='cf-mark{near}' data-c={ci}>“{escape(c['quote'])}”</span>")
         elif c["verdict"] == "cant_check":
             h.append(f"<span class='cf-mark cf-q' data-c={ci} title='{escape(c['quote'], True)}'>?</span>")
     h.append("</div></div></div></div>")
     h.append("<p class=cf-legend><span><i class=cf-k></i>matches the listing</span>"
-             "<span><i class=cf-b></i>contradicts it</span><span><i></i>nothing to say</span>")
+             "<span><i class=cf-b></i>doesn't match</span><span><i class=cf-n></i>close, not exact</span><span><i></i>nothing to say</span>")
     if field["counts"]["data"]:
         h.append("<span><i class=cf-o></i>has data, not compared</span>")
     h.append("<span>One column per claim.</span></p>")
+    h.append(_saw_html(field.get("source_rows") or {}))
     h.append("<div class=cf-tip id=cf-tip hidden aria-hidden=true></div>"
              "<div class=cf-back id=cf-back hidden></div>"
              "<aside class=cf-panel id=cf-panel hidden role=dialog aria-modal=true aria-label='Evidence'>"

@@ -1,7 +1,7 @@
 # AGENTS.md — rules for every agent working in this repo
 
 ## What this repo is
-- Reality Check: a Chrome extension plus a local server and a deepagents harness. On any rental listing page it finds an address and, on request, fact-checks what the page claims about that location against a building record, a 3D scan, aerial imagery and county data.
+- Realty Check: a Chrome extension plus a local server and a deepagents harness. On any rental listing page it finds an address and, on request, fact-checks what the page claims about that location against a building record, a 3D scan, aerial imagery and county data.
 - Built at HackPrinceton, Nov 13–15 2026. Code only. This repo is public at submission time.
 - Contract: `docs/CONTRACT.md` (data shapes, tool signatures, events). Build order: `docs/DELIVERABLES.md`. Log: `docs/DECISIONS.md`.
 - Private driver folder (read-only from here): `$RC_PRIVATE_DIR` (a private folder outside the repo). It holds the sponsor kit, `.env` with keys, earlier probes and verification results. Code reads its path from that environment variable, never hard-coded.

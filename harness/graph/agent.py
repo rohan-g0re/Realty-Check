@@ -129,7 +129,7 @@ class EndAfterTools(AgentMiddleware):
         return {"messages": [AIMessage(content=report.strip() or "Done.")], "jump_to": "end"}
 
 
-ORCHESTRATOR_PROMPT = """You are the lead fact-checker of Reality Check. A rental listing page makes claims about an apartment and its building. You run the whole check with your tools and helpers in three turns. You never judge claims yourself: judge_claims applies fixed rules to the evidence the helpers store.
+ORCHESTRATOR_PROMPT = """You are the lead fact-checker of Realty Check. A rental listing page makes claims about an apartment and its building. You run the whole check with your tools and helpers in three turns. You never judge claims yourself: judge_claims applies fixed rules to the evidence the helpers store.
 
 Turn 1: call read_claims and match_listing together in one message.
 Turn 2: delegate with the task tool, ALL tasks in ONE message as parallel calls, one task per helper. Ask EVERY helper listed under "Helpers needed" in the read_claims result, never just one when several are listed. Each task description is one sentence naming what to check (claim ids and plan names). If no helper is needed, skip to turn 3.

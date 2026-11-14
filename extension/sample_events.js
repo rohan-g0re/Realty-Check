@@ -23,19 +23,20 @@ globalThis.RC_SAMPLE = (() => {
     {"type": "verdict", "verdict": {"claim_id": "c1", "verdict": "contradicted", "claimed": "2 bedrooms", "found": "1 bedroom and a den", "source": "scan", "reason": "The 3D scan of Plan E shows one bedroom and a den, not two bedrooms.", "image": null}},
     {"type": "verdict", "verdict": {"claim_id": "c3", "verdict": "contradicted", "claimed": "1,100 sq ft", "found": "850 sq ft", "source": "scan", "reason": "The 3D scan of Plan E is titled 850 sq ft, 23% less than listed.", "image": null}},
     {"type": "step", "agent": "outside", "text": "Measuring the roof from the aerial photo…"},
-    {"type": "evidence", "evidence": {"source": "aerial", "status": "ok", "summary": "Roof is 23.1 m above ground: about 6 floors.", "observed": {"height_m": 23.1, "stories": 6}, "images": [], "detail": "sample"}},
+    {"type": "evidence", "evidence": {"source": "aerial", "status": "ok", "summary": "Roof is 23.1 m above ground: about 6 floors.", "observed": {"height_m": 23.1, "stories": 6, "stories_range": [6, 7], "capture_date": "2026-01-02"}, "images": [], "detail": "sample"}},
+    {"type": "evidence", "evidence": {"source": "aerial", "status": "ok", "summary": "Parking seen in the aerial photo.", "observed": {"feature_check": true, "claim_ids": [], "feature": "parking", "presence": "seen", "presence_confidence": 0.9, "looked_at": "aerial photos"}, "images": [], "detail": "sample"}},
     {"type": "verdict", "verdict": {"claim_id": "c2", "verdict": "contradicted", "claimed": "5 stories", "found": "6 floors", "source": "aerial", "reason": "The roof height in the aerial photo matches a 6-floor building.", "image": null}},
     {"type": "step", "agent": "paper", "text": "Reading the county record…"},
-    {"type": "evidence", "evidence": {"source": "county", "status": "ok", "summary": "The county record lists 2016 as the year built.", "observed": {"year_built": 2016}, "images": [], "detail": "sample"}},
+    {"type": "evidence", "evidence": {"source": "county", "status": "ok", "summary": "The county record lists 2016 as the year built.", "observed": {"year_built": 2016, "building_sf": 112000, "unit_count": 100, "land_use": "Apartments", "owner_type": "company", "complaints_311": 4, "source_name": "Example County Appraisal District"}, "images": [], "detail": "sample"}},
     {"type": "verdict", "verdict": {"claim_id": "c4", "verdict": "confirmed", "claimed": "built in 2016", "found": "built in 2016", "source": "county", "reason": "The county record lists 2016 as the year built.", "image": null}},
     {"type": "step", "agent": "judge", "text": "Writing up the results…"},
     {"type": "verdict", "verdict": {"claim_id": "c5", "verdict": "cant_check", "claimed": "resort-style pool", "found": "no source covers this", "source": "record", "reason": "None of our sources show the pool, so we can't check it.", "image": null}},
     {"type": "fill_in", "facts": [
       {"id": "plan-a", "topic": "Homes & floor plans", "label": "Plan A", "value": "1 bed, 1 bath, 640–690 sq ft", "source": "record", "note": "From the building record, as of when it was last researched.", "image": null},
-      {"id": "pets", "topic": "Rules", "label": "Pets", "value": "Cats and small dogs allowed, up to 2", "source": "record", "note": "", "image": null},
+      {"id": "size-1bed", "topic": "Homes & floor plans", "label": "Typical size, 1 bed", "value": "640–760 sq ft across 3 plans", "source": "record", "note": "From the building record, as of when it was last researched.", "image": null},
       {"id": "manager", "topic": "Building", "label": "Managed by", "value": "Example Property Management", "source": "record", "note": "", "image": null},
-      {"id": "lot", "topic": "Records", "label": "Lot size", "value": "0.9 acres", "source": "county", "note": "From the county parcel record.", "image": null},
-      {"id": "roof", "topic": "Around it", "label": "Rooftop", "value": "Shared roof deck on the top floor", "source": "aerial", "note": "Seen from above; not confirmed on site.", "image": null}
+      {"id": "county-311", "topic": "Records", "label": "311 service requests on record", "value": "4", "source": "county", "note": "A count from the county; what they say is not shown.", "image": null},
+      {"id": "lot", "topic": "Records", "label": "Lot size", "value": "0.9 acres", "source": "county", "note": "From the county parcel record.", "image": null}
     ]},
     {"type": "done", "run_id": "sample", "counts": {"confirmed": 1, "contradicted": 3, "close": 0, "cant_check": 1}, "headline": "Listed as 2 bedrooms. The 3D scan shows 1 bedroom and a den.", "report_url": "/report/sample"}
   ] /* /RC_SAMPLE_EVENTS */;

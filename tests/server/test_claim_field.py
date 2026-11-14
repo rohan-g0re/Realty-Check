@@ -135,7 +135,7 @@ def test_section_renders_grid_and_is_self_contained():
     assert html.count("class='cf-cell ") == 5 * 4
     assert "cf-cell cf-match" in html and "cf-cell cf-contra" in html and "cf-cell cf-close" in html
     assert "cf-cell cf-data" in html and "cf-cell cf-none" in html
-    for word in ("CoStar", "Matterport", "Aerial", "County", "matches the listing", "contradicts it",
+    for word in ("CoStar", "Matterport", "Aerial", "County", "matches the listing", "doesn't match",
                  "nothing to say", "One column per claim."):
         assert word in html
     assert "\u201c5-story building\u201d" in html and "\u201cBuilt in 2001\u201d" in html  # highlighted columns
@@ -160,3 +160,52 @@ def test_sixty_claims_and_script_safety():
 def test_empty_run():
     html = claim_field_section({"events": []})
     assert "cf-field" in html and claim_field({})["claims"] == []
+
+
+def test_panel_facts_are_plain_words_never_raw_keys():
+    run = run_of([claim("c1", "bedrooms", 2, "2 Beds", scope="unit", label="Plan Q")],
+                 [ev("scan", {"plan": "Plan Q", "bedrooms": 1, "model_name": "Plan Q - 1 Bed", "counts_from": "model_name",
+                              "model_id": "zzInvented1", "panoramas": 12, "image_count": 4, "how": "scan_title"})],
+                 [verdict("c1", "contradicted", "2 bedrooms", "1 bedroom", "scan")])
+    cell = claim_field(run)["claims"][0]["cells"]["scan"]
+    facts = dict(cell["facts"])
+    assert facts["Counted from"] == "The title of the 3D scan of Plan Q"
+    blob = json.dumps(cell["facts"])
+    for raw in ("model_name", "counts_from", "zzInvented1", "scan_title", "_"):
+        assert raw not in blob, raw
+    html = claim_field_section(run)
+    assert "Raw data" not in html and "JSON.stringify(cell.raw" not in html
+
+
+def test_source_rows_aerial_and_county_only_what_the_run_has():
+    run = run_of([claim("c1", "stories", 5, "5 floors")],
+                 [ev("aerial", {"height_m": 23.1, "stories": 6, "stories_range": [6, 7], "footprint_m2": 1000}),
+                  ev("aerial", {"photo_floor_count": 9, "illustrative": True}),
+                  ev("aerial", {"feature_check": True, "claim_ids": [], "feature": "pool", "presence": "seen"}),
+                  ev("aerial", {"feature_check": True, "claim_ids": [], "feature": "parking", "presence": "unclear"}),
+                  ev("county", {"year_built": 2001, "land_use": "APARTMENTS", "owner_name": "Pat Example",
+                                "complaints_311": [{"text": "Sam called"}, {"text": "x"}]})],
+                 [verdict("c1", "contradicted", "5 floors", "6 floors", "aerial")])
+    rows = claim_field(run)["source_rows"]
+    aerial, county = dict(rows["aerial"]), dict(rows["county"])
+    assert aerial["Roof height"] == "23.1 m" and aerial["Floors, measured from above"].startswith("About 6")
+    assert aerial["Pool"] == "Seen from above" and "Parking" not in aerial and "9" not in json.dumps(aerial)
+    assert aerial["Building footprint"] == "10,764 sq ft"
+    assert county["Owner"] == "An individual" and county["Land use"] == "Apartments" and county["311 requests"] == "2"
+    blob = json.dumps(rows)
+    assert "Pat" not in blob and "Sam" not in blob
+    assert "record" not in rows and "scan" not in rows
+    assert claim_field(run_of([], [], []))["source_rows"] == {}
+
+
+def test_dead_pictures_are_left_out(tmp_path):
+    live = tmp_path / "a.jpg"
+    live.write_bytes(b"x")
+    dead_tok, live_tok = "0" * 15 + "1", "0" * 15 + "2"
+    run = run_of([claim("c1", "stories", 5, "5 floors")],
+                 [ev("aerial", {"height_m": 15.0, "stories": 5},
+                     images=[{"path": "/img/" + dead_tok, "caption": "a"}, {"path": "/img/" + live_tok, "caption": "b"}])],
+                 [verdict("c1", "confirmed")])
+    run["images"] = {dead_tok: str(tmp_path / "gone.jpg"), live_tok: str(live)}
+    cell = claim_field(run)["claims"][0]["cells"]["aerial"]
+    assert [i["url"] for i in cell["images"]] == ["/img/" + live_tok]

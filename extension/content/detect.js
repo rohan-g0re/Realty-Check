@@ -1,4 +1,4 @@
-// Reality Check: site-agnostic address + phrase detection. Reads the page; never edits it.
+// Realty Check: site-agnostic address + phrase detection. Reads the page; never edits it.
 (() => {
   const RC = (globalThis.RC = globalThis.RC || {});
   const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "TEXTAREA", "INPUT", "SELECT", "OPTION", "SVG", "CANVAS", "IFRAME", "CODE", "PRE", "BUTTON"]);

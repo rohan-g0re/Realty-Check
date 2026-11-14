@@ -18,6 +18,7 @@ import tifffile
 from PIL import Image
 
 import rc_common
+from tools import cachectl
 
 API = "https://api.vexcelgroup.com/v2"
 LAYERS = "urban,urban-r,wide-area,urban-g"
@@ -76,7 +77,7 @@ def _call(method: str, path: str, params: dict | None = None, body: dict | None 
 
 def _fetch(path_on_disk: Path, method: str, api_path: str, params=None, body=None) -> bytes:
     """Cached raw response: read from disk, or call the API and save the bytes."""
-    if path_on_disk.exists():
+    if cachectl.hit(path_on_disk):
         return path_on_disk.read_bytes()
     data = _call(method, api_path, params=params, body=body)
     path_on_disk.write_bytes(data)
@@ -110,7 +111,7 @@ def _save_jpg(raw: bytes, out: Path) -> Path:
 
 def _cached_evidence(path: Path, build) -> dict:
     """Return cached Evidence, or build it; cache it unless it is an error (errors may be transient)."""
-    if path.exists():
+    if cachectl.hit(path):
         ev = json.loads(path.read_text(encoding="utf-8"))
         if all(Path(i["path"]).exists() for i in ev.get("images", [])):
             return ev

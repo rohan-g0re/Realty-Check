@@ -223,3 +223,104 @@ def test_fill_in_event_saved_and_replayed(client, monkeypatch):
     monkeypatch.setenv("RC_REPLAY", "1")
     _, again = post(client)
     assert [e for e in again if e["type"] == "fill_in"][0]["facts"] == facts
+
+
+# ---------- address pick, cache switch, drawer field (invented addresses and buildings) ----------
+
+HERO = "418 Linden Grove Ave, Faketown, ZZ 00001"
+FOOT = "900 Placeholder Pkwy, Faketown, ZZ 00001"
+
+
+def _fake_kit(monkeypatch):
+    """An invented kit: only HERO matches, as a residential building named like the page title."""
+    import server.address_pick as ap
+
+    def match(address):
+        if address.lower().startswith("418 linden grove"):
+            return {"status": "matched", "confidence": 0.95, "property_id": "990001", "name": "Larkspur Example Commons",
+                    "address": HERO, "kind": "building", "record": {"unit_count": 100}, "floorplans": [{"name": "A1"}],
+                    "how": "test"}
+        return {"status": "no_match", "confidence": 0.0, "how": "test"}
+    monkeypatch.setattr(ap, "_default_matcher", lambda: match)
+
+
+def _snap(**kw):
+    return {**SNAP, "title": "Larkspur Example Commons | Apartments", "address_text": FOOT,
+            "address_candidates": [{"text": FOOT, "score": 6, "where": ["footer", "label:corporate"], "why": "In the footer."},
+                                   {"text": HERO, "score": 4, "where": ["main"], "why": "In the page text."}], **kw}
+
+
+def test_address_pick_on_run_started(client, monkeypatch):
+    _fake_kit(monkeypatch)
+    _, events = post(client, _snap())
+    rs = events[0]
+    assert rs["type"] == "run_started" and rs["address"] == HERO  # the footer office address stepped aside
+    pick = rs["address_pick"]
+    assert set(pick) == {"chosen", "why", "confidence", "alternatives"} and pick["chosen"] == HERO
+    assert pick["confidence"] >= 0.5 and pick["why"]
+    assert [a["text"] for a in pick["alternatives"]] == [FOOT]
+    assert all(set(a) == {"text", "name", "why"} for a in pick["alternatives"])
+    assert rs["cache"] == "on"
+    assert "990001" not in json.dumps(rs) and "property_id" not in json.dumps(rs)  # no property ids to the browser
+    saved = client.get(f"/runs/{rs['run_id']}.json").json()["snapshot"]
+    assert saved["address_text"] == HERO and saved["address_candidates"][1]["text"] == HERO
+    assert saved["address_pick"] == pick  # saved without the Match
+
+
+def test_locked_address_is_kept(client, monkeypatch):
+    _fake_kit(monkeypatch)
+    _, events = post(client, _snap(address_locked=True))
+    assert events[0]["address"] == FOOT
+    assert events[0]["address_pick"]["why"] == "You picked this address."
+    assert client.get(f"/runs/{events[0]['run_id']}.json").json()["snapshot"]["address_locked"] is True
+
+
+def test_pick_failure_keeps_snapshot(client, monkeypatch):
+    import server.app as app_mod
+
+    def boom(snapshot):
+        raise RuntimeError("kit missing")
+    monkeypatch.setattr(app_mod, "pick_address", boom)
+    _, events = post(client, _snap())
+    assert events[0]["address"] == FOOT and events[0]["address_pick"] is None
+    assert events[-1]["type"] == "done"
+
+
+def test_no_cache_turns_replay_off(client, monkeypatch):
+    calls = []
+
+    def counting(snapshot, emit):
+        calls.append(1)
+        return fake.run_fake(snapshot, emit)
+
+    monkeypatch.setattr(srv, "pick_runner", lambda: ("fake", counting))
+    monkeypatch.setenv("RC_REPLAY", "1")
+    _, first = post(client)
+    monkeypatch.setenv("RC_NO_CACHE", "1")
+    _, second = post(client)
+    assert len(calls) == 2 and second[0]["cache"] == "off" and first[0]["cache"] == "on"
+    assert second[0]["run_id"] != first[0]["run_id"]
+    monkeypatch.delenv("RC_NO_CACHE")
+    _, third = post(client)
+    assert len(calls) == 2  # replayed again
+
+
+def test_done_field_is_the_report_claim_field(client):
+    from server.claim_field import claim_field
+
+    _, events = post(client)
+    done = events[-1]
+    run_id = events[0]["run_id"]
+    run = client.get(f"/runs/{run_id}.json").json()
+    want = claim_field(run)
+    got = done["field"]["claims"]
+    assert [c["id"] for c in got] == [c["id"] for c in want["claims"]]
+    for g, w in zip(got, want["claims"]):
+        assert g["cells"] == {k: w["cells"][k]["state"] for k in ("record", "scan", "aerial", "county")}
+        assert set(g) == {"id", "cells", "image"}
+        if not w["highlight"]:
+            assert g["image"] is None
+    imgs = [c["image"] for c in got if c["image"]]
+    assert imgs and all(client.get(u).status_code == 200 for u in imgs)  # proof pictures for the findings
+    assert client.get(f"/field/{run_id}").json() == done["field"]
+    assert client.get("/field/nope").status_code == 404

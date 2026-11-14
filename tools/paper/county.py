@@ -6,6 +6,7 @@ import json
 import re
 
 from rc_common import cache_dir, evidence
+from tools import cachectl
 
 from . import hcad, la, net, nyc
 
@@ -37,7 +38,7 @@ def geocode(address: str) -> dict | None:
     if not (address or "").strip():
         return None
     path = cache_dir("paper", "geocode") / f"{_key(_norm(address))}.json"
-    if path.exists():
+    if cachectl.hit(path):
         return json.loads(path.read_text(encoding="utf-8")).get("result")
     try:
         _, d = net.get_json_url(CENSUS, {"address": address, "benchmark": "Public_AR_Current",
@@ -161,7 +162,7 @@ def county_record(address: str, lat: float | None = None, lon: float | None = No
                             detail=f"Point {lat:.5f},{lon:.5f} (city {city!r}) is outside Harris County, "
                                    f"Los Angeles County and New York City.")
         path = cache_dir("paper", "county") / f"{_key(_norm(address), round(lat, 5), round(lon, 5))}.json"
-        if path.exists():
+        if cachectl.hit(path):
             return json.loads(path.read_text(encoding="utf-8"))
         ev = {"houston": _houston, "la": _la, "nyc": _nyc}[route](address, lat, lon)
         path.write_text(json.dumps(ev, indent=1), encoding="utf-8")

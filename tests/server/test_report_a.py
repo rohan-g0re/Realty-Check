@@ -83,18 +83,27 @@ def _rich():
 
 def test_many_findings():
     html = render_report(_rich())
-    assert "5 things" in html and "don&#x27;t match." in html  # counted per verdict; c3 and c4 share one module
-    # one finding module per item: building claims alone, plan claims grouped
-    assert len(re.findall(r"<article class='find", html)) == 4
+    assert "3 things" in html and "don&#x27;t match." in html  # hard mismatches only; the 2 close ones are quiet
+    assert "2 more are close, not exact." in html
+    # one big module per hard item (plan claims grouped), ranked by renter impact: Plan Q (beds, size) leads
+    assert len(re.findall(r"<article class='find", html)) == 2
     assert html.count("class='find lead") == 1
-    # struck listing words and the truth
-    assert "“9-story tower”" in html and "6 floors." in html and "≈ Built in 2008." in html
-    # photo-based 'close' is soft: no strike, softer word
-    finds = html[html.index("id=mismatch"):html.index("id=sources")]
-    pool = finds[finds.index("“Pool”") - 200:finds.index("“Pool”") + 600]
-    assert "strike" not in pool.split("“Pool”")[0][-80:] and "Not seen in photos" in pool
-    # proof slots picked from evidence: pictures for floors, record line for year built
-    assert re.search(r"data-proof='pictures'", html) and re.search(r"data-proof='record'", html)
+    lead = html[html.index("class='find lead"):]
+    lead = lead[:lead.index("</article>")]
+    assert "Plan Q" in lead and "id='claim-c3'" in lead
+    assert html.index("id='claim-c3'") < html.index("id='claim-c1'") < html.index("id=near")
+    # the hero names the top-ranked mismatch
+    assert "Biggest difference: the listing says “2 Beds” for Plan Q" in html
+    # struck listing words and the truth for hard mismatches
+    assert "“9-story tower”" in html and "6 floors." in html
+    # close: after every hard one, a quiet line, no strike-through, no "≈"
+    near = html[html.index("id=near"):html.index("id=sources")]
+    assert "Listing says 2010 · county records say 2008 <b>— close</b>" in near
+    assert "strike" not in near and "≈" not in html and "sz-" not in near
+    assert "Not visible in the aerial photo <b>— a photo can't show it's missing</b>" in near
+    assert "id='claim-c2'" in near and "id='claim-c5'" in near
+    # proof slots picked from evidence: pictures for floors
+    assert re.search(r"data-proof='pictures'", html)
     # only /img/<token> pictures, none repeated across findings
     srcs = re.findall(r"<img src='([^']+)'", html)
     assert srcs and all(re.fullmatch(r"/img/[a-f0-9]{16}", s) for s in srcs)
@@ -112,7 +121,7 @@ def test_many_findings():
     assert all("fake" not in q.lower() and "lie" not in q.lower().split() for q in qs)
     # long fact list collapsed behind a count button; plans drawn
     assert "Show all 46 facts" in html and "class='fact more'" in html and "class='fp rv" in html
-    for bad in ("C:/", "C:\\", "rc_cache", "scam", "Fake", " lie"):
+    for bad in ("C:/", "C:\\", "rc_cache", "scam", "Fake", " lie", "Reality Check", "Not true"):
         assert bad not in html, bad
 
 
@@ -181,3 +190,39 @@ def test_mismatch_has_claim_anchor():
     verdicts = [_verdict("c1", "contradicted", "5 floors", "4 floors", "record", "The building record says 4 floors.")]
     html = render_report(_run(claims, verdicts))
     assert "id='claim-c1'" in html
+
+
+def test_only_close_never_sounds_like_a_mismatch():
+    claims = [_claim("c1", "year_built", 2015, "Year Built 2015"), _claim("c2", "unit_count", 40, "40 homes")]
+    verdicts = [_verdict("c1", "close", "built in 2015", "built in 2014", "county", "County records say built in 2014."),
+                _verdict("c2", "confirmed", "40 apartments", "40 apartments", "county", "County records say 40.")]
+    html = render_report(_run(claims, verdicts))
+    assert "Nothing is" in html and "clearly off." in html
+    assert "match." not in html.split("</h1>")[0] and "Biggest difference" not in html
+    assert "<article class='find" not in html and "strike" not in html[html.index("id=mismatch"):html.index("id=sources")]
+    assert "Listing says 2015 · county records say 2014 <b>— close</b>" in html
+    assert "id='claim-c1'" in html and "href='#near'" in html
+    for anchor in ("id=mismatch", "id=match", "id=cant-verify", "id=extra"):
+        assert anchor in html
+
+
+def test_ranking_by_renter_impact_and_gap():
+    claims = [_claim("c1", "amenity", "rooftop", "Rooftop deck"), _claim("c2", "stories", 9, "9 floors"),
+              _claim("c3", "stories", 5, "5 floors", "Plan Z", "unit"), _claim("c4", "bathrooms", 2, "2 Baths", "Plan Z", "unit"),
+              _claim("c5", "unit_count", 100, "100 homes")]
+    verdicts = [_verdict("c1", "contradicted", "rooftop deck", "no rooftop deck", "record", "The record says none."),
+                _verdict("c2", "contradicted", "9 floors", "6 floors", "county", "County records say 6."),
+                _verdict("c5", "contradicted", "100 apartments", "90 apartments", "county", "County records say 90."),
+                _verdict("c4", "contradicted", "2 bathrooms", "1 bathroom", "record", "The record says 1.")]
+    html = render_report(_run(claims, verdicts))
+    order = [html.index(f"id='claim-{c}'") for c in ("c4", "c2", "c5", "c1")]
+    assert order == sorted(order)  # baths, then floors (bigger gap), then homes, then the amenity
+    assert "Biggest difference: the listing says “2 Baths” for Plan Z" in html
+
+
+def test_dead_pictures_leave_no_broken_slot(tmp_path):
+    run = _rich()
+    run["images"] = {p[5:]: str(tmp_path / "gone.jpg") for p in IMG}
+    html = render_report(run)
+    assert "<img src='/img/" not in html and "data-proof='pictures'" not in html
+    assert "Realty Check" in html

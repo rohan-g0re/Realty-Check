@@ -1,4 +1,4 @@
-// Reality Check: edge tab, drawer and run flow. Everything lives in ONE shadow root on <div id="rc-host">.
+// Realty Check: edge tab, drawer and run flow. Everything lives in ONE shadow root on <div id="rc-host">.
 // The drawer has two states: Running (clock, claim field, step list) and Result (headline, counts, field, top findings).
 (() => {
   if (window.top !== window || document.getElementById("rc-host")) return;
@@ -35,11 +35,11 @@
   <div class="tab" id="tab">
     <button class="tab-close" id="tabClose" aria-label="Hide on this page" title="Hide on this page">${X}</button>
     <div class="tab-handle" id="tabHandle" title="Drag to move"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    <button class="tab-face" id="tabFace" aria-label="Open Reality Check" title="Reality Check">${LOGO}</button>
+    <button class="tab-face" id="tabFace" aria-label="Open Realty Check" title="Realty Check">${LOGO}</button>
   </div>
-  <aside class="drawer" id="drawer" aria-label="Reality Check">
+  <aside class="drawer" id="drawer" aria-label="Realty Check">
     <header class="hd">
-      <span class="brand">Reality Check</span>
+      <span class="brand">Realty Check</span>
       <div class="act">
         <button class="icon" id="btnGear" aria-label="Checker address" aria-expanded="false" title="Checker address">${GEAR}</button>
         <button class="icon" id="btnCollapse" aria-label="Close" title="Close">${CLOSE}</button>
@@ -61,14 +61,16 @@
 
   // ---------- state ----------
   let addresses = [], flat = null;
-  let run = null; // {seq, address, mode, claims, verdicts, evidence, match, steps, t0, t1, fillIn, done, unreachable, error, token}
+  let run = null; // {seq, address, mode, locked, pick, cache, claims, verdicts, evidence, match, steps, t0, t1, fillIn, done, field, unreachable, error, token, pickOpen}
   let open = false, seq = 0, stepSeq = 0;
   const ORDER = { contradicted: 0, close: 1, confirmed: 2, cant_check: 9 };
   let fiOpen = false; // "Not on the listing" expanded
   const FI_TOP = 4, FIND_TOP = 3;
+  const LOW_PICK = 0.5; // below this the address pick is a guess: say so and open the picker
+  const imgCache = new Map(); // /img/<token> -> data URL ("" = failed, null = in flight)
 
   const overlay = RC.createOverlay(root, host, {
-    onInspect: (a) => { openDrawer(); startRun(a); },
+    onInspect: (a) => { openDrawer(); startRun(a, { locked: true }); }, // the person clicked this address
     onMark: (cid) => { openDrawer(); pointAt(cid); },
   });
 
@@ -223,20 +225,26 @@
     if (run) run.token = null;
   }
   const newRun = (a, mode, step) => ({
-    seq: ++seq, address: a, mode, claims: [], verdicts: {}, evidence: [], match: null, step, steps: [],
-    t0: Date.now(), t1: 0, fillIn: [], done: null, unreachable: false, error: null, token: {},
+    seq: ++seq, address: a, mode, locked: false, pick: null, cache: null, claims: [], verdicts: {}, evidence: [], match: null,
+    step, steps: [], t0: Date.now(), t1: 0, fillIn: [], done: null, field: null, unreachable: false, error: null, token: {},
+    pickOpen: null,
   });
-  function startRun(a) {
+  // opts.locked: the person chose this address (a highlighted address on the page, a pick from a list); the
+  // server keeps it. Unlocked (the generic button), the server may check another of the page's addresses.
+  function startRun(a, opts) {
     stopRun();
     fiOpen = false;
     run = newRun(a, "server", "Connecting to the local checker…");
+    run.locked = !!(opts && opts.locked);
     overlay.setSelected(a.text);
     rebuildMarks();
     render();
     const snapshot = {
       url: location.href, title: document.title, address_text: a.full,
       text: (document.body ? document.body.innerText : "").slice(0, 60000), jsonld: RC.jsonld(),
+      address_candidates: RC.addressCandidates(addresses),
     };
+    if (run.locked) snapshot.address_locked = true;
     const me = run;
     try {
       port = chrome.runtime.connect({ name: "rc-run" });
@@ -270,14 +278,25 @@
         if (s) { s.text = ev.text; s.t = ++stepSeq; } else run.steps.push({ k, text: ev.text, t: ++stepSeq });
         break;
       }
-      case "claims": run.claims = ev.claims || []; break;
+      case "run_started": {
+        run.pick = ev.address_pick && typeof ev.address_pick === "object" ? ev.address_pick : null;
+        run.cache = ev.cache || null;
+        // the server may check another of the page's addresses than the one we sent
+        if (ev.address && normA(ev.address) !== normA(run.address.full)) { run.address = addrFor(ev.address); overlay.setSelected(run.address.text); }
+        break;
+      }
+      case "claims": { // several claims events add up, the first one per id wins (as the report's claim field reads them)
+        const have = new Set(run.claims.map((c) => c.id));
+        for (const c of ev.claims || []) if (c && c.id != null && !have.has(c.id)) { have.add(c.id); run.claims.push(c); }
+        break;
+      }
       case "match": run.match = ev.match || null; break;
       case "evidence": if (ev.evidence && typeof ev.evidence === "object") run.evidence.push(ev.evidence); break;
       case "verdict": run.verdicts[ev.verdict.claim_id] = ev.verdict; rebuildMarks(); break;
       case "fill_in": run.fillIn = Array.isArray(ev.facts) ? ev.facts : []; break;
-      case "done": run.done = ev; run.t1 = Date.now(); run.step = ""; break;
+      case "done": run.done = ev; run.field = fieldOf(ev); run.t1 = Date.now(); run.step = ""; break;
       case "error": run.error = ev.message || "Something went wrong."; break;
-      default: return; // run_started: nothing to draw
+      default: return;
     }
     render();
   }
@@ -307,7 +326,26 @@
     if (vals.every((v) => v !== want)) return false;
     return null;
   }
+  // The finished run's cells come from the server (done.field: server/claim_field.py, the report's own rules), so the
+  // drawer and the report show the same grid. The rules below only fill the grid while the run is going (and for
+  // a sample run or an older checker that sends no field).
+  const FIELD_STATE = { match: "agree", contra: "contra", close: "close", data: "data", none: "none" };
+  function fieldOf(ev) {
+    const f = ev && ev.field;
+    if (!f || !Array.isArray(f.claims)) return null;
+    const by = {}, order = [];
+    for (const c of f.claims) if (c && c.id != null && c.cells) { by[c.id] = c; order.push(c.id); }
+    return { by, order };
+  }
+  function fieldClaims(r) {
+    // the server's column order when it sent one (claims it never saw keep their place at the end)
+    if (!r.field) return r.claims;
+    const pos = new Map(r.field.order.map((id, i) => [id, i]));
+    return r.claims.map((c, i) => [c, pos.has(c.id) ? pos.get(c.id) : 1e6 + i]).sort((a, b) => a[1] - b[1]).map(([c]) => c);
+  }
   function cellState(r, c, src) {
+    const fc = r.field && r.field.by[c.id];
+    if (fc) return FIELD_STATE[fc.cells[src]] || "none";
     const evs = r.evidence.filter((e) => e.source === src && relevant(e, c));
     const v = r.verdicts[c.id];
     if (!v) return evs.length ? "data" : r.done ? "none" : "wait";
@@ -320,7 +358,7 @@
   function fieldHTML(r, final) {
     const n = r.claims.length;
     const spread = Math.min(18, 520 / Math.max(1, n)); // whole stagger stays near half a second
-    const cols = n ? r.claims.map((c, i) => {
+    const cols = n ? fieldClaims(r).map((c, i) => {
       const v = r.verdicts[c.id];
       const tip = (c.quote || c.kind) + (v ? " — " + ({ contradicted: "not true", close: "close", confirmed: "true", cant_check: "couldn't check" }[v.verdict] || "") : "");
       return `<span class="col" data-id="${esc(c.id)}" title="${esc(tip)}" style="--d:${Math.round(i * spread)}ms">` +
@@ -387,11 +425,18 @@
         <span class="cm" id="claimsN"></span></div>
       ${fieldHTML(r, false)}
       <ol class="steps" id="steps" aria-label="What the check is doing now" aria-live="polite"></ol>
-      <p class="where">${esc(r.address.full)}${r.mode === "sample" ? " · sample result" : ""}</p>
+      <div class="chk" id="chk"></div>
+      <p class="where" id="where">${whereText(r)}</p>
     </div>`;
+  }
+  function whereText(r) {
+    return esc(r.address.full) + (r.mode === "sample" ? " · sample result" : "") + (r.cache === "off" ? ` · <span class="fresh">fresh run</span>` : "");
   }
   function updateRunning(r) {
     const n = r.claims.length;
+    updateCheck(r);
+    const wh = $("where");
+    if (wh) { const t = whereText(r); if (wh.dataset.h !== t) { wh.dataset.h = t; wh.innerHTML = t; } }
     const cm = $("claimsN");
     if (cm) cm.textContent = n ? `${n} ${n === 1 ? "claim" : "claims"} found` : "Reading the listing";
     updateField(r);
@@ -403,7 +448,7 @@
     st.dataset.top = top;
     st.innerHTML = list.map((s, i) => {
       const src = AG_SRC[s.k];
-      const cnt = src ? r.claims.filter((c) => ["data", "agree", "contra"].includes(cellState(r, c, src))).length : 0;
+      const cnt = src ? r.claims.filter((c) => ["data", "agree", "contra", "close"].includes(cellState(r, c, src))).length : 0;
       return `<li class="${i === 0 ? "now" + (fresh ? " in" : "") : ""}"><span class="sd" aria-hidden="true"></span>
         <span class="sx"><span class="sk">${esc(s.k)}</span><span class="st">${esc(s.text)}</span></span>
         <span class="sc">${cnt ? cnt : ""}</span></li>`;
@@ -435,8 +480,8 @@
     return said(c) || v.claimed || c.quote || "";
   }
   function settledBy(r, c, v) {
-    const want = BAD.has(v.verdict) ? "contra" : "agree";
-    const by = SOURCES.filter((s) => cellState(r, c, s) === want).map((s) => SRC[s]);
+    const want = BAD.has(v.verdict) ? ["contra", "close"] : ["agree"];
+    const by = SOURCES.filter((s) => want.includes(cellState(r, c, s))).map((s) => SRC[s]);
     return (v.verdict === "close" ? "Close · " : "") + (by.join(", ") || SRC[v.source] || "");
   }
   function sizeClass(t) { const n = String(t).length; return n > 34 ? " s" : n > 18 ? " m" : ""; }
@@ -447,31 +492,107 @@
     // a verdict for a claim we never got (should not happen) still counts in the headline, not in the rows
     const meta = [
       r.mode === "sample" ? `<span>Sample result</span>` : "",
+      r.cache === "off" ? `<span class="fresh" data-k="fresh">fresh run</span>` : "",
       k.confirmed ? `<span data-k="confirmed">${k.confirmed} true</span>` : "",
       k.close ? `<span data-k="close" class="b">${k.close} close</span>` : "",
       k.cant_check ? `<span data-k="cant_check">${k.cant_check} couldn't check</span>` : "",
       `<span data-k="time">${took((r.t1 || Date.now()) - r.t0)}</span>`,
     ].filter(Boolean).join(`<span class="sep" aria-hidden="true"> · </span>`);
-    let h = `<div class="res">${headlineHTML(r, k)}<p class="meta" id="counts">${meta}</p>`;
+    let h = `<div class="res">${headlineHTML(r, k)}<p class="meta" id="counts">${meta}</p><div class="chk" id="chk"></div>`;
     if (r.claims.length) h += fieldHTML(r, true);
     if (bad.length) {
       h += `<ul class="finds" id="finds" aria-label="What doesn't match">` + bad.slice(0, FIND_TOP).map(([c, v], i) => {
-        const was = listingWords(r, c, v), is = v.found || "";
-        return `<li><button class="find" data-id="${esc(c.id)}" data-verdict="${v.verdict}" style="--i:${i}" aria-label="${esc(`Listing says ${v.claimed}. ${SRC[v.source] || "We"} found ${is}. Show it`)}">
-          <span class="was"><span class="wt">${esc(was)}</span><i class="strike" aria-hidden="true"></i></span>
+        const was = listingWords(r, c, v), is = v.found || "", pic = proofOf(r, c, v);
+        return `<li><button class="find${pic ? " has-pic" : ""}" data-id="${esc(c.id)}" data-verdict="${v.verdict}" style="--i:${i}" aria-label="${esc(`Listing says ${v.claimed}. ${SRC[v.source] || "We"} found ${is}. Show it`)}">
+          <span class="ftx"><span class="was"><span class="wt">${esc(was)}</span><i class="strike" aria-hidden="true"></i></span>
           <span class="is${sizeClass(is)}">${esc(is)}</span>
-          <span class="by">${esc(settledBy(r, c, v))}</span></button></li>`;
+          <span class="by">${esc(settledBy(r, c, v))}</span></span>${pic ? `<span class="pic" data-img="${esc(pic)}" aria-hidden="true"></span>` : ""}</button></li>`;
       }).join("") + `</ul>`;
       if (bad.length > FIND_TOP) h += `<button class="morebtn" id="moreF">+${bad.length - FIND_TOP} more</button>`;
     }
     h += `<div class="fi" id="fi">${r.fillIn && r.fillIn.length ? fillInHTML(r.fillIn) : ""}</div></div>`;
     body.innerHTML = h;
+    updateCheck(r);
+    loadPics();
     fitHeadline();
     // footer: the walkthrough of the worst finding a 3D scan settled, and other addresses on this page
     const walk = r.mode === "server" && r.done.run_id ? bad.find(([, v]) => v.source === "scan") : null;
     $("ftl").innerHTML = (walk ? `<button class="lnk" id="btnWalk" data-id="${esc(walk[0].id)}">Walk through it in 3D</button>` : "") +
       (addresses.length > 1 ? `<button class="lnk" id="btnAnother">Check another address</button>` : "");
   }
+  // ---------- proof pictures: small, lazy, fetched by the service worker (the page never loads from localhost) ----------
+  const PROOF_RE = /^\/img\/[A-Za-z0-9_-]{1,64}$/;
+  function proofOf(r, c, v) {
+    const fc = r.field && r.field.by[c.id];
+    const p = (fc && fc.image) || v.image;
+    return typeof p === "string" && PROOF_RE.test(p) ? p : "";
+  }
+  function showPic(slot, url) {
+    if (!slot.isConnected) return;
+    if (!url) { const f = slot.closest(".find"); slot.remove(); if (f) f.classList.remove("has-pic"); return; } // missing: no gap left
+    const im = document.createElement("img");
+    im.alt = ""; im.decoding = "async";
+    im.addEventListener("load", () => slot.classList.add("on"));
+    im.addEventListener("error", () => showPic(slot, ""));
+    im.src = url;
+    slot.replaceChildren(im);
+  }
+  function fetchPic(slot) {
+    const p = slot.dataset.img;
+    if (imgCache.has(p)) { const u = imgCache.get(p); if (u !== null) showPic(slot, u); return; }
+    imgCache.set(p, null);
+    const settle = (u) => { imgCache.set(p, u); body.querySelectorAll(".pic[data-img]").forEach((s) => { if (s.dataset.img === p) showPic(s, u); }); };
+    try {
+      chrome.runtime.sendMessage({ type: "img", path: p }, (res) => { void chrome.runtime.lastError; settle((res && res.dataUrl) || ""); });
+    } catch (e) { settle(""); }
+  }
+  let picIO = null;
+  function loadPics() {
+    const slots = body.querySelectorAll(".pic[data-img]");
+    if (!slots.length) return;
+    if (!picIO) picIO = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { picIO.unobserve(e.target); fetchPic(e.target); } }), { root: body, rootMargin: "120px" });
+    slots.forEach((s) => picIO.observe(s));
+  }
+
+  // ---------- "Checking: <building> · <address> · <why>" and "Not this? Pick another" ----------
+  const normA = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  function addrFor(text) {
+    const k = normA(text);
+    return addresses.find((a) => normA(a.full) === k || normA(a.text) === k) || { text: String(text), full: String(text), ranges: [] };
+  }
+  function altsOf(r) {
+    // the server's other candidates (address, and building name when known), else the page's other addresses
+    const seen = new Set([normA(r.address.full)]), out = [];
+    const add = (text, name) => { const k = normA(text); if (k && !seen.has(k)) { seen.add(k); out.push({ text: String(text), name: name || "" }); } };
+    for (const a of (r.pick && r.pick.alternatives) || []) if (a && a.text) add(a.text, a.name);
+    if (!out.length) for (const a of addresses) add(a.full, "");
+    return out.slice(0, 5);
+  }
+  function checkHTML(r) {
+    if (r.mode !== "server" || !r.match) return "";
+    const m = r.match, pk = r.pick || {};
+    const ok = m.status === "matched";
+    const name = ok && m.name ? m.name : "";
+    const addr = (ok && m.address) || pk.chosen || r.address.full;
+    const low = typeof pk.confidence === "number" && pk.confidence < LOW_PICK;
+    const alts = altsOf(r);
+    const shown = alts.length > 0 && (r.pickOpen == null ? low && !r.locked : r.pickOpen); // opened for a guess, not for a pick
+    // a guess keeps it short: the soft note replaces the reason (kept as the tooltip)
+    const line = [name, addr, low ? "" : pk.why].filter(Boolean).map(esc).join(" · ");
+    let h = `<p class="chkl${low ? " low" : ""}" id="chkLine"${low && pk.why ? ` title="${esc(pk.why)}"` : ""}><span class="chkw">Checking:</span> ${line}${low ? `. <span class="unsure">We're not sure this is the right building.</span>` : ""}</p>`;
+    if (alts.length) {
+      h += `<button class="lnk chkb" id="pickOther" aria-expanded="${shown}">Not this? Pick another</button>`;
+      if (shown) h += `<ul class="alts" id="alts">` + alts.map((a) => `<li><button class="alt" data-t="${esc(a.text)}"><span class="aa">${esc(a.text)}</span>${a.name ? `<span class="an">${esc(a.name)}</span>` : ""}</button></li>`).join("") + `</ul>`;
+    }
+    return h;
+  }
+  function updateCheck(r) {
+    const el = $("chk");
+    if (!el) return;
+    const h = checkHTML(r);
+    if (el.dataset.h !== h) { el.dataset.h = h; el.innerHTML = h; }
+  }
+
   function fitHeadline() {
     // Each headline line stays one line: shrink the type until the widest line fits (fallback fonts run wide).
     const hl = $("headline");
@@ -540,16 +661,27 @@
     }
     if (e.target.closest("#fiAll")) { openReport("#extra"); return; }
     if (e.target.closest("#useSample")) { startSample(); return; }
-    if (e.target.closest("#retry")) { startRun(run.address); return; }
+    if (e.target.closest("#retry")) { startRun(run.address, { locked: run.locked }); return; }
+    if (e.target.closest("#pickOther")) {
+      run.pickOpen = $("pickOther").getAttribute("aria-expanded") !== "true";
+      updateCheck(run);
+      const b = $("pickOther");
+      if (b) b.focus({ preventScroll: true });
+      if (run.pickOpen && $("alts")) $("alts").scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+      return;
+    }
+    const alt = e.target.closest(".alt");
+    if (alt) { startRun(addrFor(alt.dataset.t), { locked: true }); return; } // the person picked it: the server keeps it
+    if (e.target.closest("#checkThis")) { startRun(addresses[0]); return; } // generic: the server may pick another address
     const pick = e.target.closest(".pick");
-    if (pick) startRun(addresses[+pick.dataset.i]);
+    if (pick) startRun(addresses[+pick.dataset.i], { locked: true });
   });
   function renderIdle() {
     if (!addresses.length) {
       body.innerHTML = `<div class="idle"><p class="lead">No street address on this page.</p></div>`;
       return;
     }
-    body.innerHTML = `<div class="idle"><p class="lead">Pick an address to check.</p><p class="hint">Or click one highlighted on the page.</p><ul class="picks">` +
+    body.innerHTML = `<div class="idle"><p class="lead">Is this listing what it says?</p><button class="btn primary chk1" id="checkThis">Check this listing</button><p class="hint">Or pick the address yourself, here or highlighted on the page.</p><ul class="picks">` +
       addresses.map((a, i) => `<li><button class="pick" data-i="${i}"><span class="pa">${esc(a.full)}</span><span class="go">${CHEV}</span></button></li>`).join("") + `</ul></div>`;
   }
 
@@ -627,7 +759,7 @@
   .cell[data-s="none"]{background:#ebebeb}
   .cell[data-s="data"]{background:#fff;box-shadow:inset 0 0 0 var(--hb,1.5px) var(--ink)}
   .cell[data-s="agree"]{background:var(--ink)}
-  .cell[data-s="contra"]{background:var(--blue)}
+  .cell[data-s="contra"],.cell[data-s="close"]{background:var(--blue)}
   .field.final .cell{animation:rc-cell .5s var(--ease) calc(var(--d) + var(--r) * 45ms + 260ms) backwards}
   @keyframes rc-col{from{transform:scaleY(.2);opacity:0}}
   @keyframes rc-cell{from{background:#f4f4f4;box-shadow:none}}
@@ -647,6 +779,19 @@
   .steps li.in{animation:rc-in .4s var(--ease)}
   @keyframes rc-pulse{to{box-shadow:0 0 0 7px rgba(17,17,17,0)}}
   @keyframes rc-in{from{transform:translateY(-8px);opacity:0}}
+  .chk{font-size:14px;line-height:1.4;color:var(--mute)}
+  .run .chk{margin-top:24px}
+  .res .chk{margin-top:8px}
+  .chk:empty{display:none}
+  .chkl{overflow-wrap:anywhere}
+  .chkw,.chkl .unsure{color:var(--ink)}
+  .chkb{min-height:36px;font-size:14px;color:var(--mute)}
+  .alts{list-style:none;margin:2px 0 4px}
+  .alts li{border-top:1px solid var(--line)}
+  .alt{width:100%;min-height:44px;display:flex;flex-direction:column;justify-content:center;padding:6px 0;font-size:15px;color:var(--ink)}
+  .alt:hover{color:var(--blue)}
+  .alt .an{font-size:13px;color:var(--mute)}
+  .fresh{color:var(--mute);font-size:13px;border:1px solid var(--line);padding:0 5px}
   .where{margin-top:auto;padding-top:28px;font-size:15px;color:var(--mute);overflow-wrap:anywhere}
 
   /* result */
@@ -663,9 +808,13 @@
   .meta .b{color:var(--blue)}
   .res .field{margin-top:24px}
   .finds{list-style:none;margin:18px -12px 0}
-  .find{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;min-height:44px;padding:10px 12px;transition:background-color .18s ease;
+  .find{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:10px 12px;transition:background-color .18s ease;
     animation:rc-rise .55s var(--ease) calc(.45s + var(--i) * .12s) backwards}
   .find:hover{background:#f4f4f4}
+  .ftx{display:flex;flex-direction:column;align-items:flex-start;gap:1px;flex:1;min-width:0}
+  .pic{flex:none;width:72px;height:54px;background:#f4f4f4;overflow:hidden}
+  .pic img{display:block;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .3s ease}
+  .pic.on img{opacity:1}
   .find.ping{animation:rc-ping 1.2s ease-out}
   .was{position:relative;display:inline-block;max-width:100%;font-size:19px;line-height:1.25;color:#858585}
   .wt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -697,7 +846,8 @@
 
   /* idle + trouble */
   .lead{margin-top:20px;font-size:32px;font-weight:300;line-height:1.05;letter-spacing:-.025em}
-  .idle .hint{margin-top:8px}
+  .idle .hint{margin-top:14px}
+  .chk1{margin-top:18px}
   .picks{list-style:none;margin-top:18px}
   .picks li{border-top:1px solid var(--line)}
   .pick{width:100%;min-height:52px;display:flex;align-items:center;gap:10px;padding:10px 0;font-size:17px}

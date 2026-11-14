@@ -176,3 +176,21 @@ def test_run_check_survives_broken_kit_facts(monkeypatch):
     fill = next(e for e in events if e["type"] == "fill_in")
     assert not any(e["type"] == "error" for e in events)
     assert all(f["topic"] for f in fill["facts"])  # still built from the match and the evidence
+
+
+def test_renter_rows_age_type_sizes_amenities_and_311_counts():
+    from harness.fill_in import build_fill_in
+    match = {"status": "matched", "record": {"year_built": 2001}, "floorplans": []}
+    kit = {"plans": [{"name": "A1", "beds": 1, "baths": 1, "sqft_min": 600, "sqft_max": 650},
+                     {"name": "A2", "beds": 1, "baths": 1, "sqft_min": 700},
+                     {"name": "B1", "beds": 2, "baths": 2, "sqft_min": 1000}],
+           "amenities": ["Pool", "Dog park", "Fitness center"]}
+    county = {"source": "county", "status": "ok", "summary": "", "detail": "", "images": [],
+              "observed": {"source_name": "Invented County", "complaints_311": [{"text": "Sam said x"}, {"text": "y"}]}}
+    facts = build_fill_in(match, [county], [], kit=kit, page_text="Enjoy our sparkling pool.")
+    by = {f["id"]: f for f in facts}
+    assert by["year-built"]["value"].startswith("2001, about ")
+    assert by["size-1bed"]["value"] == "600–700 sq ft across 2 plans" and by["size-2bed"]["value"] == "1,000 sq ft, one plan"
+    assert by["amenities"]["value"] == "Dog park, Fitness center"  # the page already talks about the pool
+    assert by["county-311"]["value"] == "2" and "Sam" not in str(facts)
+    assert all(f["source"] in ("record", "county") for f in facts)

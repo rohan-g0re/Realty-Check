@@ -2,7 +2,7 @@
 (function(){var root=document.getElementById('cf-field');if(!root||root.getAttribute('data-cf-ready'))return;
 root.setAttribute('data-cf-ready','1');root.classList.remove('cf-nojs');
 var D=JSON.parse(document.getElementById('cf-data').textContent),S=D.sources,C=D.claims;
-var NAME={},WORD={"match": "Matches the listing", "contra": "Contradicts it", "close": "Close, not exact", "data": "Has data, not compared", "none": "Nothing from this source"};S.forEach(function(s){NAME[s.key]=s.name;});
+var NAME={},WORD={"match": "Matches the listing", "contra": "Doesn't match the listing", "close": "Close, not exact", "data": "Has data, not compared", "none": "Nothing from this source"};S.forEach(function(s){NAME[s.key]=s.name;});
 var grid=root.querySelector('.cf-grid'),sweep=root.querySelector('.cf-sweep'),tip=document.getElementById('cf-tip');
 var back=document.getElementById('cf-back'),panel=document.getElementById('cf-panel'),body=panel.querySelector('.cf-body');
 var cells=Array.prototype.slice.call(grid.querySelectorAll('.cf-cell'));
@@ -11,6 +11,12 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function at(c,r){return grid.querySelector('.cf-cell[data-c="'+c+'"][data-r="'+r+'"]');}
 function data(b){var c=C[+b.getAttribute('data-c')],s=S[+b.getAttribute('data-r')];return{c:c,s:s,cell:c.cells[s.key]};}
 function blue(st){return st==='contra'||st==='close';}
+/* a soft caption: the part before any colon, at most 60 characters */
+function soft(c){c=String(c||'').split(':')[0].trim();return c.length>60?c.slice(0,58)+'…':c;}
+/* a picture whose file is gone (older runs) is hidden, never a broken-image icon */
+document.addEventListener('error',function(e){var t=e.target;if(!t||t.tagName!=='IMG')return;
+ var f=t.closest&&t.closest('.cf-pics figure');if(f){f.hidden=true;var p=f.parentNode;if(p&&!p.querySelector('figure:not([hidden])'))p.hidden=true;}
+ else if(t.closest&&t.closest('.cf-tip'))t.style.display='none';},true);
 /* under-column marks: stack labels into lanes so none overlap */
 function lanes(){var box=root.querySelector('.cf-marks'),marks=Array.prototype.slice.call(box.querySelectorAll('.cf-mark')),ends=[],lh=-1;
  var base=grid.getBoundingClientRect().left,W=grid.getBoundingClientRect().width,MAX=3;
@@ -76,9 +82,9 @@ function fill(b){var d=data(b),st=d.cell.state,c=d.c,cell=d.cell,h='';drop3d();c
  else{if(cell.reason&&st!=='data'&&(c.reason||'').indexOf(cell.reason.split('. ').slice(0,2).join('. '))<0)h+='<p class="cf-dim">'+esc(cell.reason)+'</p>';
   (cell.summaries||[]).forEach(function(s){h+='<p>'+esc(s)+'</p>';});
   if(cell.tour)h+='<button type="button" class="cf-go cf-3d" data-claim="'+esc(c.id)+'">See it in 3D</button><div class="cf-3dhost"></div>';
-  if(cell.images&&cell.images.length){h+='<div class="cf-pics">'+cell.images.map(function(im){return'<figure><a href="'+esc(im.url)+'" target="_blank" rel="noopener"><img loading="lazy" alt="'+esc(im.caption||'Evidence picture')+'" src="'+esc(im.url)+'"></a>'+(im.caption?'<figcaption>'+esc(im.caption)+'</figcaption>':'')+'</figure>';}).join('')+'</div>';}
+  if(cell.images&&cell.images.length){h+='<div class="cf-pics'+(cell.images.length===1?' cf-one':'')+'">'+cell.images.map(function(im){var cap=soft(im.caption);return'<figure><a class="pic" href="'+esc(im.url)+'" data-cap="'+esc(cap)+'"><img loading="lazy" decoding="async" alt="'+esc(cap||'Proof picture')+'" src="'+esc(im.url)+'"></a>'+(cap?'<figcaption>'+esc(cap)+'</figcaption>':'')+'</figure>';}).join('')+'</div>';}
   if(cell.facts&&cell.facts.length)h+='<p class="cf-lbl">What we pulled</p><dl class="cf-kv">'+cell.facts.map(function(p){return'<dt>'+esc(p[0])+'</dt><dd>'+esc(p[1])+'</dd>';}).join('')+'</dl>';
-  if(cell.raw&&cell.raw.length)h+='<details><summary>Raw data</summary><pre>'+esc(JSON.stringify(cell.raw,null,1))+'</pre></details>';}
+  }
  body.innerHTML=h;body.scrollTop=0;}
 function open(b){if(b.classList.contains('cf-none'))return;opener=b;clearTimeout(closeT);hide();fill(b);
  back.hidden=false;panel.hidden=false;void panel.offsetWidth;back.classList.add('cf-show');panel.classList.add('cf-show');

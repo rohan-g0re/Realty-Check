@@ -1,4 +1,4 @@
-"""Headed walk-through of the Reality Check extension on the local fixture page.
+"""Headed walk-through of the Realty Check extension on the local fixture page.
 
 Run:  .venv/Scripts/python.exe tests/extension/show_ui.py [--keep 480] [--shots DIR] [--pause 1.5]
 Saves a screenshot of every state, then leaves the window open for --keep seconds so you can try it.

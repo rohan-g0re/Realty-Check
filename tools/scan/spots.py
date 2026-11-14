@@ -27,6 +27,7 @@ from typing import Any, Callable
 from PIL import Image, ImageDraw, ImageFont
 
 import rc_common
+from tools import cachectl
 from tools.scan.matterport import scrub
 
 MAX_SPOTS = 10
@@ -105,7 +106,7 @@ def cache_path(model_id: str, claim: dict) -> Path:
 def cached_pick(model_id: str, claim: dict) -> dict | None:
     p = cache_path(model_id, claim)
     try:
-        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+        return json.loads(p.read_text(encoding="utf-8")) if cachectl.hit(p) else None
     except (OSError, ValueError):
         return None
 
@@ -126,7 +127,7 @@ def _load_model(model_id: str, client) -> dict | None:
     """Rooms and spots (no URLs): the run's saved summary, else the spots cache, else one fresh query."""
     folder = rc_common.cache_dir("spots", model_id)
     for p in (rc_common.cache_dir("scan", model_id) / "summary.json", folder / "model.json"):
-        if p.exists():
+        if cachectl.hit(p):
             try:
                 body = json.loads(p.read_text(encoding="utf-8"))
                 m = (body.get("data") or {}).get("model") if "data" in body else body
@@ -271,11 +272,11 @@ def _strip(faces: list[Image.Image], number: int) -> Image.Image:
 def _faces(model_id: str, pano: dict, client) -> list[Image.Image]:
     """The four horizontal skybox faces of one spot, from the image cache or downloaded once."""
     paths = _face_paths(model_id, pano)
-    if not all(p.exists() for p in paths):
+    if not all(cachectl.hit(p) for p in paths):
         if not _has_urls(pano):
             raise RuntimeError("no skybox faces for this spot")
         for p, u in zip(paths, pano["skybox"]["children"][1:5]):
-            if not p.exists():
+            if not cachectl.hit(p):
                 im = client.download_image(u)
                 im.thumbnail((FACE_PX * 2, FACE_PX * 2))
                 im.save(p, "JPEG", quality=85)
@@ -381,7 +382,7 @@ def pick_spot(model_id: str, claim: dict, verdict: dict, client=None, look: Call
     if pick is None and plan.get("question"):
         panos = model.get("panoLocations") or []
         need = not any(isinstance(p.get("position"), dict) for p in panos) or any(
-            not all(f.exists() for f in _face_paths(model_id, p)) and not _has_urls(p) for p in spread_spots(panos))
+            not all(cachectl.hit(f) for f in _face_paths(model_id, p)) and not _has_urls(p) for p in spread_spots(panos))
         if need:  # positions and face URLs live only in a fresh answer
             fresh = client.spot_query(model_id)
             if fresh:

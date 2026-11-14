@@ -3,20 +3,24 @@
 Sections, top to bottom (each one adapts to the run; nothing is invented):
   hero          headline from counts ("3 things don't match." / calm "Everything we could check matches."), the
                 address, the run meta, and the claim field (server.claim_field, or a simple grid when it is missing)
-  findings      one module per finding item (contradicted + close, plan claims grouped as in server.report): the
-                listing's words struck through in blue, the truth set huge beneath, one line, source marks, and a
-                proof slot picked from the evidence the item actually has (3D walk, pictures, a measured drawing,
-                a record/county line, or nothing)
+  findings      one module per hard mismatch item (contradicted; plan claims grouped as in server.report), ranked by
+                what costs the renter most (beds/baths/size, then rent and fees, then building facts, then
+                amenities; a bigger relative gap first): the listing's words struck through in blue, the truth set
+                huge beneath, one line, source marks, and a proof slot picked from the evidence the item actually
+                has (3D walk, pictures, a measured drawing, a record/county line, or nothing). "Close" verdicts follow
+                as a quiet list, never struck through ("Listing says 2015 · county records say 2014 — close")
   sources       "Four sources. One address.": per source, how many claims it settled or weighed in on, and what
                 kind of thing it contributed in this run; a missing source says so
   extra         "Not on the listing" facts (fill_in), floor plans drawn to scale, topic groups, long lists collapsed
-  matches       confirmed claims; long lists collapsed
+  matches       confirmed claims, a small proof picture where the evidence has one; long lists collapsed
   cant-verify   claims nobody could check, grouped by reason
   questions     simple neutral questions from the findings (deterministic template), each with a Copy button
   footer        wordmark, listing link, run meta, how we checked
 
 The data logic and wording come from server.report (grouping, image ranking, walk links, fill-in, captions).
 Pictures only via /img/<token>; outside requests: the Newsreader font, and Matterport inside the 3D viewers.
+Pictures whose cached file is gone (older runs) are taken out before rendering (server.report.drop_dead_images), and
+any picture that still fails to load is hidden in the browser (no broken-image icon; a finding falls back to text).
 
 3D viewers (live_3d=True, the server's page): a finding whose proof is a 3D scan shows the live Matterport viewer
 inline (the same-origin /tour/<run_id>?claim=<id>&embed=1 page in an iframe), opened at the picked spot, with no
@@ -35,14 +39,16 @@ from html import escape
 
 from server.tour import PRECONNECT
 from server.report import (FACT_FROM, IMG_RE, TOPICS, Run, _cant_reason, _claimed_words, _first_sentence,
-                           _fill_in, _fmt_n, _groups, _headline_claim, _kind, _meta, _norm, _num, _rooms,
+                           drop_dead_images,
+                           _fill_in, _fmt_n, _groups, _kind, _meta, _norm, _num, _rooms,
                            _said, _same_plan, _scan_title, _short_caption, _source_line, _value_words)
 
 SRC_ORDER = ["record", "scan", "aerial", "county"]
 SRC_NAME = {"record": "CoStar", "scan": "Matterport", "aerial": "Aerial", "county": "County"}
 SRC_LONG = {"record": "CoStar building record", "scan": "Matterport 3D scan", "aerial": "Aerial imagery",
             "county": "County records"}
-VERDICT_WORD = {"contradicted": "Not true", "close": "Close", "confirmed": "True", "cant_check": "Couldn't check"}
+VERDICT_WORD = {"contradicted": "Doesn't match", "close": "Close", "confirmed": "Matches", "cant_check": "Couldn't check"}
+BRAND = "Realty Check"
 SOFT_KINDS = {"amenity", "parking", "laundry", "view", "other"}  # photo checks: never struck as false
 KIND_LABEL = {"year_built": "Year built", "stories": "Floors", "unit_count": "Homes", "area_sqft": "Size",
               "bedrooms": "Bedrooms", "bathrooms": "Bathrooms"}
@@ -51,7 +57,14 @@ OBS_WORDS = [("stories", "floors"), ("year_built", "year built"), ("unit_count",
              ("bedrooms", "bedrooms"), ("bathrooms", "bathrooms"), ("area_sqft", "floor area"),
              ("room_labels", "rooms"), ("rooms", "rooms"), ("height_m", "roof height"),
              ("parcel_id", "the parcel"), ("feature_check", "photo checks")]
-SRC_FROM = {"scan": "the 3D scan shows", "county": "county records say", "record": "the building record says"}
+SRC_FROM = {"scan": "the 3D scan shows", "county": "county records say", "record": "the CoStar building record says"}
+SRC_SAYS = {"scan": "the 3D scan says", "county": "county records say", "record": "the CoStar record says",
+            "aerial": "the roof height says"}
+SRC_SHORT = {"record": "CoStar", "scan": "3D scan", "aerial": "Aerial", "county": "County"}
+# renter impact: what a wrong claim costs the renter, most first
+TIER_UNIT = {"bedrooms", "bathrooms", "area_sqft"}
+TIER_BUILDING = {"stories", "year_built", "unit_count"}
+MONEY_RE = re.compile(r"\$\s?\d|\brent\b|\bfees?\b|\bdeposit\b|\bprice\b|\bper month\b|/mo\b", re.I)
 FACT_MANY = 24     # more facts than this: each topic shows FACT_SHOW rows, the rest behind a button
 FACT_SHOW = 5
 LIST_SHOW = 12     # matches / couldn't-check entries shown before the "show the other N" button
@@ -190,6 +203,20 @@ transition:transform .25s ease,box-shadow .25s ease}
 .nopic{background:var(--soft);min-height:clamp(180px,18vw,260px);display:flex;align-items:center;justify-content:center;
 padding:24px;text-align:center;font-weight:300;font-size:clamp(40px,5vw,76px);line-height:1;letter-spacing:-.04em;color:var(--blue)}
 .nopic.q{color:var(--ghost)}
+/* close, not exact: quiet, no strike-through */
+.near{display:flex;flex-direction:column;gap:14px;padding-top:clamp(8px,1vw,16px);scroll-margin-top:24px}
+.near h3{margin:0;font-weight:400;font-size:clamp(26px,2.6vw,36px);letter-spacing:-.02em}
+.near ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.near li{display:flex;align-items:center;gap:14px 18px;padding:12px 0;border-top:1px solid #ececec;font-size:19px;
+line-height:1.35}
+.near li:last-child{border-bottom:1px solid #ececec}
+.near .nk{flex:0 0 clamp(110px,16%,200px);color:var(--mute);font-size:16px}
+.near .nv{flex:1;min-width:0}
+.near .nv b{font-weight:400;color:var(--mute)}
+.near a.pic{flex:none;width:72px}.near a.pic img{aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
+.top-line{margin:0;font-size:20px;line-height:1.35}
+.top-line q{quotes:'\201c' '\201d'}
+.gone{display:none!important}
 /* sources (the one dark band) */
 .dark{background:#111;color:#f2f2f2}.dark a{color:#fff}.dark .mute{color:#a9a9a9}
 .srcs{padding-top:clamp(96px,10vw,170px);padding-bottom:clamp(80px,8vw,140px)}
@@ -221,6 +248,7 @@ margin-top:clamp(56px,7vw,110px)}
 .topic h3{margin-bottom:12px}
 .fact{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) auto;gap:6px 14px;align-items:baseline;padding:6px 0;font-size:17px}
 .fact .k{color:var(--mute)}.fact .v{text-align:right;overflow-wrap:anywhere}
+.fact .fs{font-size:13px;color:var(--mute);min-width:52px;text-align:right;white-space:nowrap}
 .fact .sq i{width:6px;height:6px}.fact .sq{gap:2px}
 .fact a.pic{grid-column:1/-1;max-width:220px}.fact a.pic img{aspect-ratio:16/10;object-fit:cover}
 .topic .note{margin:8px 0 0;font-size:14px;color:var(--mute)}
@@ -233,7 +261,9 @@ margin-top:clamp(56px,7vw,110px)}
 .h3{margin:0;font-weight:300;font-size:clamp(46px,6vw,96px);line-height:.95;letter-spacing:-.045em}
 .split .note{margin:16px 0 0;font-size:17px}
 .mlist{list-style:none;margin:0;padding:0;columns:3 220px;column-gap:clamp(24px,3vw,56px);font-size:22px;line-height:1.35}
-.mlist li{break-inside:avoid;padding:0 0 12px}
+.mlist li{break-inside:avoid;padding:0 0 12px;display:flex;gap:12px;align-items:flex-start}
+.mlist .mt{flex:1;min-width:0}
+.mlist a.pic{flex:none;width:64px;margin-top:4px;margin-left:0}.mlist a.pic img{aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
 .mlist small{display:block;font-size:14px;color:var(--mute)}
 .mlist a{font-size:14px;margin-left:6px}
 .cant{background:var(--soft);padding-top:clamp(72px,8vw,130px);padding-bottom:clamp(72px,8vw,130px)}
@@ -258,7 +288,7 @@ margin-top:clamp(56px,7vw,110px)}
 .how ol{margin:12px 0 0;padding-left:20px}.how .ag{color:#fff;margin-right:8px}
 .foot-end{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;margin-top:56px;font-size:15px;color:#a9a9a9}
 /* lightbox */
-.lb{position:fixed;inset:0;z-index:50;background:rgba(17,17,17,.92);display:flex;flex-direction:column;align-items:center;
+.lb{position:fixed;inset:0;z-index:90;background:rgba(17,17,17,.92);display:flex;flex-direction:column;align-items:center;
 justify-content:center;gap:12px;padding:56px 16px 24px}
 .lb[hidden]{display:none}
 .lb img{max-width:100%;max-height:82vh;object-fit:contain}
@@ -287,6 +317,7 @@ body{font-size:18px}
 .stage{aspect-ratio:auto;min-height:340px}
 .stage .go{left:12px;right:12px}
 .mlist,.reasons .qs,.qlist li{font-size:19px}
+.near li{flex-wrap:wrap;font-size:17px}.near .nk{flex-basis:100%}
 .fact{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto;font-size:16px}
 .cards .card+.card{margin-left:0}
 .top{min-height:72px}
@@ -319,6 +350,14 @@ btn.textContent='Copied';setTimeout(function(){btn.textContent=o;},1600);};
 function old(){var t=document.createElement('textarea');t.value=text;t.setAttribute('readonly','');t.style.position='fixed';
 t.style.opacity='0';document.body.appendChild(t);t.select();try{document.execCommand('copy');done();}catch(e){}document.body.removeChild(t);}
 if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(done,old);}else{old();}}
+/* a picture whose file is gone never shows a broken-image icon: hide its slot; an emptied proof shows its text */
+document.addEventListener('error',function(e){var t=e.target;if(!t||t.tagName!=='IMG'||!t.closest)return;
+if(t.closest('.lb'))return;if(t.closest('.stage')){t.classList.add('gone');return;}
+var a=t.closest('a.pic');(a||t).classList.add('gone');
+var pics=t.closest('.pics');if(pics&&!pics.querySelector('a.pic:not(.gone)'))pics.classList.add('gone');
+var fig=t.closest('figure.proof');if(fig&&!fig.querySelector('a.pic:not(.gone),.walk,.draw,.cards,.nopic')){
+[].forEach.call(fig.querySelectorAll('figcaption'),function(c){c.classList.add('gone');});
+var alt=fig.getAttribute('data-alt');if(alt){var d=document.createElement('div');d.className='nopic';d.textContent=alt;fig.appendChild(d);}}},true);
 var lb=document.getElementById('lb'),li=lb.querySelector('img'),lc=lb.querySelector('p');
 function shut(){lb.hidden=true;li.removeAttribute('src');}
 lb.addEventListener('click',shut);
@@ -641,12 +680,60 @@ def _counts(run: Run) -> dict:
     return n
 
 
+def _tier(run: Run, v: dict) -> int:
+    """Renter impact of a claim: 0 beds/baths/size, 1 rent and fees, 2 building facts, 3 amenities and the rest."""
+    c = run.claim(v)
+    kind = _kind(v, c)
+    if kind in TIER_UNIT:
+        return 0
+    if MONEY_RE.search(f"{c.get('quote') or ''} {v.get('claimed') or ''} {c.get('value') or ''}"):
+        return 1
+    if kind in TIER_BUILDING:
+        return 2
+    return 3
+
+
+def _gap(run: Run, v: dict) -> float:
+    """How far off the listing is, relative to what it says (0 when the numbers cannot be read)."""
+    kind = _kind(v, run.claim(v))
+    a, b = _num(v.get("claimed")), _num(v.get("found"))
+    if kind == "bedrooms" and str(v.get("claimed") or "").lower().startswith("studio"):
+        a = 0.0
+    if a is None or b is None:
+        return 0.0
+    if kind == "year_built":
+        return abs(a - b) / 50.0  # five years off weighs like a tenth
+    return abs(a - b) / max(abs(a), 1.0)
+
+
+def _rank(run: Run, v: dict) -> tuple:
+    """Sort key: hard mismatches first, then by renter impact, a bigger gap first, then page order."""
+    pos = run.order.index(v["claim_id"]) if v.get("claim_id") in run.order else 10**6
+    return (0 if v.get("verdict") == "contradicted" else 1, _tier(run, v), -_gap(run, v), pos)
+
+
+def _top_line(run: Run, v: dict) -> str:
+    """One plain line naming the top-ranked mismatch: 'Listing says “2 Beds”; the 3D scan shows 1 bedroom and a den.'"""
+    c = run.claim(v)
+    said, is_q = _strike_text(run, v, c)
+    said = f"“{said}”" if is_q else said
+    found = re.sub(r"\s*\((?:scan title|[^)]*record[^)]*)\)\s*$", "", str(v.get("found") or "")).strip()
+    if not found:
+        return ""
+    who = SRC_FROM.get(v.get("source")) or ("the measured roof height suggests" if _kind(v, c) == "stories"
+                                             else "aerial photos suggest")
+    plan = f" for {c['label']}" if c.get("label") else ""
+    return f"Biggest difference: the listing says {said}{plan}; {who} {found}."
+
+
 def _headline(n: dict) -> tuple[str, str, bool]:
-    off = n["contradicted"] + n["close"]
-    if off == 1:
+    hard = n["contradicted"]
+    if hard == 1:
         return "1 thing", "doesn't match.", False
-    if off > 1:
-        return f"{off} things", "don't match." if n["contradicted"] else "are only close.", False
+    if hard > 1:
+        return f"{hard} things", "don't match.", False
+    if n["close"]:
+        return "Nothing is", "clearly off.", True  # only near misses: never sounds like a mismatch
     if n["confirmed"]:
         return "Everything we could", "check matches.", True
     if n["cant_check"]:
@@ -702,14 +789,23 @@ def _field(run: Run, live_3d: bool = True) -> str:
     return _fallback_field(run)
 
 
-def _hero(run: Run, n: dict, first_find: str | None, live_3d: bool = True) -> str:
+def _hero(run: Run, n: dict, first_find: str | None, live_3d: bool = True, top=None) -> str:
     l1, l2, calm = _headline(n)
     address = run.snap.get("address_text") or run.match.get("address") or "Unknown address"
     parts = [p.strip() for p in str(address).split(",") if p.strip()]
     where = _e(parts[0]) + ("<br>" + _e(", ".join(parts[1:])) if len(parts) > 1 else "")
     used = [SRC_NAME[s] for s, evs in _source_used(run).items() if evs]
     total = len(run.verdicts)
-    if calm and n["confirmed"]:
+    lead_line = _top_line(run, top) if top else ""
+    near = ""
+    if n["close"]:
+        near = (_plural(n["close"], "detail is", "details are") + " close, not exact."
+                if not n["contradicted"] else
+                _plural(n["close"], "more is", "more are") + " close, not exact.")
+    if calm and n["close"] and not n["contradicted"]:
+        sub = near + (f" {_plural(n['confirmed'], 'claim matches', 'claims match')}." if n["confirmed"] else "")
+        near = ""
+    elif calm and n["confirmed"]:
         sub = f"{_plural(n['confirmed'], 'claim matches', 'claims match')}."
         if n["cant_check"]:
             sub += f" {n['cant_check']} we couldn't check."
@@ -721,15 +817,19 @@ def _hero(run: Run, n: dict, first_find: str | None, live_3d: bool = True) -> st
     btn = ""
     if first_find:
         btn = f"<a class='btn big' href='#{first_find}'>Show me what's off{ARROW_DOWN}</a>"
+    elif n["close"]:
+        btn = f"<a class='btn big' href='#near'>See what's close{ARROW_DOWN}</a>"
     elif n["confirmed"]:
         btn = f"<a class='btn big' href='#match'>See what we checked{ARROW_DOWN}</a>"
     elif _fill_in(run):
         btn = f"<a class='btn big' href='#extra'>See what the records know{ARROW_DOWN}</a>"
     meta = _meta(run)
-    tick = TICK if calm and n["confirmed"] else ""
+    tick = TICK if calm and n["confirmed"] and not n["close"] else ""
+    lines = (f"<p class=top-line>{_e(lead_line)}</p>" if lead_line else "") + f"<p>{_e(sub)}"
+    lines += (f" {_e(near)}" if near else "") + "</p>"
     return ("<section class=hero aria-label='Verdict'><div class=hero-top>"
             f"<h1><span>{_e(l1)}</span><span class=l2>{_e(l2)}{tick}</span></h1>"
-            f"<div class='addr rv' style='--d:150ms'><p class=where>{where}</p><p>{_e(sub)}</p>"
+            f"<div class='addr rv' style='--d:150ms'><p class=where>{where}</p>{lines}"
             + (f"<p class=meta>{_e(meta)}</p>" if meta else "") + btn + "</div></div>"
             f"<div class=field-wrap>{_field(run, live_3d)}</div></section>")
 
@@ -827,26 +927,64 @@ def _finding_group(run: Run, label, vs: list, idx: int, used_walk: list, live_3d
     # the drawer links a finding as #claim-<id>; one empty target per claim in this group
     marks = "".join(f"<span class=cl-a id='claim-{_e(v.get('claim_id'))}'></span>" for v in vs if v.get("claim_id"))
     text = f"{marks}{plan}{pair(v0, True)}{line(v0)}"
+    alt = _truth_text(v0).rstrip(".")[:40]  # the text the proof slot shows if its pictures fail to load
     if lead:
         return (f"<article class='find lead rv' id='{anchor}' data-proof='{kind_word}'>{text}"
-                f"<figure class=proof>{proof}</figure>{subs}{rooms}</article>")
+                f"<figure class=proof data-alt='{_e(alt)}'>{proof}</figure>{subs}{rooms}</article>")
     flip = " flip" if idx % 2 == 0 else ""
     return (f"<article class='find rv' id='{anchor}' data-proof='{kind_word}'><div class='two{flip}'>"
-            f"<figure class=proof>{proof}</figure><div class=text>{text}</div></div>{subs}{rooms}</article>")
+            f"<figure class=proof data-alt='{_e(alt)}'>{proof}</figure><div class=text>{text}</div></div>{subs}{rooms}</article>")
+
+
+def _bare(kind: str, s) -> str:
+    """'built in 2015' -> '2015'; '815 sq ft (scan title)' -> '815 sq ft'."""
+    s = re.sub(r"\s*\((?:scan title|[^)]*record[^)]*)\)\s*$", "", str(s or "")).strip()
+    if kind == "year_built":
+        s = re.sub(r"(?i)^built\s+(?:in\s+)?", "", s)
+    return s
+
+
+def _near_row(run: Run, v: dict) -> str:
+    """One quiet line for a 'close' verdict: no strike-through, no big type."""
+    c = run.claim(v)
+    kind = _kind(v, c)
+    said, is_q = _strike_text(run, v, c)
+    name = KIND_LABEL.get(kind) if kind in KIND_LABEL else (f"“{said}”" if is_q else _cap(said))
+    if c.get("label"):
+        name = f"{c['label']} · {name}"
+    if kind in SOFT_KINDS:
+        why = _first_sentence(v.get("reason") or "") or "Not visible in the photos"
+        body = f"{_e(why.rstrip('.'))} <b>— a photo can't show it's missing</b>"
+    else:
+        claimed = _bare(kind, v.get("claimed") or c.get("quote"))
+        found = _bare(kind, v.get("found"))
+        who = SRC_SAYS.get(v.get("source"), "our sources say")
+        body = f"Listing says {_e(claimed)} · {_e(who)} {_e(found)} <b>— close</b>"
+    imgs = run.images_for([v], c.get("label"))[:1] if v.get("image") else []
+    pic = _fig(*imgs[0]) if imgs else ""
+    anchor = f"<span class=cl-a id='claim-{_e(v.get('claim_id'))}'></span>" if v.get("claim_id") else ""
+    return f"<li>{anchor}<span class=nk>{_e(name)}</span><span class=nv>{body}</span>{pic}</li>"
 
 
 def _findings(run: Run, verdicts: list, used_walk: list, live_3d: bool = True) -> str:
+    """Hard mismatches as big modules, ranked by renter impact; then the 'close' ones as one quiet list."""
     if not verdicts:
-        return ""
-    head = _headline_claim(run, verdicts)
-    groups = _groups(run, verdicts)
-    groups.sort(key=lambda g: 0 if any(v.get("claim_id") == head for v in g[1]) else 1)
-    h = []
-    for i, (label, vs) in enumerate(groups):
-        vs = sorted(vs, key=lambda v: (0 if v.get("claim_id") == head else 1,
-                                       0 if v.get("verdict") == "contradicted" else 1))
-        h.append(_finding_group(run, label, vs, i, used_walk, live_3d))
+        return "<span id=mismatch></span>"
+    hard = [v for v in verdicts if v.get("verdict") == "contradicted"]
+    near = sorted((v for v in verdicts if v.get("verdict") != "contradicted"), key=lambda v: _rank(run, v))
+    groups = _groups(run, hard)
+    for _, vs in groups:
+        vs.sort(key=lambda v: _rank(run, v))
+    groups.sort(key=lambda g: _rank(run, g[1][0]))
+    h = [_finding_group(run, label, vs, i, used_walk, live_3d) for i, (label, vs) in enumerate(groups)]
+    if near:
+        rows = "".join(_near_row(run, v) for v in near)
+        h.append(f"<div class='near rv' id=near><h3>Close, not exact</h3><ul>{rows}</ul></div>")
     return f"<section class='wrap findings' id=mismatch aria-label='What does not match'>{''.join(h)}</section>"
+
+
+def _ranked_off(run: Run, verdicts: list) -> list:
+    return sorted((v for v in verdicts if v.get("verdict") in ("contradicted", "close")), key=lambda v: _rank(run, v))
 
 
 def _source_tile(run: Run, s: str, evs: list) -> str:
@@ -988,12 +1126,11 @@ def _plan_svg(beds: int, sq: float, biggest: float, this: bool) -> str:
 
 def _fact_row(f: dict, more: bool) -> str:
     src = f.get("source")
-    sq = "".join(f"<i class='{'on' if s == src else ''}'></i>" for s in SRC_ORDER)
     img = f.get("image")
     pic = _fig(img, str(f.get("label") or "")) if isinstance(img, str) and IMG_RE.match(img) else ""
     return (f"<div class='fact{' more' if more else ''}'><span class=k>{_e(f['label'])}</span>"
-            f"<span class=v>{_e(f['value'])}</span><span class=sq role=img aria-label='{_e(FACT_FROM.get(src, ''))}'>{sq}</span>"
-            f"{pic}</div>")
+            f"<span class=v>{_e(f['value'])}</span><span class=fs title='{_e(FACT_FROM.get(src, ''))}'>"
+            f"{_e(SRC_SHORT.get(src, ''))}</span>{pic}</div>")
 
 
 def _extra(run: Run, facts: list) -> str:
@@ -1047,8 +1184,8 @@ def _extra(run: Run, facts: list) -> str:
     if hidden:
         btn = (f"<button type=button class='btn ghost morebtn' aria-controls=extra-more aria-expanded=false "
                f"data-more='Show all {len(facts)} facts' data-less='Show fewer'>Show all {len(facts)} facts</button>")
-    key = "<span class=sq aria-hidden=true>" + "<i class=on></i>" * 4 + "</span>"
-    foot = (f"<div class=factfoot>{key}<span>{' · '.join(SRC_NAME[s] for s in SRC_ORDER)}, in that order</span>{btn}</div>")
+    present = [SRC_LONG[s] for s in SRC_ORDER if any(f.get("source") == s for f in facts)]
+    foot = f"<div class=factfoot><span>Sources: {_e(', '.join(present))}.</span>{btn}</div>"
     count = f"{_plural(len(facts), 'fact', 'facts')}, in {_plural(len(order), 'topic', 'topics')}, each marked with its source. Not a fact-check."
     return ("<section class='wrap extra' id=extra aria-label='Not on the listing'>"
             f"<h2 class='h2 rv'><span>{_e(l1)}</span><span class=l2>the listing left out.</span></h2>"
@@ -1072,7 +1209,9 @@ def _matches(run: Run, verdicts: list, used_walk: list, live_3d: bool = True) ->
                     "See it in 3D</button>" if walk and live_3d else "")
             text = f"“{_e(said)}”" if is_q else _e(_cap(said))
             small = f"<small>{_e(label)}</small>" if label else ""
-            items.append(f"{small}{text}{link}")
+            imgs = run.images_for([v], c.get("label"))[:1]  # a small proof picture where the evidence has one
+            pic = _fig(*imgs[0]) if imgs else ""
+            items.append(f"{pic}<span class=mt>{small}{text}{link}</span>")
     n = len(items)
     lis = "".join(f"<li class='{'more' if i >= LIST_SHOW else ''}'>{x}</li>" for i, x in enumerate(items))
     btn = ""
@@ -1181,18 +1320,20 @@ def _footer(run: Run) -> str:
                       f"{_e(e['text'])}</li>" for e in steps)
         how = f"<details class=how><summary>How we checked</summary><ol>{lis}</ol></details>"
     rid = str(run.raw.get("run_id") or "")
-    return ("<footer class=dark><div class='wrap foot'><p class=mark aria-hidden=true>Reality Check</p>"
+    return (f"<footer class=dark><div class='wrap foot'><p class=mark aria-hidden=true>{BRAND}</p>"
             f"<div class=foot-row><div class=foot-links>{''.join(links)}</div>"
-            "<p class=foot-note>Built on CoStar building records, Matterport scans, aerial imagery and county public records."
+            "<p class=foot-note>Sources: CoStar building records, Matterport 3D scans, aerial imagery and county "
+            "public records."
             + (f" {_e(meta)}." if meta else "") + f" Listing: {_e(title)}.</p></div>{how}"
             f"<div class=foot-end><span>Report {_e(rid)}</span><a href='#top'>Back to the top</a></div></div></footer>")
 
 
 def render_report(run_dict: dict, live_3d: bool = True) -> str:
+    run_dict = drop_dead_images(run_dict)  # older runs: pictures whose cached file is gone are left out
     run = Run(run_dict)
     address = run.snap.get("address_text") or "Unknown address"
     n = _counts(run)
-    off = [v for v in run.verdicts if v.get("verdict") in ("contradicted", "close")]
+    off = _ranked_off(run, run.verdicts)  # hard mismatches first, by renter impact; then the close ones
     ok = [v for v in run.verdicts if v.get("verdict") == "confirmed"]
     cant = [v for v in run.verdicts if v.get("verdict") not in ("contradicted", "close", "confirmed")]
     facts = _fill_in(run)
@@ -1204,7 +1345,8 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
         if not m.group(2).lower().startswith("floor plan"):
             lead_pic = (m.group(1), m.group(2))
             break
-    hero = _hero(run, n, "f1" if off else None, live_3d)
+    top = off[0] if off and off[0].get("verdict") == "contradicted" else None
+    hero = _hero(run, n, "f1" if top else None, live_3d, top)
     url = run.snap.get("url") or ""
     nav = []
     if url.startswith(("http://", "https://")):
@@ -1219,12 +1361,12 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
 
     h = ["<!doctype html><html lang=en><head><meta charset=utf-8>",
          "<meta name=viewport content='width=device-width,initial-scale=1'>",
-         f"<title>Reality Check: {_e(address)}</title>",
+         f"<title>{BRAND}: {_e(address)}</title>",
          "<link rel=preconnect href='https://fonts.googleapis.com'><link rel=preconnect href='https://fonts.gstatic.com' crossorigin>",
          "<link rel=stylesheet href='https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&display=swap'>",
          PRECONNECT if used_walk and live_3d else "",
          f"<style>{CSS}</style></head><body id=top>",
-         f"<div class=wrap><header class=top><a class=brand href='#top'>Reality Check</a><nav aria-label=Report>{''.join(nav)}</nav></header>",
+         f"<div class=wrap><header class=top><a class=brand href='#top'>{BRAND}</a><nav aria-label=Report>{''.join(nav)}</nav></header>",
          hero, "</div>", err, findings, _sources(run, facts), _extra(run, facts), _matches(run, ok, used_walk, live_3d),
          _cant(run, cant), _questions(run, off, cant, lead_pic), _footer(run),
          "<div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"

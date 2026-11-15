@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Realty Check system architecture",
+    "subtitle": "A listing page is checked against four independent sources. Agents gather the evidence. Fixed rules give the verdict.",
+    "output": "system-architecture.html",
+    "quality_profile": "showcase",
+    "visual_preset": "editorial",
+    "viewBox": [1038, 720]
+  },
+  "components": [
+    {"id": "page", "type": "frontend", "label": "Listing page", "sublabel": "any rental site", "pos": [30, 150], "size": [150, 62]},
+    {"id": "ext", "type": "frontend", "label": "Chrome extension", "sublabel": "finds the address, shows live steps", "pos": [30, 300], "size": [150, 62]},
+
+    {"id": "server", "type": "backend", "label": "Local server", "sublabel": "FastAPI on 127.0.0.1", "pos": [232, 300], "size": [150, 62]},
+    {"id": "runs", "type": "database", "label": "Saved run", "sublabel": "one JSON file per check", "pos": [232, 450], "size": [150, 62]},
+    {"id": "report", "type": "frontend", "label": "Report pages", "sublabel": "report, sources, 3D tour", "pos": [232, 600], "size": [150, 62]},
+
+    {"id": "cli", "type": "external", "label": "Claude Code CLI", "sublabel": "headless Sonnet, no API key", "pos": [434, 150], "size": [150, 62]},
+    {"id": "lead", "type": "backend", "label": "Lead agent", "sublabel": "reads claims, matches the address", "pos": [434, 300], "size": [150, 62]},
+    {"id": "inside", "type": "backend", "label": "Inside checker", "sublabel": "floor plans, rooms, floor area", "pos": [636, 150], "size": [150, 62]},
+    {"id": "paper", "type": "backend", "label": "Paper checker", "sublabel": "year built, homes, stories", "pos": [636, 300], "size": [150, 62]},
+    {"id": "outside", "type": "backend", "label": "Outside checker", "sublabel": "roof height, pool, parking", "pos": [636, 450], "size": [150, 62]},
+
+    {"id": "scan", "type": "database", "label": "Matterport", "sublabel": "3D scan of the home", "pos": [858, 90], "size": [150, 62]},
+    {"id": "costar", "type": "database", "label": "CoStar", "sublabel": "building record, floor plans", "pos": [858, 210], "size": [150, 62]},
+    {"id": "county", "type": "database", "label": "County records", "sublabel": "assessor and permit data", "pos": [858, 330], "size": [150, 62]},
+    {"id": "vexcel", "type": "database", "label": "Vexcel", "sublabel": "aerial photos, elevation", "pos": [858, 450], "size": [150, 62]},
+
+    {"id": "judge", "type": "security", "label": "Rule judge", "sublabel": "match, mismatch, close, can't check", "pos": [434, 600], "size": [150, 62]},
+    {"id": "cite", "type": "security", "label": "Citations", "sublabel": "source and confidence per verdict", "pos": [636, 600], "size": [150, 62]},
+    {"id": "fill", "type": "security", "label": "Fill in", "sublabel": "facts the listing left out", "pos": [858, 600], "size": [150, 62]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "In the browser", "wraps": ["page", "ext"]},
+    {"kind": "region", "label": "Agent harness (LangChain deepagents)", "wraps": ["cli", "lead", "inside", "paper", "outside"]},
+    {"kind": "region", "label": "Evidence sources", "wraps": ["scan", "costar", "county", "vexcel"]},
+    {"kind": "security-group", "label": "Fixed rules, no model", "wraps": ["judge", "cite", "fill"]}
+  ],
+  "connections": [
+    {"id": "s1", "from": "page", "to": "ext", "label": "1 page text", "variant": "emphasis", "fromSide": "bottom", "toSide": "top"},
+    {"id": "s2", "from": "ext", "to": "server", "label": "2 check", "variant": "emphasis", "fromSide": "right", "toSide": "left"},
+    {"id": "s3", "from": "server", "to": "lead", "label": "3 run", "variant": "emphasis", "fromSide": "right", "toSide": "left"},
+    {"id": "m1", "from": "lead", "to": "cli", "label": "model calls", "variant": "dashed", "fromSide": "top", "toSide": "bottom"},
+    {"id": "s4a", "from": "lead", "to": "inside", "label": "4 delegate", "variant": "emphasis", "fromSide": "right", "toSide": "left"},
+    {"id": "s4b", "from": "lead", "to": "paper", "variant": "emphasis", "fromSide": "right", "toSide": "left"},
+    {"id": "s4c", "from": "lead", "to": "outside", "variant": "emphasis", "fromSide": "right", "toSide": "left"},
+    {"id": "e1", "from": "inside", "to": "scan", "fromSide": "right", "toSide": "left"},
+    {"id": "e2", "from": "inside", "to": "costar", "fromSide": "right", "toSide": "left"},
+    {"id": "e3", "from": "paper", "to": "costar", "fromSide": "right", "toSide": "left"},
+    {"id": "e4", "from": "paper", "to": "county", "label": "5 evidence", "fromSide": "right", "toSide": "left"},
+    {"id": "e5", "from": "outside", "to": "vexcel", "fromSide": "right", "toSide": "left"},
+    {"id": "s6", "from": "lead", "to": "judge", "label": "6 judge", "variant": "emphasis", "fromSide": "bottom", "toSide": "top"},
+    {"id": "s7", "from": "judge", "to": "cite", "label": "7 cite", "variant": "emphasis", "fromSide": "right", "toSide": "left"},
+    {"id": "s8", "from": "cite", "to": "fill", "label": "8 add", "variant": "emphasis", "fromSide": "right", "toSide": "left"},
+    {"id": "s9", "from": "server", "to": "runs", "label": "9 save", "fromSide": "bottom", "toSide": "top"},
+    {"id": "s10", "from": "runs", "to": "report", "label": "10 render", "fromSide": "bottom", "toSide": "top"},
+    {"id": "s11", "from": "ext", "to": "report", "label": "open report", "variant": "dashed", "fromSide": "bottom", "toSide": "left"}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "In the browser", "items": [
+      "The extension finds the address on any rental listing page",
+      "One click sends the page text to the local server",
+      "Each step streams back live into a side drawer"
+    ]},
+    {"dot": "emerald", "title": "Agents gather evidence", "items": [
+      "A lead agent reads the claims and matches the building",
+      "Three checkers work in parallel: inside, paper, outside",
+      "Every model call is one headless Claude Code process"
+    ]},
+    {"dot": "amber", "title": "Rules give the verdict", "items": [
+      "The model never decides whether a claim is true",
+      "Sources that disagree with each other are not a mismatch",
+      "A feature not seen in a photo is reported as can't check"
+    ]},
+    {"dot": "rose", "title": "What the renter gets", "items": [
+      "Each mismatch with its source and a confidence score",
+      "The spot in the 3D scan that shows the difference",
+      "Questions to ask before the tour"
+    ]}
+  ]
+}

@@ -77,12 +77,12 @@ extension is the consumer face of the same engine.
 
 ### Peri — Forward Deployed Challenge
 
-> **To fill in before submitting** (required by the track): business name, the name and role of the person
-> consulted, and one piece of evidence (screenshot, photo, short video or direct quote).
+The person we built this for is you. If you have ever booked a stay, rented an apartment or toured a home, you have
+decided from a listing you could not check, and you have opened a door to something smaller than the photos.
 
-How the project fits: it is complete end to end (page, run, verdicts, report, exhibits), it installs as a browser
-extension with no change to anyone's workflow, and it answers a need a listings business has every day: knowing
-whether what it publishes is true.
+Realty Check is deployed where that decision happens. It installs as a browser extension, works on the listing page
+you already have open, and needs no change to how you search. One click on the address, about a minute, and you see
+what the records say before you pay. It runs end to end today: page, run, verdicts, report and proof.
 
 ## Run it
 

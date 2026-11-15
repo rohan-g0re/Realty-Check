@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- Source of docs/img/thumbnail.png (1500x1000). Invented listing data only. -->
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+<style>
+:root{--ink:#111;--blue:#1a4be0;--mute:#6b6b6b;--line:#d9d9d9;--grey:#b5b5b5}
+*{box-sizing:border-box;margin:0}
+body{width:1500px;height:1000px;background:#fff;color:var(--ink);font-family:Newsreader,Georgia,serif;padding:72px 88px;display:flex;flex-direction:column}
+.top{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--ink);padding-bottom:22px;font-size:30px}
+.top span{color:var(--mute);font-size:24px}
+.mid{flex:1;display:grid;grid-template-columns:1.25fr 1fr;gap:80px;align-items:center}
+h1{font-weight:400;font-size:118px;line-height:1.02;letter-spacing:-.02em}
+h1 em{font-style:normal;color:var(--blue)}
+.claim{border-top:1px solid var(--line);padding:26px 0}
+.claim:last-child{border-bottom:1px solid var(--line)}
+.lab{font-size:22px;color:var(--mute);margin-bottom:6px}
+.row{display:flex;align-items:baseline;gap:22px;font-size:54px}
+.was{color:var(--mute);text-decoration:line-through;text-decoration-color:var(--blue);text-decoration-thickness:3px}
+.now{color:var(--blue)}
+.src{font-size:22px;color:var(--mute);margin-top:4px}
+.field{display:grid;grid-template-columns:150px repeat(14,1fr);gap:5px;align-items:center;font-size:22px;color:var(--mute)}
+.c{height:26px;background:var(--ink)}.b{background:var(--blue)}.l{background:#b3c2f4}.g{background:#ebebeb}
+.bot{display:flex;justify-content:space-between;border-top:1px solid var(--ink);padding-top:22px;font-size:24px;color:var(--mute)}
+</style>
+<div class="top"><b style="font-weight:500">Realty Check</b><span>418 Linden Grove Ave</span></div>
+<div class="mid">
+  <h1>Is this listing what it <em>says?</em></h1>
+  <div>
+    <div class="claim"><div class="lab">Listed size</div><div class="row"><span class="was">950 sq ft</span><span class="now">812 sq ft</span></div><div class="src">Measured in the Matterport scan</div></div>
+    <div class="claim"><div class="lab">Floors</div><div class="row"><span class="was">8 floors</span><span class="now">6 floors</span></div><div class="src">Roof height from Vexcel, County record agrees</div></div>
+    <div class="claim"><div class="lab">Year built</div><div class="row"><span class="was">2021</span><span class="now">2018</span></div><div class="src">CoStar record</div></div>
+  </div>
+</div>
+<div class="field" style="margin-bottom:34px" id="f"></div>
+<div class="bot"><span>Every claim, checked against four sources</span><span>CoStar · Matterport · Vexcel · County</span></div>
+<script>
+const rows={CoStar:"ccbcgcclccgccc",Matterport:"gbggccgggcggcg",Vexcel:"gggbggcgggcggc",County:"cgcbgcglgcgcgg"};
+const f=document.getElementById("f");
+for(const [n,s] of Object.entries(rows)){f.insertAdjacentHTML("beforeend",`<div>${n}</div>`+[...s].map(k=>`<div class="c ${k==="c"?"":k}"></div>`).join(""))}
+</script>

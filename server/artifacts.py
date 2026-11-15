@@ -52,6 +52,12 @@ MAX_PLANS = 10
 
 # ---------- small helpers ----------
 
+def _mark() -> str:
+    """The house-and-check mark shown beside the name (one definition, in server.report_a)."""
+    from server.report_a import MARK
+    return MARK
+
+
 def _e(s) -> str:
     return escape(str(s if s is not None else ""), True)
 
@@ -918,7 +924,8 @@ p{margin:0}
 .hid{display:none!important}
 /* header + hero */
 .top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;min-height:88px;gap:8px 16px}
-.brand{font-size:19px;font-weight:500;letter-spacing:-.01em;text-decoration:none}
+.brand{font-size:19px;font-weight:500;letter-spacing:-.01em;text-decoration:none;display:inline-flex;align-items:center;gap:9px}
+.brand .bm{flex:none}
 .back{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-size:15px;text-decoration:none}
 .hero{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px 6%;align-items:end;
 padding:clamp(0px,1vw,16px) 0 clamp(48px,6vw,96px)}
@@ -1275,7 +1282,7 @@ def _page(title: str, body: str) -> str:
 
 def not_found_page() -> str:
     return _page("Artifact library: not found",
-                 "<div class=wrap><header class=top><span class=brand>Realty Check</span></header>"
+                 f"<div class=wrap><header class=top><span class=brand>{_mark()}Realty Check</span></header>"
                  "<h1>Not found.</h1><p class=meta>No such check.</p></div>")
 
 
@@ -1422,7 +1429,7 @@ def build_artifacts(run_dict: dict) -> str:
     elif none:
         lib = f"<section class='wrap lib' id=lib>{none}</section>"
     body = ("<div class=wrap>"
-            f"<header class=top><a class=brand href='{_e(back)}'>Realty Check</a>"
+            f"<header class=top><a class=brand href='{_e(back)}'>{_mark()}Realty Check</a>"
             f"<a class=back href='{_e(back)}'><span aria-hidden=true>←</span> Back to the report</a></header>"
             f"{hero}</div>{strip}{lib}"
             "<footer class='dark foot'><div class=wrap><p class=mark>Realty Check</p>"

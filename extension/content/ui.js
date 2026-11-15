@@ -23,7 +23,8 @@
   const UNIT_KINDS = new Set(["bedrooms", "bathrooms", "area_sqft"]);
   // Kinds where one source's own number can be compared with the listing's without the judge's plan/scan rules.
   const COMPARABLE = new Set(["stories", "year_built", "unit_count"]);
-  const LOGO = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="#111" stroke-width="1.6"/><path d="M7.8 12.4l2.9 2.9 5.6-5.9" fill="none" stroke="#111" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const LOGO = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g fill="none" stroke="#111" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.9 11.1 12 3.7l8.1 7.4v7.7a1.9 1.9 0 0 1-1.9 1.9H5.8a1.9 1.9 0 0 1-1.9-1.9z"/><path d="M8.4 13.5l2.7 2.7 4.9-5.3"/></g></svg>`;
+  const MARK = `<svg class="bm" viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="#1a4be0" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.9 11.1 12 3.7l8.1 7.4v7.7a1.9 1.9 0 0 1-1.9 1.9H5.8a1.9 1.9 0 0 1-1.9-1.9z"/><path d="M8.4 13.5l2.7 2.7 4.9-5.3"/></svg>`;
   const GEAR = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`;
   const CLOSE = `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>`;
   const CHEV = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
@@ -46,7 +47,7 @@
   </div>
   <aside class="drawer" id="drawer" aria-label="Realty Check">
     <header class="hd">
-      <span class="brand">Realty Check</span>
+      <span class="brand">${MARK}Realty Check</span>
       <div class="act">
         <button class="icon" id="btnGear" aria-label="Checker address" aria-expanded="false" title="Checker address">${GEAR}</button>
         <button class="icon" id="btnCollapse" aria-label="Close" title="Close">${CLOSE}</button>
@@ -1197,7 +1198,8 @@
     display:flex;flex-direction:column;font-size:17px;transform:translateX(100%);visibility:hidden;transition:transform .36s var(--ease),visibility 0s linear .36s}
   .drawer.open{transform:none;visibility:visible;transition:transform .36s var(--ease)}
   .hd{flex:none;display:flex;align-items:center;justify-content:space-between;padding:12px 12px 0 24px}
-  .brand{font-size:17px;font-weight:500}
+  .brand{font-size:17px;font-weight:500;display:inline-flex;align-items:center;gap:8px}
+  .brand .bm{flex:none}
   .act{display:flex;align-items:center}
   .icon{width:44px;height:44px;display:grid;place-items:center;color:var(--ink)}
   .icon:hover{background:#eee}

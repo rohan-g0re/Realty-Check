@@ -61,6 +61,9 @@ SRC_LONG = {"record": "CoStar building record", "scan": "Matterport 3D scan", "a
             "county": "County records"}
 VERDICT_WORD = {"contradicted": "Doesn't match", "close": "Doesn't match", "confirmed": "Matches", "cant_check": "Couldn't check"}
 BRAND = "Realty Check"
+# the house-and-check mark, shown beside the name in page headers
+MARK = ('<svg class=bm viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="#1a4be0" stroke-width="1.9" '
+        'stroke-linecap="round" stroke-linejoin="round"><path d="M3.9 11.1 12 3.7l8.1 7.4v7.7a1.9 1.9 0 0 1-1.9 1.9H5.8a1.9 1.9 0 0 1-1.9-1.9z"/><path d="M8.4 13.5l2.7 2.7 4.9-5.3"/></svg>')
 SOFT_KINDS = {"amenity", "parking", "laundry", "view", "other"}  # photo checks: never struck as false
 KIND_LABEL = {"year_built": "Year built", "stories": "Floors", "unit_count": "Homes", "area_sqft": "Size",
               "bedrooms": "Bedrooms", "bathrooms": "Bathrooms"}
@@ -106,7 +109,8 @@ transition:background-color .18s ease,transform .18s ease;white-space:nowrap}
 .vh{position:absolute!important;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* header */
 .top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;min-height:96px;gap:8px 16px}
-.brand{font-size:19px;font-weight:500;letter-spacing:-.01em;white-space:nowrap;text-decoration:none}
+.brand{font-size:19px;font-weight:500;letter-spacing:-.01em;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:9px}
+.brand .bm{flex:none}
 .top nav{display:flex;align-items:center;gap:4px 20px}
 .back{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:15px;text-decoration:none}
 /* 1 hero: the count, huge, on two staggered lines; a narrow column at the right beneath it */
@@ -1934,7 +1938,7 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
          "<link rel=stylesheet href='https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&display=swap'>",
          PRECONNECT if used_walk and live_3d else "",
          f"<style>{CSS}</style></head><body id=top>",
-         f"<div class=wrap><header class=top><a class=brand href='#top'>{BRAND}</a><nav aria-label=Report>{''.join(nav)}</nav></header>",
+         f"<div class=wrap><header class=top><a class=brand href='#top'>{MARK}{BRAND}</a><nav aria-label=Report>{''.join(nav)}</nav></header>",
          hero, "</div>", err, mismatch, "<div class='wrap duo'>", extra, _questions(run, off, cant), "</div>", field, _sources(run, facts, live_3d),
          _checked(run, ok, cant, live_3d), _footer(run),
          "<div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/brand/realty-check-logo.png" alt="Realty Check logo" width="112">
+</p>
+
 <h1 align="center">Realty Check</h1>
 
 <p align="center">

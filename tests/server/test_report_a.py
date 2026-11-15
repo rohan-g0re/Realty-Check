@@ -264,9 +264,9 @@ def test_lead_row_strike_for_every_kind(claim, verdict, said, truth):
     row = _rows(html)["c1"]
     assert f"<span class='strike'>{said}</span>" in row and f"<span class=lvr-truth>{truth}</span>" in row
     assert "<h1><span>1 thing</span><span class=l2>doesn&#x27;t match.</span></h1>" in html
-    # one mismatch: no list, the panel alone, full width
+    # one mismatch still shows its list beside the panel
     view = _section(html, "id=mismatch", "</section>")
-    assert "role=tablist" not in view and "<div class='md rv one" in view and " hidden" not in view
+    assert view.count("role=tab ") == 1 and "<div class='md rv one" not in view and " hidden" not in view
     assert "1 difference." in view
 
 
@@ -303,7 +303,7 @@ def test_only_close_counts_as_a_mismatch_and_leads():
     assert "<h1><span>1 thing</span><span class=l2>doesn&#x27;t match.</span></h1>" in html
     assert "Biggest difference: the listing says “Year Built 2015”; county records say built in 2014." in html
     assert "class='strike" not in html and "s-low" in html and "href='#mismatch'>Show me what" in html
-    assert "Nothing is" not in html and "clearly off" not in html and "<span class=md-g" not in html  # one: no list
+    assert "Nothing is" not in html and "clearly off" not in html and html.count("<span class=md-g") == 1  # one difference keeps its list
     assert "id='claim-c1'" in html
     for anchor in ("id=mismatch", "id=match", "id=cant-verify", "id=extra"):
         assert anchor in html

@@ -134,7 +134,6 @@ margin:0 0 clamp(12px,1.4vw,20px);padding-bottom:12px;border-bottom:1px solid va
 .lvr-n{margin:0;font-size:16px;color:var(--mute)}
 .md{display:grid;grid-template-columns:minmax(250px,1fr) minmax(0,2fr);column-gap:clamp(20px,3vw,52px);
 height:clamp(440px,calc(100vh - 150px),780px)}
-.md.one{grid-template-columns:minmax(0,1fr)}
 .md.flat{height:clamp(340px,52vh,480px)}  /* figures only: no picture to fill a tall panel */
 .md-p[hidden]{display:none}html:not(.js) .md{height:auto}html:not(.js) .md-p[hidden]{display:flex}
 .md-list{position:relative;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;
@@ -1424,8 +1423,8 @@ def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | 
             body = (f"<div class='pcols{long}'><div class=lvr-l>{listed}</div><div class=lvr-r>{found}</div></div>"
                     f"{why_html}{cred}{proof}")
         cls = f"lvr-row md-p lay-{layout}{shade}" + (" in" if first else "")
-        role = "" if one else f" role=tabpanel aria-labelledby=tab-{sid} tabindex=0"
-        hide = "" if first or one else " hidden"
+        role = f" role=tabpanel aria-labelledby=tab-{sid} tabindex=0"
+        hide = "" if first else " hidden"
         panels.append(f"<div class='{cls}' id=pan-{sid}{role}{hide} data-claim='{_e(cid)}' data-layout='{layout}'>"
                       f"{anchor}<p class=lvr-k><span>{_e(name)}</span><span class=lvr-tag{f" aria-label='{_e(conf_txt)}'" if conf_txt else ""}>{word}</span></p>{body}</div>")
         tip = f" title='{_e(conf_txt)}'" if conf_txt else ""
@@ -1436,11 +1435,11 @@ def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | 
                     f"<span class=md-g{tip}>{word}</span><span class=md-s>{_e(short)}</span></button>")
     n = len(off)
     sub = "1 difference." if one else f"{n} differences, highest confidence first."
-    lst = "" if one else (f"<div class=md-list role=tablist aria-orientation=vertical aria-label=Differences>"
-                          f"{''.join(tabs)}</div>")
+    lst = (f"<div class=md-list role=tablist aria-orientation=vertical aria-label=Differences>"  # one difference keeps its list
+           f"{''.join(tabs)}</div>")
     return ("<section class='wrap lvr' id=mismatch aria-labelledby=lvr-h><span id=compare></span>"
             f"<div class='lvr-top rv'><h2 class=sh id=lvr-h>Listed vs. in reality</h2><p class=lvr-n>{_e(sub)}</p></div>"
-            f"<div class='md rv{' one' if one else ''}{'' if 'v' in layouts else ' flat'}'>{lst}<div class=md-ps>{''.join(panels)}</div></div></section>")
+            f"<div class='md rv{'' if 'v' in layouts else ' flat'}'>{lst}<div class=md-ps>{''.join(panels)}</div></div></section>")
 
 
 def _walk_box(src: str | None, cid: str, bg: str, small: str, live_3d: bool) -> str:

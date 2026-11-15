@@ -34,6 +34,10 @@ chrome.runtime.onConnect.addListener((port) => {
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        // Chrome stops an idle service worker after 30 s, and reading a fetch stream does not count as activity.
+        // The checker sends a ping every 10 s; passing it on over the port keeps this worker (and the run) alive.
+        post({ type: "ping" });
+        chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
         buf += dec.decode(value, { stream: true }).replace(/\r\n?/g, "\n");
         let i;
         while ((i = buf.indexOf("\n\n")) >= 0) { flush(buf.slice(0, i)); buf = buf.slice(i + 2); }

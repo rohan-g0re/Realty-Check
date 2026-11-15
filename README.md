@@ -31,7 +31,7 @@ difference is reported as a difference, not as an accusation.
 
 ## Architecture
 
-![How a listing gets checked](docs/img/architecture.png)
+![How Realty Check checks one listing](docs/img/architecture.png)
 
 | Part | Where | What it does |
 |---|---|---|
@@ -48,8 +48,6 @@ citation, otherwise it is downgraded to "couldn't check". The agent runs on the 
 harness holds no model API key.
 
 ### Inside the harness
-
-![Inside the harness: how one listing is checked](docs/img/harness.png)
 
 The harness is the product. One run goes like this:
 
@@ -75,8 +73,7 @@ Guard rails in code: the model runs as a fresh Claude Code CLI process per call 
 environment; it is capped at 14 calls and a 75-second budget; a missing feature is never a mismatch; a floor count
 read from a photo never decides; people's names are never shown.
 
-Diagram sources: `docs/img/architecture.excalidraw` and `docs/img/harness.excalidraw` (built by the `.py` files beside
-them).
+Diagram source: `docs/img/architecture.excalidraw` (built by `docs/img/architecture.py`).
 
 ## Tracks
 

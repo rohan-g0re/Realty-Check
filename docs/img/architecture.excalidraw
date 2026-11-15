@@ -6,9 +6,9 @@
     {
       "id": "title",
       "type": "text",
-      "x": 180,
-      "y": 60,
-      "width": 558,
+      "x": -380,
+      "y": 40,
+      "width": 751,
       "height": 48.75,
       "angle": 0,
       "strokeColor": "#1e1e1e",
@@ -29,8 +29,8 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "How a listing gets checked",
-      "originalText": "How a listing gets checked",
+      "text": "How Realty Check checks one listing",
+      "originalText": "How Realty Check checks one listing",
       "fontSize": 39,
       "baseFontSize": null,
       "fontFamily": 5,
@@ -44,10 +44,10 @@
     {
       "id": "page",
       "type": "rectangle",
-      "x": 610,
-      "y": 160,
-      "width": 600,
-      "height": 150,
+      "x": -380,
+      "y": 150,
+      "width": 420,
+      "height": 130,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "#e9ecef",
@@ -82,10 +82,10 @@
     {
       "id": "page_t",
       "type": "text",
-      "x": 782.5,
-      "y": 198.75,
-      "width": 255,
-      "height": 72.5,
+      "x": -284.5,
+      "y": 182.5,
+      "width": 229,
+      "height": 65.0,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -107,7 +107,7 @@
       "locked": false,
       "text": "LISTING PAGE\nany listing site",
       "originalText": "LISTING PAGE\nany listing site",
-      "fontSize": 29,
+      "fontSize": 26,
       "baseFontSize": null,
       "fontFamily": 5,
       "textAlign": "center",
@@ -120,10 +120,10 @@
     {
       "id": "ext",
       "type": "rectangle",
-      "x": 610,
-      "y": 430,
-      "width": 600,
-      "height": 150,
+      "x": 190,
+      "y": 150,
+      "width": 420,
+      "height": 130,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -162,10 +162,10 @@
     {
       "id": "ext_t",
       "type": "text",
-      "x": 655.0,
-      "y": 468.75,
-      "width": 510,
-      "height": 72.5,
+      "x": 257.0,
+      "y": 182.5,
+      "width": 286,
+      "height": 65.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -185,9 +185,9 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "CHROME EXTENSION\nreads the page, shows the result",
-      "originalText": "CHROME EXTENSION\nreads the page, shows the result",
-      "fontSize": 29,
+      "text": "CHROME EXTENSION\nsidebar + page marks",
+      "originalText": "CHROME EXTENSION\nsidebar + page marks",
+      "fontSize": 26,
       "baseFontSize": null,
       "fontFamily": 5,
       "textAlign": "center",
@@ -200,10 +200,10 @@
     {
       "id": "server",
       "type": "rectangle",
-      "x": 610,
-      "y": 700,
-      "width": 600,
-      "height": 150,
+      "x": 760,
+      "y": 150,
+      "width": 620,
+      "height": 130,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -242,10 +242,10 @@
     {
       "id": "server_t",
       "type": "text",
-      "x": 750.5,
-      "y": 738.75,
-      "width": 319,
-      "height": 72.5,
+      "x": 781.0,
+      "y": 183.75,
+      "width": 578,
+      "height": 62.5,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -265,9 +265,9 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "LOCAL SERVER\nstreams the run live",
-      "originalText": "LOCAL SERVER\nstreams the run live",
-      "fontSize": 29,
+      "text": "LOCAL SERVER\nsends page text + address, streams the run",
+      "originalText": "LOCAL SERVER\nsends page text + address, streams the run",
+      "fontSize": 25,
       "baseFontSize": null,
       "fontFamily": 5,
       "textAlign": "center",
@@ -278,12 +278,155 @@
       "labelPosition": null
     },
     {
+      "id": "model",
+      "type": "rectangle",
+      "x": 140,
+      "y": 815,
+      "width": 420,
+      "height": 150,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 414503292,
+      "version": 1,
+      "versionNonce": 286953251,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "model_t"
+        },
+        {
+          "type": "arrow",
+          "id": "a_model_orch"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "model_t",
+      "type": "text",
+      "x": 221.5,
+      "y": 857.5,
+      "width": 257,
+      "height": 65.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 472626050,
+      "version": 1,
+      "versionNonce": 1087522886,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "CLAUDE CODE CLI\nsonnet, no API key",
+      "originalText": "CLAUDE CODE CLI\nsonnet, no API key",
+      "fontSize": 26,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "model",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
+    },
+    {
+      "id": "harness",
+      "type": "rectangle",
+      "x": 700,
+      "y": 380,
+      "width": 1540,
+      "height": 1770,
+      "angle": 0,
+      "strokeColor": "#f08c00",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 512899706,
+      "version": 1,
+      "versionNonce": 116856423,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "note1",
+      "type": "text",
+      "x": 999,
+      "y": 404,
+      "width": 160,
+      "height": 36.25,
+      "angle": 0,
+      "strokeColor": "#f08c00",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 64897374,
+      "version": 1,
+      "versionNonce": 1331503005,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "deepagents",
+      "originalText": "deepagents",
+      "fontSize": 29,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "autoResize": false,
+      "lineHeight": 1.25,
+      "labelPosition": null
+    },
+    {
       "id": "orch",
       "type": "rectangle",
-      "x": 510,
-      "y": 970,
-      "width": 800,
-      "height": 150,
+      "x": 760,
+      "y": 500,
+      "width": 620,
+      "height": 780,
       "angle": 0,
       "strokeColor": "#e03131",
       "backgroundColor": "transparent",
@@ -312,6 +455,10 @@
         },
         {
           "type": "arrow",
+          "id": "a_model_orch"
+        },
+        {
+          "type": "arrow",
           "id": "a_orch_inside"
         },
         {
@@ -321,6 +468,10 @@
         {
           "type": "arrow",
           "id": "a_orch_paper"
+        },
+        {
+          "type": "arrow",
+          "id": "a_orch_close"
         }
       ],
       "updated": 1,
@@ -330,10 +481,10 @@
     {
       "id": "orch_t",
       "type": "text",
-      "x": 559.0,
-      "y": 1008.75,
-      "width": 702,
-      "height": 72.5,
+      "x": 781.0,
+      "y": 858.75,
+      "width": 578,
+      "height": 62.5,
       "angle": 0,
       "strokeColor": "#e03131",
       "backgroundColor": "transparent",
@@ -353,9 +504,9 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "ORCHESTRATOR\ndeep agent: reads claims, finds the building",
-      "originalText": "ORCHESTRATOR\ndeep agent: reads claims, finds the building",
-      "fontSize": 29,
+      "text": "ORCHESTRATOR\nread_claims, match_listing, then delegates",
+      "originalText": "ORCHESTRATOR\nread_claims, match_listing, then delegates",
+      "fontSize": 25,
       "baseFontSize": null,
       "fontFamily": 5,
       "textAlign": "center",
@@ -366,11 +517,251 @@
       "labelPosition": null
     },
     {
+      "id": "close",
+      "type": "rectangle",
+      "x": 760,
+      "y": 1400,
+      "width": 620,
+      "height": 150,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 490594592,
+      "version": 1,
+      "versionNonce": 1032606723,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "close_t"
+        },
+        {
+          "type": "arrow",
+          "id": "a_orch_close"
+        },
+        {
+          "type": "arrow",
+          "id": "a_close_judge"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "close_t",
+      "type": "text",
+      "x": 862.5,
+      "y": 1442.5,
+      "width": 415,
+      "height": 65.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 1381312404,
+      "version": 1,
+      "versionNonce": 116911772,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "ALWAYS-RUN CLOSE\nmakes any skipped source call",
+      "originalText": "ALWAYS-RUN CLOSE\nmakes any skipped source call",
+      "fontSize": 26,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "close",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
+    },
+    {
+      "id": "judge",
+      "type": "rectangle",
+      "x": 760,
+      "y": 1660,
+      "width": 620,
+      "height": 150,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 1228160793,
+      "version": 1,
+      "versionNonce": 641082298,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "judge_t"
+        },
+        {
+          "type": "arrow",
+          "id": "a_close_judge"
+        },
+        {
+          "type": "arrow",
+          "id": "a_judge_cite"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "judge_t",
+      "type": "text",
+      "x": 798.5,
+      "y": 1702.5,
+      "width": 543,
+      "height": 65.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 259187076,
+      "version": 1,
+      "versionNonce": 554108297,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "JUDGE\nrules per claim type, 0-100 confidence",
+      "originalText": "JUDGE\nrules per claim type, 0-100 confidence",
+      "fontSize": 26,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "judge",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
+    },
+    {
+      "id": "cite",
+      "type": "rectangle",
+      "x": 760,
+      "y": 1920,
+      "width": 620,
+      "height": 150,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 1294767046,
+      "version": 1,
+      "versionNonce": 262383778,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "cite_t"
+        },
+        {
+          "type": "arrow",
+          "id": "a_judge_cite"
+        },
+        {
+          "type": "arrow",
+          "id": "a_cite_result"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "cite_t",
+      "type": "text",
+      "x": 891.0,
+      "y": 1962.5,
+      "width": 358,
+      "height": 65.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 1008842872,
+      "version": 1,
+      "versionNonce": 1457145174,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "CITATIONS\nno proof = couldn't check",
+      "originalText": "CITATIONS\nno proof = couldn't check",
+      "fontSize": 26,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "cite",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
+    },
+    {
       "id": "inside",
       "type": "rectangle",
-      "x": 180,
-      "y": 1270,
-      "width": 460,
+      "x": 1560,
+      "y": 500,
+      "width": 620,
       "height": 150,
       "angle": 0,
       "strokeColor": "#1971c2",
@@ -400,7 +791,7 @@
         },
         {
           "type": "arrow",
-          "id": "a_inside_judge"
+          "id": "a_inside_matterport"
         }
       ],
       "updated": 1,
@@ -410,10 +801,10 @@
     {
       "id": "inside_t",
       "type": "text",
-      "x": 281.5,
-      "y": 1312.5,
-      "width": 257,
-      "height": 65.0,
+      "x": 1619.0,
+      "y": 545.0,
+      "width": 502,
+      "height": 60.0,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -433,9 +824,9 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "INSIDE HELPER\nMatterport 3D scan",
-      "originalText": "INSIDE HELPER\nMatterport 3D scan",
-      "fontSize": 26,
+      "text": "INSIDE SUBAGENT\ncheck_floor_plans, unit_feature_photos",
+      "originalText": "INSIDE SUBAGENT\ncheck_floor_plans, unit_feature_photos",
+      "fontSize": 24,
       "baseFontSize": null,
       "fontFamily": 5,
       "textAlign": "center",
@@ -448,9 +839,9 @@
     {
       "id": "outside",
       "type": "rectangle",
-      "x": 680,
-      "y": 1270,
-      "width": 460,
+      "x": 1560,
+      "y": 710,
+      "width": 620,
       "height": 150,
       "angle": 0,
       "strokeColor": "#1971c2",
@@ -480,7 +871,7 @@
         },
         {
           "type": "arrow",
-          "id": "a_outside_judge"
+          "id": "a_outside_vexcel"
         }
       ],
       "updated": 1,
@@ -490,10 +881,10 @@
     {
       "id": "outside_t",
       "type": "text",
-      "x": 810.0,
-      "y": 1312.5,
-      "width": 200,
-      "height": 65.0,
+      "x": 1606.0,
+      "y": 755.0,
+      "width": 528,
+      "height": 60.0,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -513,9 +904,9 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "OUTSIDE HELPER\nVexcel aerial",
-      "originalText": "OUTSIDE HELPER\nVexcel aerial",
-      "fontSize": 26,
+      "text": "OUTSIDE SUBAGENT\nmeasure_building, outdoor_feature_photos",
+      "originalText": "OUTSIDE SUBAGENT\nmeasure_building, outdoor_feature_photos",
+      "fontSize": 24,
       "baseFontSize": null,
       "fontFamily": 5,
       "textAlign": "center",
@@ -528,10 +919,10 @@
     {
       "id": "paper",
       "type": "rectangle",
-      "x": 1180,
-      "y": 1270,
-      "width": 460,
-      "height": 150,
+      "x": 1560,
+      "y": 920,
+      "width": 620,
+      "height": 360,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -560,7 +951,11 @@
         },
         {
           "type": "arrow",
-          "id": "a_paper_judge"
+          "id": "a_paper_costar"
+        },
+        {
+          "type": "arrow",
+          "id": "a_paper_county"
         }
       ],
       "updated": 1,
@@ -570,10 +965,10 @@
     {
       "id": "paper_t",
       "type": "text",
-      "x": 1245.5,
-      "y": 1312.5,
-      "width": 329,
-      "height": 65.0,
+      "x": 1672.0,
+      "y": 1070.0,
+      "width": 396,
+      "height": 60.0,
       "angle": 0,
       "strokeColor": "#1971c2",
       "backgroundColor": "transparent",
@@ -593,9 +988,9 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "PAPER HELPER\nCoStar + County records",
-      "originalText": "PAPER HELPER\nCoStar + County records",
-      "fontSize": 26,
+      "text": "PAPER SUBAGENT\ncounty_lookup, building_record",
+      "originalText": "PAPER SUBAGENT\ncounty_lookup, building_record",
+      "fontSize": 24,
       "baseFontSize": null,
       "fontFamily": 5,
       "textAlign": "center",
@@ -606,15 +1001,15 @@
       "labelPosition": null
     },
     {
-      "id": "judge",
+      "id": "matterport",
       "type": "rectangle",
-      "x": 610,
-      "y": 1570,
-      "width": 600,
-      "height": 150,
+      "x": 2440,
+      "y": 500,
+      "width": 420,
+      "height": 160,
       "angle": 0,
       "strokeColor": "#1e1e1e",
-      "backgroundColor": "transparent",
+      "backgroundColor": "#e9ecef",
       "fillStyle": "solid",
       "strokeWidth": 2,
       "strokeStyle": "solid",
@@ -625,30 +1020,18 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1228160793,
+      "seed": 1067067872,
       "version": 1,
-      "versionNonce": 641082298,
+      "versionNonce": 1210030267,
       "isDeleted": false,
       "boundElements": [
         {
           "type": "text",
-          "id": "judge_t"
+          "id": "matterport_t"
         },
         {
           "type": "arrow",
-          "id": "a_inside_judge"
-        },
-        {
-          "type": "arrow",
-          "id": "a_outside_judge"
-        },
-        {
-          "type": "arrow",
-          "id": "a_paper_judge"
-        },
-        {
-          "type": "arrow",
-          "id": "a_judge_report"
+          "id": "a_inside_matterport"
         }
       ],
       "updated": 1,
@@ -656,12 +1039,12 @@
       "locked": false
     },
     {
-      "id": "judge_t",
+      "id": "matterport_t",
       "type": "text",
-      "x": 742.5,
-      "y": 1608.75,
-      "width": 335,
-      "height": 72.5,
+      "x": 2604.0,
+      "y": 535.0,
+      "width": 92,
+      "height": 90.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -673,32 +1056,260 @@
       "groupIds": [],
       "frameId": null,
       "roundness": null,
-      "seed": 259187076,
+      "seed": 843995970,
       "version": 1,
-      "versionNonce": 554108297,
+      "versionNonce": 1199782671,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "JUDGE\nfixed rules, no model",
-      "originalText": "JUDGE\nfixed rules, no model",
-      "fontSize": 29,
+      "text": "\n\n3D scan",
+      "originalText": "\n\n3D scan",
+      "fontSize": 24,
       "baseFontSize": null,
       "fontFamily": 5,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "judge",
+      "containerId": "matterport",
       "autoResize": true,
       "lineHeight": 1.25,
       "labelPosition": null
     },
     {
-      "id": "report",
+      "id": "vexcel",
       "type": "rectangle",
-      "x": 610,
-      "y": 1840,
-      "width": 600,
+      "x": 2440,
+      "y": 710,
+      "width": 420,
+      "height": 160,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#e9ecef",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 1184191607,
+      "version": 1,
+      "versionNonce": 219439357,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "vexcel_t"
+        },
+        {
+          "type": "arrow",
+          "id": "a_outside_vexcel"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "vexcel_t",
+      "type": "text",
+      "x": 2557.5,
+      "y": 745.0,
+      "width": 185,
+      "height": 90.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 573053404,
+      "version": 1,
+      "versionNonce": 1462430630,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "\n\naerial imagery",
+      "originalText": "\n\naerial imagery",
+      "fontSize": 24,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "vexcel",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
+    },
+    {
+      "id": "costar",
+      "type": "rectangle",
+      "x": 2440,
+      "y": 920,
+      "width": 420,
+      "height": 160,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#e9ecef",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 323426817,
+      "version": 1,
+      "versionNonce": 1873036518,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "costar_t"
+        },
+        {
+          "type": "arrow",
+          "id": "a_paper_costar"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "costar_t",
+      "type": "text",
+      "x": 2551.0,
+      "y": 955.0,
+      "width": 198,
+      "height": 90.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 397509036,
+      "version": 1,
+      "versionNonce": 364673137,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "\n\nproperty record",
+      "originalText": "\n\nproperty record",
+      "fontSize": 24,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "costar",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
+    },
+    {
+      "id": "county",
+      "type": "rectangle",
+      "x": 2440,
+      "y": 1120,
+      "width": 420,
+      "height": 160,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#e9ecef",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 420740942,
+      "version": 1,
+      "versionNonce": 1837386289,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "county_t"
+        },
+        {
+          "type": "arrow",
+          "id": "a_paper_county"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "county_t",
+      "type": "text",
+      "x": 2557.0,
+      "y": 1167.5,
+      "width": 186,
+      "height": 65.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 150326154,
+      "version": 1,
+      "versionNonce": 1122445118,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "COUNTY\npublic record",
+      "originalText": "COUNTY\npublic record",
+      "fontSize": 26,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "county",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
+    },
+    {
+      "id": "result",
+      "type": "rectangle",
+      "x": 760,
+      "y": 2260,
+      "width": 620,
       "height": 150,
       "angle": 0,
       "strokeColor": "#2f9e44",
@@ -713,18 +1324,18 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1742988826,
+      "seed": 734203809,
       "version": 1,
-      "versionNonce": 130091810,
+      "versionNonce": 407345659,
       "isDeleted": false,
       "boundElements": [
         {
           "type": "text",
-          "id": "report_t"
+          "id": "result_t"
         },
         {
           "type": "arrow",
-          "id": "a_judge_report"
+          "id": "a_cite_result"
         }
       ],
       "updated": 1,
@@ -732,12 +1343,12 @@
       "locked": false
     },
     {
-      "id": "report_t",
+      "id": "result_t",
       "type": "text",
-      "x": 670.5,
-      "y": 1878.75,
-      "width": 479,
-      "height": 72.5,
+      "x": 855.5,
+      "y": 2302.5,
+      "width": 429,
+      "height": 65.0,
       "angle": 0,
       "strokeColor": "#2f9e44",
       "backgroundColor": "transparent",
@@ -749,9 +1360,9 @@
       "groupIds": [],
       "frameId": null,
       "roundness": null,
-      "seed": 1539998842,
+      "seed": 1926541520,
       "version": 1,
-      "versionNonce": 1294810847,
+      "versionNonce": 598347700,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1,
@@ -759,12 +1370,12 @@
       "locked": false,
       "text": "RESULT\nsidebar, full report, exhibits",
       "originalText": "RESULT\nsidebar, full report, exhibits",
-      "fontSize": 29,
+      "fontSize": 26,
       "baseFontSize": null,
       "fontFamily": 5,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "report",
+      "containerId": "result",
       "autoResize": true,
       "lineHeight": 1.25,
       "labelPosition": null
@@ -772,10 +1383,10 @@
     {
       "id": "a_page_ext",
       "type": "arrow",
-      "x": 910.0,
-      "y": 314,
-      "width": 0.0,
-      "height": 112,
+      "x": 44,
+      "y": 215.0,
+      "width": 142,
+      "height": 0.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -803,8 +1414,8 @@
           0
         ],
         [
-          0.0,
-          112
+          142,
+          0.0
         ]
       ],
       "startBinding": {
@@ -824,10 +1435,10 @@
     {
       "id": "a_ext_server",
       "type": "arrow",
-      "x": 910.0,
-      "y": 584,
-      "width": 0.0,
-      "height": 112,
+      "x": 614,
+      "y": 215.0,
+      "width": 142,
+      "height": 0.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -855,8 +1466,8 @@
           0
         ],
         [
-          0.0,
-          112
+          142,
+          0.0
         ]
       ],
       "startBinding": {
@@ -869,17 +1480,17 @@
         "focus": 0,
         "gap": 4
       },
-      "startArrowhead": null,
+      "startArrowhead": "arrow",
       "endArrowhead": "arrow",
       "elbowed": false
     },
     {
       "id": "a_server_orch",
       "type": "arrow",
-      "x": 910.0,
-      "y": 854,
+      "x": 1260.0,
+      "y": 284,
       "width": 0.0,
-      "height": 112,
+      "height": 212,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -908,7 +1519,7 @@
         ],
         [
           0.0,
-          112
+          212
         ]
       ],
       "startBinding": {
@@ -926,12 +1537,64 @@
       "elbowed": false
     },
     {
+      "id": "a_model_orch",
+      "type": "arrow",
+      "x": 564,
+      "y": 890.0,
+      "width": 192,
+      "height": 0.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 555799928,
+      "version": 1,
+      "versionNonce": 1194137077,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          192,
+          0.0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "model",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "orch",
+        "focus": 0,
+        "gap": 4
+      },
+      "startArrowhead": "arrow",
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
       "id": "a_orch_inside",
       "type": "arrow",
-      "x": 660.0,
-      "y": 1124,
-      "width": 250.0,
-      "height": 142,
+      "x": 1384,
+      "y": 575.0,
+      "width": 172,
+      "height": 0.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -949,7 +1612,12 @@
       "version": 1,
       "versionNonce": 1785357149,
       "isDeleted": false,
-      "boundElements": [],
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "a_orch_inside_t"
+        }
+      ],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -959,8 +1627,8 @@
           0
         ],
         [
-          -250.0,
-          142
+          172,
+          0.0
         ]
       ],
       "startBinding": {
@@ -973,17 +1641,17 @@
         "focus": 0,
         "gap": 4
       },
-      "startArrowhead": null,
+      "startArrowhead": "arrow",
       "endArrowhead": "arrow",
       "elbowed": false
     },
     {
-      "id": "a_inside_judge",
-      "type": "arrow",
-      "x": 410.0,
-      "y": 1424,
-      "width": 300.0,
-      "height": 142,
+      "id": "a_orch_inside_t",
+      "type": "text",
+      "x": 1448.0,
+      "y": 562.5,
+      "width": 44,
+      "height": 25.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -994,48 +1662,34 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": {
-        "type": 2
-      },
-      "seed": 636043197,
+      "roundness": null,
+      "seed": 220498113,
       "version": 1,
-      "versionNonce": 144901935,
+      "versionNonce": 1231606644,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          300.0,
-          142
-        ]
-      ],
-      "startBinding": {
-        "elementId": "inside",
-        "focus": 0,
-        "gap": 4
-      },
-      "endBinding": {
-        "elementId": "judge",
-        "focus": 0,
-        "gap": 4
-      },
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false
+      "text": "task",
+      "originalText": "task",
+      "fontSize": 20,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "a_orch_inside",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
     },
     {
       "id": "a_orch_outside",
       "type": "arrow",
-      "x": 910.0,
-      "y": 1124,
-      "width": 0.0,
-      "height": 142,
+      "x": 1384,
+      "y": 785.0,
+      "width": 172,
+      "height": 0.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1053,7 +1707,12 @@
       "version": 1,
       "versionNonce": 975197552,
       "isDeleted": false,
-      "boundElements": [],
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "a_orch_outside_t"
+        }
+      ],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -1063,8 +1722,8 @@
           0
         ],
         [
-          0.0,
-          142
+          172,
+          0.0
         ]
       ],
       "startBinding": {
@@ -1077,17 +1736,17 @@
         "focus": 0,
         "gap": 4
       },
-      "startArrowhead": null,
+      "startArrowhead": "arrow",
       "endArrowhead": "arrow",
       "elbowed": false
     },
     {
-      "id": "a_outside_judge",
-      "type": "arrow",
-      "x": 910.0,
-      "y": 1424,
-      "width": 0.0,
-      "height": 142,
+      "id": "a_orch_outside_t",
+      "type": "text",
+      "x": 1448.0,
+      "y": 772.5,
+      "width": 44,
+      "height": 25.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1098,48 +1757,34 @@
       "opacity": 100,
       "groupIds": [],
       "frameId": null,
-      "roundness": {
-        "type": 2
-      },
-      "seed": 1977445724,
+      "roundness": null,
+      "seed": 476842607,
       "version": 1,
-      "versionNonce": 1880153951,
+      "versionNonce": 1766077187,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1,
       "link": null,
       "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          0.0,
-          142
-        ]
-      ],
-      "startBinding": {
-        "elementId": "outside",
-        "focus": 0,
-        "gap": 4
-      },
-      "endBinding": {
-        "elementId": "judge",
-        "focus": 0,
-        "gap": 4
-      },
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false
+      "text": "task",
+      "originalText": "task",
+      "fontSize": 20,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "a_orch_outside",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
     },
     {
       "id": "a_orch_paper",
       "type": "arrow",
-      "x": 1160.0,
-      "y": 1124,
-      "width": 250.0,
-      "height": 142,
+      "x": 1384,
+      "y": 1100.0,
+      "width": 172,
+      "height": 0.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1157,7 +1802,12 @@
       "version": 1,
       "versionNonce": 926947583,
       "isDeleted": false,
-      "boundElements": [],
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "a_orch_paper_t"
+        }
+      ],
       "updated": 1,
       "link": null,
       "locked": false,
@@ -1167,8 +1817,8 @@
           0
         ],
         [
-          250.0,
-          142
+          172,
+          0.0
         ]
       ],
       "startBinding": {
@@ -1181,17 +1831,55 @@
         "focus": 0,
         "gap": 4
       },
-      "startArrowhead": null,
+      "startArrowhead": "arrow",
       "endArrowhead": "arrow",
       "elbowed": false
     },
     {
-      "id": "a_paper_judge",
+      "id": "a_orch_paper_t",
+      "type": "text",
+      "x": 1448.0,
+      "y": 1087.5,
+      "width": 44,
+      "height": 25.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 1612115540,
+      "version": 1,
+      "versionNonce": 18307315,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "task",
+      "originalText": "task",
+      "fontSize": 20,
+      "baseFontSize": null,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "a_orch_paper",
+      "autoResize": true,
+      "lineHeight": 1.25,
+      "labelPosition": null
+    },
+    {
+      "id": "a_inside_matterport",
       "type": "arrow",
-      "x": 1410.0,
-      "y": 1424,
-      "width": 300.0,
-      "height": 142,
+      "x": 2184,
+      "y": 575.0,
+      "width": 252,
+      "height": 5.0,
       "angle": 0,
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
@@ -1205,9 +1893,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 701377667,
+      "seed": 1942116225,
       "version": 1,
-      "versionNonce": 1135324819,
+      "versionNonce": 1182595265,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1,
@@ -1219,17 +1907,17 @@
           0
         ],
         [
-          -300.0,
-          142
+          252,
+          5.0
         ]
       ],
       "startBinding": {
-        "elementId": "paper",
+        "elementId": "inside",
         "focus": 0,
         "gap": 4
       },
       "endBinding": {
-        "elementId": "judge",
+        "elementId": "matterport",
         "focus": 0,
         "gap": 4
       },
@@ -1238,10 +1926,166 @@
       "elbowed": false
     },
     {
-      "id": "a_judge_report",
+      "id": "a_outside_vexcel",
       "type": "arrow",
-      "x": 910.0,
-      "y": 1724,
+      "x": 2184,
+      "y": 785.0,
+      "width": 252,
+      "height": 5.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 1895768542,
+      "version": 1,
+      "versionNonce": 1621559902,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          252,
+          5.0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "outside",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "vexcel",
+        "focus": 0,
+        "gap": 4
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
+      "id": "a_paper_costar",
+      "type": "arrow",
+      "x": 2184,
+      "y": 1000.0,
+      "width": 252,
+      "height": 0.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 543681808,
+      "version": 1,
+      "versionNonce": 1712475706,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          252,
+          0.0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "paper",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "costar",
+        "focus": 0,
+        "gap": 4
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
+      "id": "a_paper_county",
+      "type": "arrow",
+      "x": 2184,
+      "y": 1200.0,
+      "width": 252,
+      "height": 0.0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 1930131894,
+      "version": 1,
+      "versionNonce": 145738761,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          252,
+          0.0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "paper",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "county",
+        "focus": 0,
+        "gap": 4
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
+      "id": "a_orch_close",
+      "type": "arrow",
+      "x": 1070.0,
+      "y": 1284,
       "width": 0.0,
       "height": 112,
       "angle": 0,
@@ -1257,9 +2101,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 1472853512,
+      "seed": 1681642886,
       "version": 1,
-      "versionNonce": 579538927,
+      "versionNonce": 333743263,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1,
@@ -1276,18 +2120,306 @@
         ]
       ],
       "startBinding": {
-        "elementId": "judge",
+        "elementId": "orch",
         "focus": 0,
         "gap": 4
       },
       "endBinding": {
-        "elementId": "report",
+        "elementId": "close",
         "focus": 0,
         "gap": 4
       },
       "startArrowhead": null,
       "endArrowhead": "arrow",
       "elbowed": false
+    },
+    {
+      "id": "a_close_judge",
+      "type": "arrow",
+      "x": 1070.0,
+      "y": 1554,
+      "width": 0.0,
+      "height": 102,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 1948054342,
+      "version": 1,
+      "versionNonce": 823075998,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0.0,
+          102
+        ]
+      ],
+      "startBinding": {
+        "elementId": "close",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "judge",
+        "focus": 0,
+        "gap": 4
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
+      "id": "a_judge_cite",
+      "type": "arrow",
+      "x": 1070.0,
+      "y": 1814,
+      "width": 0.0,
+      "height": 102,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 131806142,
+      "version": 1,
+      "versionNonce": 556737822,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0.0,
+          102
+        ]
+      ],
+      "startBinding": {
+        "elementId": "judge",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "cite",
+        "focus": 0,
+        "gap": 4
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
+      "id": "a_cite_result",
+      "type": "arrow",
+      "x": 1070.0,
+      "y": 2074,
+      "width": 0.0,
+      "height": 182,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 1909092631,
+      "version": 1,
+      "versionNonce": 1353818412,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0.0,
+          182
+        ]
+      ],
+      "startBinding": {
+        "elementId": "cite",
+        "focus": 0,
+        "gap": 4
+      },
+      "endBinding": {
+        "elementId": "result",
+        "focus": 0,
+        "gap": 4
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
+      "id": "img-langchain",
+      "type": "image",
+      "x": 724,
+      "y": 400,
+      "width": 257.5609756097561,
+      "height": 44,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 9000,
+      "version": 1,
+      "versionNonce": 475029959,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-langchain",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "img-matterport",
+      "type": "image",
+      "x": 2513.288590604027,
+      "y": 528,
+      "width": 273.42281879194627,
+      "height": 56,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 9001,
+      "version": 1,
+      "versionNonce": 475029959,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-matterport",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "img-vexcel",
+      "type": "image",
+      "x": 2612.1681531840577,
+      "y": 718,
+      "width": 75.66369363188423,
+      "height": 86,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 9002,
+      "version": 1,
+      "versionNonce": 475029959,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-vexcel",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "img-costar",
+      "type": "image",
+      "x": 2490.863309352518,
+      "y": 948,
+      "width": 318.27338129496405,
+      "height": 56,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 9003,
+      "version": 1,
+      "versionNonce": 475029959,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "fileId": "logo-costar",
+      "status": "saved",
+      "scale": [
+        1,
+        1
+      ]
     }
   ],
   "appState": {
@@ -1297,5 +2429,34 @@
     "viewBackgroundColor": "#ffffff",
     "lockedMultiSelections": {}
   },
-  "files": {}
+  "files": {
+    "logo-langchain": {
+      "mimeType": "image/svg+xml",
+      "id": "logo-langchain",
+      "created": 1,
+      "lastRetrieved": 1,
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQwIiBoZWlnaHQ9IjQxIiB2aWV3Qm94PSIwIDAgMjQwIDQxIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cGF0aCBkPSJNNjEuNTEzOSAxMS4xNTY5QzYwLjQ1MjcgMTEuMTU2OSA1OS40NTQ5IDExLjU2OCA1OC43MDggMTIuMzE0OEw1NS42ODk5IDE1LjMyNDhDNTQuODc1NyAxNi4xMzY4IDU0LjQ1NzQgMTcuMjY0MyA1NC41NDMxIDE4LjQyMDJDNTQuNTQ5MiAxOC40ODMzIDU0LjU1NTMgMTguNTQ2NCA1NC41NjE1IDE4LjYxMTVDNTQuNjY5NiAxOS40OTg4IDU1LjA1OTQgMjAuMjk4NiA1NS42ODk5IDIwLjkyNTRDNTYuMTI0NiAyMS4zNTg5IDU2LjYwNDEgMjEuNjMzNyA1Ny4xODU3IDIxLjgyNUM1Ny4yMTYzIDIyIDU3LjIzMjYgMjIuMTc3IDU3LjIzMjYgMjIuMzU0MUM1Ny4yMzI2IDIzLjE1MTkgNTYuOTIyNSAyMy45MDA4IDU2LjM1OTIgMjQuNDYyNUw1Ni4xNzM1IDI0LjY0NzdDNTUuMTY1NSAyNC4zMDM3IDU0LjMyNDcgMjMuODAxMSA1My41NjU2IDIzLjA0NEM1Mi41NTc2IDIyLjAzODYgNTEuODkwMyAyMC43Njg3IDUxLjYzOTMgMTkuMzc0N0w1MS42MDQ2IDE5LjE4MTNMNTEuNDUxNSAxOS4zMDU1QzUxLjM0NzUgMTkuMzg4OSA1MS4yNDk1IDE5LjQ3ODUgNTEuMTU3NyAxOS41N0w0OC4xMzk2IDIyLjU4QzQ2LjU5MjggMjQuMTIyNiA0Ni41OTI4IDI2LjYzNiA0OC4xMzk2IDI4LjE3ODZDNDguOTEzIDI4Ljk0OTkgNDkuOTI5MiAyOS4zMzY2IDUwLjk0NzUgMjkuMzM2NkM1MS45NjU4IDI5LjMzNjYgNTIuOTggMjguOTQ5OSA1My43NTM0IDI4LjE3ODZMNTYuNzcxNSAyNS4xNjg3QzU4LjMxODMgMjMuNjI2IDU4LjMxODMgMjEuMTE0NyA1Ni43NzE1IDE5LjU3QzU2LjM1OTIgMTkuMTU5IDU1Ljg2NzUgMTguODQ5NiA1NS4zMTA0IDE4LjY1MDJDNTUuMjc5OCAxOC40NjkgNTUuMjYzNCAxOC4yODc5IDU1LjI2MzQgMTguMTEwOUM1NS4yNjM0IDE3LjI0MzkgNTUuNjA2MyAxNi40MjE3IDU2LjIzNDggMTUuNzk0OUM1Ny4yNDQ5IDE2LjEzODggNTguMTQwNyAxNi42OTY1IDU4Ljg5NzggMTcuNDUxNUM1OS45MDM4IDE4LjQ1NDggNjAuNTY5MSAxOS43MjI3IDYwLjgyNDEgMjEuMTIwOEw2MC44NTg4IDIxLjMxNDFMNjEuMDExOSAyMS4xOUM2MS4xMTYgMjEuMTA2NiA2MS4yMTM5IDIxLjAxNyA2MS4zMDc4IDIwLjkyMzRMNjQuMzI1OSAxNy45MTM1QzY1Ljg3MjcgMTYuMzcwOCA2NS44NzQ3IDEzLjg1NzUgNjQuMzI1OSAxMi4zMTQ4QzYzLjU3NyAxMS41NjggNjIuNTgxMSAxMS4xNTY5IDYxLjUxOCAxMS4xNTY5SDYxLjUxMzlaIiBmaWxsPSJDdXJyZW50Q29sb3IiPjwvcGF0aD4KPHBhdGggZD0iTTU5Ljg5NjYgMC4xNDg4NjVIMjAuNDA2M0M5LjE1NDI2IDAuMTQ4ODY1IDAgOS4yNzg0MSAwIDIwLjUwMDFDMCAzMS43MjE3IDkuMTU0MjYgNDAuODUxMyAyMC40MDYzIDQwLjg1MTNINTkuODk2NkM3MS4xNDg2IDQwLjg1MTMgODAuMzAyOSAzMS43MjE3IDgwLjMwMjkgMjAuNTAwMUM4MC4zMDI5IDkuMjc4NDEgNzEuMTQ4NiAwLjE0ODg2NSA1OS44OTY2IDAuMTQ4ODY1Wk00MC40MTg4IDMyLjA1NTVDMzkuNzY3OCAzMi4xODk4IDM5LjAzNTIgMzIuMjE0MiAzOC41MzczIDMxLjY5NTNDMzguMzUzNiAzMi4xMTY1IDM3LjkyNTEgMzEuODk0NyAzNy41OTQ1IDMxLjgzOThDMzcuNTYzOSAzMS45MjUyIDM3LjUzNzQgMzIuMDAwNSAzNy41MDg4IDMyLjA4NkMzNi40MDg5IDMyLjE1OTMgMzUuNTg0NSAzMS4wNCAzNS4wNjAxIDMwLjE5NTRDMzQuMDE5MyAyOS42MzM3IDMyLjgzNzggMjkuMjkxOCAzMS43NzQ2IDI4LjcwMzZDMzEuNzEzNCAyOS42NzI0IDMxLjkyNTcgMzAuODczMSAzMS4wMDEyIDMxLjQ5NzlDMzAuOTU0MyAzMy4zNiAzMy44MjU1IDMxLjcxNzcgMzQuMDg4NyAzMy4xMDU2QzMzLjg4NDcgMzMuMTI4IDMzLjY1ODIgMzMuMDczIDMzLjQ5NDkgMzMuMjI5N0MzMi43NDYgMzMuOTU2MyAzMS44ODY5IDMyLjY4MDMgMzEuMDIzNyAzMy4yMDc0QzI5Ljg2NDYgMzMuNzg5NCAyOS43NDgzIDM0LjI2NTYgMjguMzEzNyAzNC4zODU3QzI4LjIzNDIgMzQuMjY1NiAyOC4yNjY4IDM0LjE4NjIgMjguMzM0MSAzNC4xMTNDMjguNzM4MiAzMy42NDQ5IDI4Ljc2NjggMzMuMDkzNCAyOS40NTY1IDMyLjg5MzlDMjguNzQ2NCAzMi43ODIgMjguMTUyNSAzMy4xNzI4IDI3LjU1NDYgMzMuNDgyMUMyNi43NzcxIDMzLjc5OTYgMjYuNzgzMyAzMi43NjU3IDI1LjU4NzUgMzMuNTM3QzI1LjQ1NDggMzMuNDI5MiAyNS41MTgxIDMzLjMzMTUgMjUuNTkzNiAzMy4yNDgxQzI1Ljg5NzYgMzIuODc3NyAyNi4yOTc2IDMyLjgyMjcgMjYuNzQ4NiAzMi44NDMxQzI0LjUzMDQgMzEuNjA5OCAyMy40ODU2IDM0LjM1MTEgMjIuNDYxMiAzMi45ODc2QzIyLjE1MzEgMzMuMDY5IDIyLjAzNjggMzMuMzQ1NyAyMS44NDI5IDMzLjU0MTFDMjEuNjc1NiAzMy4zNTggMjEuODAyMSAzMy4xMzYxIDIxLjgxMDMgMzIuOTIwNEMyMS42MTAzIDMyLjgyNjggMjEuMzU3MiAzMi43ODIgMjEuNDE2NCAzMi40NjI1QzIxLjAyNDYgMzIuMzMwMiAyMC43NTEyIDMyLjU2MjIgMjAuNDU5NCAzMi43ODJDMjAuMTk2MSAzMi41Nzg1IDIwLjYzNjkgMzIuMjgxNCAyMC43MTg1IDMyLjA2OTdDMjAuOTUzMiAzMS42NjI3IDIxLjQ4NzggMzEuOTg2MyAyMS43NTkyIDMxLjY5MzJDMjIuNTMwNiAzMS4yNTU3IDIzLjYwNiAzMS45NjU5IDI0LjQ4NzYgMzEuODQ1OUMyNS4xNjcxIDMxLjkzMTMgMjYuMDA3OCAzMS4yMzUzIDI1LjY2NyAzMC41NDEzQzI0Ljk0MDYgMjkuNjE1NCAyNS4wNjkxIDI4LjQwNDUgMjUuMDUyOCAyNy4yOTc0QzI0Ljk2MyAyNi42NTIyIDIzLjQxMDEgMjUuODMgMjIuOTYxMiAyNS4xMzRDMjIuNDA2MSAyNC41MDcyIDIxLjk3MzUgMjMuNzgwNyAyMS41NDA5IDIzLjA2NjRDMTkuOTc5OCAyMC4wNTIzIDIwLjQ3MTYgMTYuMTc5NSAxOC41MDQ0IDEzLjM4MTJDMTcuNjE0NyAxMy44NzE3IDE2LjQ1NTYgMTMuNjM5NyAxNS42ODg0IDEyLjk4MjNDMTUuMjc0MSAxMy4zNTg4IDE1LjI1NTcgMTMuODUxMyAxNS4yMjMxIDE0LjM3NDRDMTQuMjI5MyAxMy4zODMzIDE0LjM1MzggMTEuNTEwOSAxNS4xNDc2IDEwLjQwNzlDMTUuNDcyMSA5Ljk3MjM5IDE1Ljg1OTggOS42MTQyMSAxNi4yOTI0IDkuMjk4NzZDMTYuMzkwMyA5LjIyNzU0IDE2LjQyMyA5LjE1ODM0IDE2LjQyMDkgOS4wNDg0NEMxNy4yMDY2IDUuNTIzNjIgMjIuNTY1MyA2LjIwMzM1IDI0LjI1OSA4LjcwMDQ0QzI1LjQ4NzUgMTAuMjM3IDI1Ljg1ODkgMTIuMjcgMjcuMjUyNiAxMy42OTY3QzI5LjEyNzkgMTUuNzQ0IDMxLjI2NDUgMTcuNTQ3MSAzMi45OTQ5IDE5LjcyNjdDMzQuNjMxNSAyMS43MTkxIDM1LjgwMDggMjQuMDU1NCAzNi44MjExIDI2LjQxMDFDMzcuMjM3NCAyNy4xOTE1IDM3LjI0MTUgMjguMTUwMSAzNy44NTc4IDI4LjgxNzZDMzguMTYxOCAyOS4yMjA2IDM5LjY0NzQgMzAuMzE3NSAzOS4zMjUgMzAuNzA2MkMzOS41MTA3IDMxLjEwOTEgNDAuODk4MyAzMS42NjQ3IDQwLjQxNjcgMzIuMDU1NUg0MC40MTg4Wk02Ni40NDQ5IDIwLjAzMkw2My40MjY5IDIzLjA0MTlDNjIuNjIyOCAyMy44NDM4IDYxLjYyOTEgMjQuNDQyMSA2MC41NTE2IDI0Ljc2OTdMNjAuNDk2NSAyNC43ODZMNjAuNDc2MSAyNC44Mzg5QzYwLjEyNTEgMjUuNzYyOSA1OS41OTI1IDI2LjU4NzEgNTguODkwNSAyNy4yODUyTDU1Ljg3MjQgMzAuMjk1MUM1NC41NTYyIDMxLjYwNzggNTIuODA1NCAzMi4zMzAyIDUwLjk0MDIgMzIuMzMwMkM0OS4wNzUxIDMyLjMzMDIgNDcuMzI0MiAzMS42MDc4IDQ2LjAwOCAzMC4yOTUxQzQzLjI4NzkgMjcuNTgyMyA0My4yODc5IDIzLjE3MDEgNDYuMDA4IDIwLjQ1NzNMNDkuMDI2MSAxNy40NDc0QzQ5LjgzNDIgMTYuNjQxNSA1MC44MDE1IDE2LjA2MTUgNTEuODk3MyAxNS43MjU3TDUxLjk1MjQgMTUuNzA5NEw1MS45NzI4IDE1LjY1NjVDNTIuMzIzOCAxNC43MzI1IDUyLjg1ODQgMTMuOTA2MyA1My41NjI1IDEzLjIwMjFMNTYuNTgwNSAxMC4xOTIyQzU3Ljg5NjcgOC44Nzk1MyA1OS42NDc2IDguMTU3MDYgNjEuNTEyNyA4LjE1NzA2QzYzLjM3NzkgOC4xNTcwNiA2NS4xMjg3IDguODc5NTMgNjYuNDQ0OSAxMC4xOTIyQzY3Ljc2MTIgMTEuNTA0OCA2OC40ODU2IDEzLjI1MSA2OC40ODU2IDE1LjExMTFDNjguNDg1NiAxNi45NzEyIDY3Ljc2MTIgMTguNzE5MyA2Ni40NDQ5IDIwLjAzVjIwLjAzMloiIGZpbGw9IkN1cnJlbnRDb2xvciI+PC9wYXRoPgo8cGF0aCBkPSJNMjguMTQyMiAyOC40MTI2QzI3Ljg3NjkgMjkuNDQyNCAyNy43OTEyIDMxLjE5NDYgMjYuNDQ4NSAzMS4yNDU1QzI2LjMzODMgMzEuODM5OCAyNi44NjA3IDMyLjA2MzYgMjcuMzM4MiAzMS44NzIzQzI3LjgwOTYgMzEuNjU2NiAyOC4wMzQgMzIuMDQzMyAyOC4xOTMyIDMyLjQyNzlDMjguOTIxNyAzMi41MzM3IDI5Ljk5OTIgMzIuMTg1NyAzMC4wNCAzMS4zMjQ5QzI4Ljk1MjMgMzAuNzAwMSAyOC42MTU2IDI5LjUxMTYgMjguMTQ0MiAyOC40MTA2TDI4LjE0MjIgMjguNDEyNloiIGZpbGw9IkN1cnJlbnRDb2xvciI+PC9wYXRoPgo8cGF0aCBkPSJNOTkuMjA4OSAxMC44MTYySDk1LjYyNFYzMi41NjIzSDExMVYyOS4wOTgzSDk5LjIwODlWMTAuODE2MloiIGZpbGw9IkN1cnJlbnRDb2xvciI+PC9wYXRoPgo8cGF0aCBkPSJNMTI5LjAyMSAzMi41NjIzSDEzMi42MDZWMzIuNTIzNkgxMzIuNjUzTDEzMi42NiAzMi4zNjRDMTMyLjY2MSAzMi4zMTczIDEzMi42NzQgMzEuODgyMSAxMzIuNjA4IDMxLjIxMTVWMjMuMTE4MkMxMzIuNjA4IDIwLjA3MzMgMTM0LjgyOCAxOC42ODcxIDEzNi44OTEgMTguNjg3MUMxMzkuMTEgMTguNjg3MSAxNDAuMTkgMTkuODgzMSAxNDAuMTkgMjIuMzQ0NVYzMi41NjIzSDE0My43NzVWMjEuODY3NEMxNDMuNzc1IDE3LjgwNTQgMTQxLjE5NCAxNS4yODEyIDEzNy4wNDEgMTUuMjgxMkMxMzUuMjc2IDE1LjI4MTIgMTMzLjcwMSAxNS43ODI1IDEzMi40NjQgMTYuNzM1MUwxMzIuNDMxIDE1LjU3OTRIMTI5LjAyNlYzMi41NjIzSDEyOS4wMjFaIiBmaWxsPSJDdXJyZW50Q29sb3IiPjwvcGF0aD4KPHBhdGggZD0iTTE1OC4zNjUgMTYuODI3QzE1Ny4xMTkgMTUuODE0NyAxNTUuNTE3IDE1LjI4MTIgMTUzLjcxIDE1LjI4MTJDMTQ4Ljg3NiAxNS4yODEyIDE0NS44NzMgMTguNjE0NiAxNDUuODczIDIzLjk4MDZDMTQ1Ljg3MyAyOS4zNDY2IDE0OC44NzYgMzIuNzEwNiAxNTMuNzEgMzIuNzEwNkMxNTUuNDE1IDMyLjcxMDYgMTU2LjkzNyAzMi4yNDY0IDE1OC4xMzYgMzEuMzYzQzE1OC4wMzMgMzMuOTk1MyAxNTYuMzg0IDM1LjU1ODggMTUzLjY4MSAzNS41NTg4QzE1MS40MDggMzUuNTU4OCAxNTAuMTIyIDM0LjgzNTEgMTQ5Ljg1OCAzMy40MDg1TDE0OS44MjUgMzMuMjMxMkwxNDYuMzQyIDM0LjI5MzVMMTQ2LjM3MyAzNC40MzY5QzE0Ni45NjEgMzcuMjcyMiAxNDkuNjE0IDM4Ljk2NDcgMTUzLjQ3MyAzOC45NjQ3QzE1Ni4wOTEgMzguOTY0NyAxNTguMTQ0IDM4LjI1MjMgMTU5LjU3NyAzNi44NDUxQzE2MS4wMjMgMzUuNDI2NiAxNjEuNzU1IDMzLjM4MjcgMTYxLjc1NSAzMC43NzE1VjE1LjU3OTRIMTU4LjQzOUwxNTguMzY3IDE2LjgyN0gxNTguMzY1Wk0xNTguMTQxIDI0LjEzMDVDMTU4LjE0MSAyNy4zNzA0IDE1Ni41NjMgMjkuMzA2MyAxNTMuOTE4IDI5LjMwNjNDMTUxLjA4MyAyOS4zMDYzIDE0OS40NTggMjcuMzY1NSAxNDkuNDU4IDIzLjk4MjJDMTQ5LjQ1OCAyMC41OTg4IDE1MS4wODQgMTguNjg3MSAxNTMuOTE4IDE4LjY4NzFDMTU2LjQ5OSAxOC42ODcxIDE1OC4xMTUgMjAuNjEzMyAxNTguMTQxIDIzLjcxM1YyNC4xMzA1WiIgZmlsbD0iQ3VycmVudENvbG9yIj48L3BhdGg+CjxwYXRoIGQ9Ik0xNzkuNDE4IDI1LjY2NjVDMTc4LjY3NSAyOC4wNjk4IDE3Ni43NjcgMjkuMzk0OCAxNzQuMDQ3IDI5LjM5NDhDMTcwLjE1OCAyOS4zOTQ4IDE2Ny43NCAyNi40NDE4IDE2Ny43NCAyMS42ODg0QzE2Ny43NCAxNi45MzQ5IDE3MC4xNzkgMTMuOTgxOSAxNzQuMTA3IDEzLjk4MTlDMTc2LjgyNSAxMy45ODE5IDE3OC4zOTEgMTUuMDQ3NCAxNzkuMTg4IDE3LjQzNDZMMTc5LjU2IDE4LjU1MTZMMTgyLjk0NSAxNi45NjIzTDE4Mi42MjcgMTYuMDY3N0MxODEuMzM4IDEyLjQzNjEgMTc4LjM2MSAxMC41MTc5IDE3NC4wMTggMTAuNTE3OUMxNzEuMDY3IDEwLjUxNzkgMTY4LjU2MiAxMS41ODM0IDE2Ni43NzMgMTMuNTk4M0MxNjUuMDAzIDE1LjU5MzggMTY0LjA2NiAxOC4zOTA0IDE2NC4wNjYgMjEuNjlDMTY0LjA2NiAyOC40NzYgMTY3Ljk4MyAzMi44NjIgMTc0LjA0NyAzMi44NjJDMTc4LjMyIDMyLjg2MiAxODEuNjMgMzAuNjI2MyAxODIuOSAyNi44ODAzTDE4My4yMjQgMjUuOTIyOEwxNzkuNzQ3IDI0LjYwMUwxNzkuNDE2IDI1LjY2ODFMMTc5LjQxOCAyNS42NjY1WiIgZmlsbD0iQ3VycmVudENvbG9yIj48L3BhdGg+CjxwYXRoIGQ9Ik0xOTIuODA2IDE1LjI4MTJDMTkxLjA5NCAxNS4yODEyIDE4OS41NzEgMTUuNzUwMyAxODguMzc1IDE2LjY0MTdWOC43MzIxMkgxODQuNzlWMzIuNTYzOUgxODguMzc1VjIzLjExOTlDMTg4LjM3NSAyMC4wNTU3IDE5MC41OTQgMTguNjU5OCAxOTIuNjU4IDE4LjY1OThDMTk0Ljg3NyAxOC42NTk4IDE5NS45NTcgMTkuODU1OCAxOTUuOTU3IDIyLjMxNzFWMzIuNTY1NkgxOTkuNTQyVjIxLjg0QzE5OS41NDIgMTcuODU3IDE5Ni44OTkgMTUuMjg0NSAxOTIuODA4IDE1LjI4NDVMMTkyLjgwNiAxNS4yODEyWiIgZmlsbD0iQ3VycmVudENvbG9yIj48L3BhdGg+CjxwYXRoIGQ9Ik0yMjAuNDk2IDguMjE5NTRDMjE5LjE2NCA4LjIxOTU0IDIxOC4xOTcgOS4xODY2OCAyMTguMTk3IDEwLjUxODFDMjE4LjE5NyAxMS44NDk1IDIxOS4xNjQgMTIuODE2NyAyMjAuNDk2IDEyLjgxNjdDMjIxLjgyNyAxMi44MTY3IDIyMi43OTQgMTEuODQ5NSAyMjIuNzk0IDEwLjUxODFDMjIyLjc5NCA5LjE4NjY4IDIyMS44MjcgOC4yMTk1NCAyMjAuNDk2IDguMjE5NTRaIiBmaWxsPSJDdXJyZW50Q29sb3IiPjwvcGF0aD4KPHBhdGggZD0iTTIzMy4yNjIgMTUuMjgxMkMyMzEuNDk3IDE1LjI4MTIgMjI5LjkyMyAxNS43ODI1IDIyOC42ODYgMTYuNzM1MUwyMjguNjUyIDE1LjU3OTRIMjI1LjI0OFYzMi41NjIzSDIyOC44MzNWMjMuMTE4MkMyMjguODMzIDIwLjA3MzMgMjMxLjA1MiAxOC42ODcxIDIzMy4xMTYgMTguNjg3MUMyMzUuMzM1IDE4LjY4NzEgMjM2LjQxNSAxOS44ODMxIDIzNi40MTUgMjIuMzQ0NVYzMi41NjIzSDI0MFYyMS44Njc0QzI0MCAxNy44MDU0IDIzNy40MTkgMTUuMjgxMiAyMzMuMjY2IDE1LjI4MTJIMjMzLjI2MloiIGZpbGw9IkN1cnJlbnRDb2xvciI+PC9wYXRoPgo8cGF0aCBkPSJNMjIyLjIzNyAxNS41Nzk0SDIxOC42N1YyMy45OTg0QzIxNy42OCAyMy4xNjY2IDIxNi41MTQgMjIuNTM4IDIxNS4xOTggMjIuMTI3VjIxLjI3MUMyMTUuMTk4IDE3LjUyMDIgMjEyLjczNiAxNS4yODEyIDIwOC42MTEgMTUuMjgxMkMyMDUuMjYgMTUuMjgxMiAyMDIuNzU0IDE2Ljg1NDUgMjAxLjczMyAxOS41OTYzTDIwMS40NTggMjAuMzM2MUwyMDQuMzMyIDIyLjQ1NDJMMjA0LjgyNSAyMS4xNjk1QzIwNS40NzUgMTkuNDc1NCAyMDYuNjc5IDE4LjY4NTYgMjA4LjYxMSAxOC42ODU2QzIxMC41NDQgMTguNjg1NiAyMTEuNjEzIDE5LjYxNTYgMjExLjYxMyAyMS40NDgzVjIxLjU0MzVDMjExLjQ5OCAyMS41Mzg2IDIxMS4zODIgMjEuNTM1NCAyMTEuMjY2IDIxLjUzMzhDMjA3LjQyOCAyMS40NzI1IDIwNC42MjggMjIuMzcwNCAyMDIuOTQ0IDI0LjE5ODJDMjAxLjIyMSAyNi4wNjggMjAxLjM3MiAyOC4xNjgzIDIwMS4zOTUgMjguNDAwNEwyMDEuNDExIDI4LjU2MTZIMjAxLjQyN0MyMDEuNjk1IDMxLjE3NzcgMjAzLjk4IDMyLjg1NzMgMjA3LjMwMSAzMi44NTczQzIwOS4xMyAzMi44NTczIDIxMC44MiAzMi4zNDggMjEyLjA5OCAzMS40MTc5TDIxMi4xMTIgMzIuNTYwN0gyMTUuMTk4VjI3LjI0NzlMMjE1LjEzMSAyNy4xOTk2QzIxNC42OTUgMjYuODgwNCAyMTMuOTM0IDI2LjQ2NzggMjEyLjc4OSAyNi4zMjI3QzIxMi40MyAyNi4yNzc2IDIxMi4wODcgMjYuMjU1IDIxMS43NzEgMjYuMjYxNUgyMTEuNjExVjI2Ljc0OTlDMjExLjYxMSAyNy44NzM0IDIxMC4zMiAyOS40NTQ2IDIwNy40NDggMjkuNDU0NkMyMDUuMzI4IDI5LjQ1NDYgMjA1LjAxMiAyOC41NjMyIDIwNS4wMTIgMjguMDMxM1YyNy45NzY1QzIwNS4wMjggMjcuNzM4IDIwNS4xMjggMjcuMTU0NCAyMDUuNjU1IDI2LjYxMTJDMjA2LjMyNCAyNS45MTk3IDIwNy44MyAyNS4xMTA2IDIxMS4yMDcgMjUuMTYyMkMyMTMuNjUyIDI1LjIwMDggMjE1LjUyOCAyNS44ODQzIDIxNi43ODQgMjcuMTk0N0MyMTguMzI1IDI4LjgwMzQgMjE4LjYxNSAzMS4wMDUzIDIxOC42NjggMzEuODY3NlYzMi41NjIzSDIyMi4yMzVWMTUuNTc5NEgyMjIuMjM3WiIgZmlsbD0iQ3VycmVudENvbG9yIj48L3BhdGg+CjxwYXRoIGQ9Ik0xMTkuNzUyIDE1LjIwNzFDMTE2LjQwMSAxNS4yMDcxIDExMy44OTUgMTYuNzgwMyAxMTIuODc0IDE5LjUyMjFMMTEyLjU5OSAyMC4yNjJMMTE1LjQ3MyAyMi4zOEwxMTUuOTY2IDIxLjA5NTNDMTE2LjYxNiAxOS40MDEyIDExNy44MiAxOC42MTE0IDExOS43NTIgMTguNjExNEMxMjEuNjg1IDE4LjYxMTQgMTIyLjc1NCAxOS41NDE1IDEyMi43NTQgMjEuMzc0MlYyMS44MDQ2TDExOS4wNjIgMjIuNDU1OEMxMTQuNzM0IDIzLjIyMTQgMTEyLjUzOSAyNS4wNzE5IDExMi41MzkgMjcuOTUzOUMxMTIuNTM5IDMwLjgzNiAxMTQuODU1IDMyLjc4MzIgMTE4LjQ0IDMyLjc4MzJDMTIwLjI3IDMyLjc4MzIgMTIxLjk1OSAzMi4yNzM4IDEyMy4yMzcgMzEuMzQzN0wxMjMuMjUyIDMyLjQ4NjZIMTI2LjMzN1YyMS4xOTY5QzEyNi4zMzcgMTcuNDQ2IDEyMy44NzUgMTUuMjA3MSAxMTkuNzUxIDE1LjIwNzFIMTE5Ljc1MlpNMTIyLjc1NCAyNS4xNjM4VjI2LjY3NzNDMTIyLjc1NCAyNy44MDA4IDEyMS40NjIgMjkuMzgyMSAxMTguNTkgMjkuMzgyMUMxMTYuNDcgMjkuMzgyMSAxMTYuMTU1IDI4LjQ5MDcgMTE2LjE1NSAyNy45NTg4QzExNi4xNTUgMjcuNDg2NSAxMTYuMTU1IDI2LjM4MDcgMTE5LjkxIDI1LjY4NDRMMTIyLjc1NCAyNS4xNjU0VjI1LjE2MzhaIiBmaWxsPSJDdXJyZW50Q29sb3IiPjwvcGF0aD4KPC9zdmc+"
+    },
+    "logo-matterport": {
+      "mimeType": "image/svg+xml",
+      "id": "logo-matterport",
+      "created": 1,
+      "lastRetrieved": 1,
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTQ1NSIgaGVpZ2h0PSIyOTgiIHZpZXdCb3g9IjAgMCAxNDU1IDI5OCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTUzOC4yODEgMjA5LjU0N0w1MjYuNTcxIDExNi40NjlMNDc5LjM1MSAyMzcuNDcxSDQ3Mi4xNzNMNDIxLjkzMSAxMTUuNjc2TDQxMC41OTggMjA5LjU0N0M0MTAuNDEgMjExLjEzMSA0MTAuMjIxIDIxNC4xMDIgNDEwLjIyMSAyMTQuODk0QzQxMC4yMjEgMjI1LjU4OCA0MTUuNTA5IDIyOC4xNjMgNDMwLjYyIDIyOC45NTVWMjM3LjQ3MUgzODBWMjI4Ljk1NUMzOTIuMDg4IDIyOC4zNjEgMzk2LjYyMSAyMjUuOTg0IDM5Ny45NDQgMjE1LjY4Nkw0MTEuMzU0IDEwNy41NTdDNDExLjM1NCA5NS44NzI1IDQwNy41NzYgOTIuMTA5OCAzOTMuNDEgOTEuNTE1N1Y4M0g0MzIuNjk3QzQzMy4wNzUgODcuOTUxIDQzNC4yMDggOTAuNzIzNSA0MzYuMDk3IDk1LjI3ODRMNDgwLjY3MyAyMDQuNTk2TDUyMi43OTMgOTUuMjc4NEM1MjQuNDkzIDkwLjcyMzUgNTI1LjgxNSA4Ny45NTEgNTI2LjE5MyA4M0g1NjQuNTM1VjkxLjUxNTdDNTUwLjM2OSA5Mi4xMDk4IDU0Ni41OTIgOTUuODcyNSA1NDYuNTkyIDEwNy41NTdMNTYwLjAwMiAyMTUuNjg2QzU2MS4zMjQgMjI1Ljk4NCA1NjUuODU4IDIyOC4zNjEgNTc3Ljk0NiAyMjguOTU1VjIzNy40NzFINTE4LjI2VjIyOC45NTVDNTMzLjM3IDIyOC4xNjMgNTM4LjY1OSAyMjUuNTg4IDUzOC42NTkgMjE0Ljg5NEM1MzguNjU5IDIxNC4xMDIgNTM4LjQ3IDIxMS4xMzEgNTM4LjI4MSAyMDkuNTQ3WiIgZmlsbD0iYmxhY2siLz4KPHBhdGggZD0iTTYyNi4wODMgMjI1LjE5MkM2MzcuMjI3IDIyNS4xOTIgNjQzLjQ2IDIyMC4wNDMgNjUyLjMzNyAyMTIuOTE0VjE4My42MDRMNjE5LjI4MyAxOTQuNDk2QzYxMi42NzMgMTk2LjY3NSA2MDguODk1IDIwMC42MzUgNjA4Ljg5NSAyMDguMTYxQzYwOC44OTUgMjE5LjQ0OSA2MTUuNjk1IDIyNS4xOTIgNjI2LjA4MyAyMjUuMTkyWk02NzEuMjI1IDE2OC41NTNWMjExLjUyN0M2NzEuMjI1IDIyMC4yNDEgNjc0LjQzNiAyMjQuOTk0IDY4MC4xMDMgMjI0Ljk5NEM2ODEuODAzIDIyNC45OTQgNjg1LjU4IDIyNC41OTggNjg4LjQxMyAyMjMuODA2TDY5MC4zMDIgMjI5Ljk0NUM2ODMuNjkxIDIzNi42NzggNjc3LjY0NyAyMzkuNDUxIDY3MC42NTkgMjM5LjQ1MUM2NjAuODM3IDIzOS40NTEgNjU1LjkyNiAyMzIuMzIyIDY1Mi45MDQgMjIxLjQyOUM2NDUuOTE1IDIyOS41NDkgNjM1LjE0OSAyMzkuNDUxIDYxNy41ODQgMjM5LjQ1MUM1OTguODg0IDIzOS40NTEgNTg4Ljg3NCAyMjcuNzY3IDU4OC44NzQgMjEyLjMyQzU4OC44NzQgMTkzLjkwMiA2MDEuMzQgMTg5LjU0NSA2MTUuODg0IDE4NS4xODhMNjUyLjMzNyAxNzMuOVYxNjkuNzQxQzY1Mi4zMzcgMTUzLjUwMiA2NDUuMTYgMTQwLjgyNyA2MjguOTE2IDE0MC44MjdDNjE4LjMzOSAxNDAuODI3IDYxMy4yMzkgMTQ1LjM4MiA2MTMuMjM5IDE1NS40ODJDNjEzLjIzOSAxNTcuNDYzIDYxMy42MTcgMTYxLjAyNyA2MTQuMTg0IDE2NC45ODhMNTk4LjUwNyAxNjYuOTY5QzU5NS44NjIgMTY0LjE5NiA1OTQuMzUxIDE2MS4wMjcgNTk0LjM1MSAxNTYuMjc1QzU5NC4zNTEgMTQwLjAzNSA2MTEuMzUgMTMwLjUyOSA2MzIuNTA1IDEzMC41MjlDNjU1LjczNyAxMzAuNTI5IDY3MS4yMjUgMTQwLjYyOSA2NzEuMjI1IDE2OC41NTNaIiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNNzIzLjUyNCAxMDkuOTMzVjEzMi41MUg3NTIuOTg5VjE0My40MDJINzIzLjUyNFYyMDQuMzk4QzcyMy41MjQgMjE4LjY1NyA3MjkuMzggMjI0Ljk5NCA3NDAuOTAxIDIyNC45OTRDNzQ2LjAwMSAyMjQuOTk0IDc1MC45MTIgMjI0LjAwNCA3NTYuMDEyIDIyMS40MjlMNzU4LjI3OCAyMjYuOTc1Qzc1My41NTYgMjMyLjUyIDc0NS4wNTcgMjM5LjQ1MSA3MzIuMDI0IDIzOS40NTFDNzE3LjY2OSAyMzkuNDUxIDcwNC42MzYgMjMxLjcyNyA3MDQuNjM2IDIxMS4zMjlWMTQzLjQwMkg2OTAuMDkzVjEzNi40NzFDNzAwLjEwMyAxMzAuMTMzIDcwOC4yMjUgMTIyLjYwOCA3MTcuODU4IDEwOS45MzNINzIzLjUyNFoiIGZpbGw9ImJsYWNrIi8+CjxwYXRoIGQ9Ik03OTYuNzkzIDEwOS45MzNWMTMyLjUxSDgyNi4yNThWMTQzLjQwMkg3OTYuNzkzVjIwNC4zOThDNzk2Ljc5MyAyMTguNjU3IDgwMi42NDggMjI0Ljk5NCA4MTQuMTcgMjI0Ljk5NEM4MTkuMjcgMjI0Ljk5NCA4MjQuMTggMjI0LjAwNCA4MjkuMjggMjIxLjQyOUw4MzEuNTQ3IDIyNi45NzVDODI2LjgyNSAyMzIuNTIgODE4LjMyNSAyMzkuNDUxIDgwNS4yOTMgMjM5LjQ1MUM3OTAuOTM4IDIzOS40NTEgNzc3LjkwNSAyMzEuNzI3IDc3Ny45MDUgMjExLjMyOVYxNDMuNDAySDc2My4zNjFWMTM2LjQ3MUM3NzMuMzcyIDEzMC4xMzMgNzgxLjQ5NCAxMjIuNjA4IDc5MS4xMjcgMTA5LjkzM0g3OTYuNzkzWiIgZmlsbD0iYmxhY2siLz4KPHBhdGggZD0iTTg4Ni42NjggMTMwLjUyOUM5MTQuMjQ1IDEzMC41MjkgOTI4LjYgMTQ4Ljc0OSA5MjguNiAxNzIuNTE0VjE3OC4wNTlIODU0LjU1OUM4NTQuNTU5IDIwNS4zODggODY1Ljg5MiAyMjIuMjIyIDg5MC44MjQgMjIyLjIyMkM5MDYuNTAxIDIyMi4yMjIgOTE3LjA3OCAyMTQuNjk2IDkyMy4zMTEgMjA2LjU3Nkw5MjguNzg5IDIwOS4xNTFDOTI0LjYzMyAyMjMuNjA4IDkxMS42MDEgMjM5LjQ1MSA4ODQuOTY5IDIzOS40NTFDODU0LjU1OSAyMzkuNDUxIDgzNi42MTUgMjE2LjY3NiA4MzYuNjE1IDE4OC4zNTdDODM2LjYxNSAxNTMuNyA4NTcuNzcgMTMwLjUyOSA4ODYuNjY4IDEzMC41MjlaTTg4MS45NDcgMTQyLjgwOEM4NjcuMDI1IDE0Mi44MDggODU3LjIwMyAxNTMuMzA0IDg1NS4xMjYgMTY4LjE1N0g5MDcuODIzQzkwNy44MjMgMTU0LjI5NCA4OTguOTQ2IDE0Mi44MDggODgxLjk0NyAxNDIuODA4WiIgZmlsbD0iYmxhY2siLz4KPHBhdGggZD0iTTk3My4yNzEgMTMwLjUyOUw5NzIuMzI2IDE2MC44MjlDOTgxLjIwNCAxNDQuMzkyIDk4OS43MDMgMTMwLjUyOSAxMDAzLjQ5IDEzMC41MjlDMTAwOC4wMiAxMzAuNTI5IDEwMTAuODYgMTMxLjcxOCAxMDEyLjc1IDEzMy4zMDJWMTUxLjcySDEwMDVDOTkyLjkxNCAxNTEuNzIgOTg0Ljk4MSAxNTQuNjkgOTcyLjMyNiAxNzAuMTM3VjIxNy42NjdDOTcyLjMyNiAyMjcuNTY5IDk3Ny4yMzcgMjI4LjE2MyA5OTEuMjE0IDIyOS43NDdWMjM3LjQ3MUg5MzguMzI4VjIyOS43NDdDOTQ3LjAxNyAyMjguNTU5IDk1My40MzggMjI3LjU2OSA5NTMuNDM4IDIxOC40NTlWMTUyLjExNkw5MzkuMjcyIDE0NS4xODRWMTQwLjQzMUw5NjYuNjYgMTMwLjUyOUg5NzMuMjcxWiIgZmlsbD0iYmxhY2siLz4KPHBhdGggZD0iTTEwODIuMjYgMjM5LjQ1MUMxMDcwLjkzIDIzOS40NTEgMTA2Mi4yNCAyMzYuMjgyIDEwNTYuMiAyMzEuNTI5VjI2NS45ODhDMTA1Ni4yIDI3NS4wOTggMTA2Mi42MiAyNzYuMDg4IDEwNzEuMzEgMjc3LjI3NlYyODVIMTAyMi4yVjI3Ny4yNzZDMTAzMC44OSAyNzYuMDg4IDEwMzcuMzEgMjc1LjA5OCAxMDM3LjMxIDI2NS45ODhWMTUyLjExNkwxMDIzLjE0IDE0NS4xODRWMTQwLjQzMUwxMDUwLjUzIDEzMC41MjlIMTA1Ny4xNEwxMDU2LjIgMTQ4Ljk0N0MxMDY0LjMyIDEzOC4wNTUgMTA3Ny41NCAxMzAuNTI5IDEwOTIuMjcgMTMwLjUyOUMxMTIxLjM2IDEzMC41MjkgMTEzNi42NiAxNTIuNzEgMTEzNi42NiAxODAuMDM5QzExMzYuNjYgMjE2LjY3NiAxMTEyLjExIDIzOS40NTEgMTA4Mi4yNiAyMzkuNDUxWk0xMDg0LjM0IDIyOC4xNjNDMTEwNC4xNyAyMjguMTYzIDExMTcuMjEgMjEzLjkwNCAxMTE3LjIxIDE4OC4zNTdDMTExNy4yMSAxNjcuNzYxIDExMDkuNDYgMTQ1LjU4IDEwODUuMSAxNDUuNThDMTA3My41NyAxNDUuNTggMTA2Mi42MiAxNTEuNTIyIDEwNTYuMiAxNTguNjUxVjIwMy4yMUMxMDU2LjIgMjIyLjAyNCAxMDY5Ljk5IDIyOC4xNjMgMTA4NC4zNCAyMjguMTYzWiIgZmlsbD0iYmxhY2siLz4KPHBhdGggZD0iTTEyMDIuODcgMjI3LjE3M0MxMjIxLjc2IDIyNy4xNzMgMTIzMS4yIDIxMS4zMjkgMTIzMS4yIDE4OS43NDNDMTIzMS4yIDE2NC4xOTYgMTIxNy45OCAxNDIuODA4IDExOTUuMzIgMTQyLjgwOEMxMTc2LjQzIDE0Mi44MDggMTE2Ni45OCAxNTguNjUxIDExNjYuOTggMTgwLjIzN0MxMTY2Ljk4IDIwNS43ODQgMTE4MC4yMSAyMjcuMTczIDEyMDIuODcgMjI3LjE3M1pNMTE5Ny4yMSAyMzkuNDUxQzExNjcuMzYgMjM5LjQ1MSAxMTQ2Ljk2IDIxNy40NjkgMTE0Ni45NiAxODYuOTcxQzExNDYuOTYgMTUyLjMxNCAxMTcxLjkgMTMwLjUyOSAxMjAwLjk4IDEzMC41MjlDMTIzMC44MyAxMzAuNTI5IDEyNTEuMjIgMTUyLjUxMiAxMjUxLjIyIDE4My4wMUMxMjUxLjIyIDIxNy42NjcgMTIyNi4yOSAyMzkuNDUxIDExOTcuMjEgMjM5LjQ1MVoiIGZpbGw9ImJsYWNrIi8+CjxwYXRoIGQ9Ik0xMjk2Ljg2IDEzMC41MjlMMTI5NS45MSAxNjAuODI5QzEzMDQuNzkgMTQ0LjM5MiAxMzEzLjI5IDEzMC41MjkgMTMyNy4wOCAxMzAuNTI5QzEzMzEuNjEgMTMwLjUyOSAxMzM0LjQ0IDEzMS43MTggMTMzNi4zMyAxMzMuMzAyVjE1MS43MkgxMzI4LjU5QzEzMTYuNSAxNTEuNzIgMTMwOC41NyAxNTQuNjkgMTI5NS45MSAxNzAuMTM3VjIxNy42NjdDMTI5NS45MSAyMjcuNTY5IDEzMDAuODIgMjI4LjE2MyAxMzE0LjggMjI5Ljc0N1YyMzcuNDcxSDEyNjEuOTFWMjI5Ljc0N0MxMjcwLjYgMjI4LjU1OSAxMjc3LjAyIDIyNy41NjkgMTI3Ny4wMiAyMTguNDU5VjE1Mi4xMTZMMTI2Mi44NiAxNDUuMTg0VjE0MC40MzFMMTI5MC4yNSAxMzAuNTI5SDEyOTYuODZaIiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNMTM4MC4yNSAxMDkuOTMzVjEzMi41MUgxNDA5LjcxVjE0My40MDJIMTM4MC4yNVYyMDQuMzk4QzEzODAuMjUgMjE4LjY1NyAxMzg2LjEgMjI0Ljk5NCAxMzk3LjYyIDIyNC45OTRDMTQwMi43MiAyMjQuOTk0IDE0MDcuNjMgMjI0LjAwNCAxNDEyLjczIDIyMS40MjlMMTQxNSAyMjYuOTc1QzE0MTAuMjggMjMyLjUyIDE0MDEuNzggMjM5LjQ1MSAxMzg4Ljc1IDIzOS40NTFDMTM3NC4zOSAyMzkuNDUxIDEzNjEuMzYgMjMxLjcyNyAxMzYxLjM2IDIxMS4zMjlWMTQzLjQwMkgxMzQ2LjgxVjEzNi40NzFDMTM1Ni44MyAxMzAuMTMzIDEzNjQuOTUgMTIyLjYwOCAxMzc0LjU4IDEwOS45MzNIMTM4MC4yNVoiIGZpbGw9ImJsYWNrIi8+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNMTI1LjYzMSAxLjY5MTQ0QzEyNy4yOTcgMC40OTMzNjUgMTMwLjAwNSAwLjQzNTg4MiAxMzEuNjk2IDEuNTY4NDFMMTgzLjI4NyAzNi4yODEzQzE4NC45OTggMzcuNDY4MiAxODUuNDIgMzkuODEwOSAxODQuMjM5IDQxLjUyNTRMMTQ3LjgxMSA5MS42NjA5QzE0Ni42MTcgOTMuMzExOCAxNDQuMDUyIDk0LjE5MzIgMTQyLjA1NyA5My42NTc3TDQyLjM5MjYgNjYuMDYzN0M0MC40MjMxIDY1LjQ4NjggNDAuMTQ3OCA2My45OTYzIDQxLjgwNTYgNjIuNzU2OUwxMjUuNjMxIDEuNjkxNDRaIiBmaWxsPSIjRkYzMTU4Ii8+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNNTYuMDY1MSA5Mi4zMjU3TDkyLjM0MTQgMTQyLjU5OEM5My41MzE2IDE0NC4yNDEgOTMuNTg0MiAxNDYuOTggOTIuNDQzNiAxNDguNjhMMzUuNDg5MyAyMzUuMjhDMzQuMzI0NCAyMzcuMDA1IDMyLjg0MjcgMjM2Ljc5OSAzMi4xODE4IDIzNC44NTJMMC4yMjMwNzcgMTM1Ljk2OUMtMC40MTc1NzUgMTM0LjAwOSAwLjM3MDg0MiAxMzEuMzk0IDEuOTU4ODEgMTMwLjE0Nkw1MC44MTc0IDkxLjYxNjhDNTIuNDY2MSA5MC4zNjEzIDU0LjgwOTEgOTAuNjk0MSA1Ni4wNjUxIDkyLjMyNTdaIiBmaWxsPSIjRkYzMTU4Ii8+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNMjA0Ljk0MyAyMC4zOTVMMjA5LjU5MyAxMjQuMDQyQzIwOS42NTkgMTI2LjEwMSAyMTEuMzEyIDEyOC4yNTkgMjEzLjIzNyAxMjguOTA5TDI3Mi4wNDIgMTQ4LjE3M0MyNzQuMDI1IDE0OC43NjEgMjc2LjEwNCAxNDcuNjI0IDI3Ni43MTIgMTQ1LjY2OUwyOTMuNjY4IDg1LjY4QzI5NC4yMSA4My43MjM2IDI5My4zMjMgODEuMTI5OSAyOTEuNjY1IDc5LjkzMThMMjA3Ljg5NSAxOC44MDY3QzIwNi4yMDggMTcuNjA3NyAyMDQuODgzIDE4LjMxOTYgMjA0Ljk0MyAyMC4zOTVaIiBmaWxsPSJibGFjayIvPgo8cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsaXAtcnVsZT0iZXZlbm9kZCIgZD0iTTI5OC40MTEgMTYxLjM3MUwyMDEuNTk4IDE5Ny44NDRDMTk5LjY5IDE5OC41NTMgMTk4LjEzNSAyMDAuNzk3IDE5OC4xMzUgMjAyLjgzNkwxOTguMDU3IDI2NC44ODlDMTk4LjEwMiAyNjYuOTU5IDE5OS44IDI2OC42MTkgMjAxLjg3MyAyNjguNTYyTDI2My45NDkgMjY2LjIwNkMyNjUuOTg0IDI2Ni4xMjggMjY4LjE0NyAyNjQuNDgxIDI2OC43NzggMjYyLjUzOEwzMDAuODMyIDE2My43MTRDMzAxLjQ0IDE2MS43MiAzMDAuMzM5IDE2MC42NjcgMjk4LjQxMSAxNjEuMzcxWiIgZmlsbD0iYmxhY2siLz4KPHBhdGggZmlsbC1ydWxlPSJldmVub2RkIiBjbGlwLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0xOTMuNjggMjk0LjIyMkwxMjkuMjE2IDIxMy4xMDFDMTI3Ljk1NiAyMTEuNSAxMjUuMzMzIDIxMC42ODggMTIzLjQwNCAyMTEuMzE4TDY0LjU2MjUgMjMwLjQwMUM2Mi42MDExIDIzMS4wOTIgNjEuNTcxOCAyMzMuMjIyIDYyLjI1NyAyMzUuMjAyTDgzLjY0ODUgMjkzLjcyQzg0LjM3MTIgMjk1LjYyMyA4Ni42MDM4IDI5Ny4xODMgODguNjQzMiAyOTcuMTgzTDE5Mi4yMjIgMjk3LjI0NUMxOTQuMjgzIDI5Ny4yMTIgMTk0Ljk1MiAyOTUuODcgMTkzLjY4IDI5NC4yMjJaIiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNMTQ0MCAxNDAuNDg5QzE0MzcuOTMgMTQwLjQ4OSAxNDM1Ljk5IDE0MC4xMDggMTQzNC4xNyAxMzkuMzQyQzE0MzIuMzUgMTM4LjU3NiAxNDMwLjc2IDEzNy41MDIgMTQyOS4zOSAxMzYuMTJDMTQyOC4wMyAxMzQuNzQyIDE0MjYuOTYgMTMzLjEyMyAxNDI2LjE3IDEzMS4yNzNDMTQyNS4zOSAxMjkuNDIzIDE0MjUgMTI3LjQxNSAxNDI1IDEyNS4yNDdDMTQyNSAxMjMuMDc0IDE0MjUuMzkgMTIxLjA2NSAxNDI2LjE3IDExOS4yMTZDMTQyNi45NiAxMTcuMzY2IDE0MjguMDMgMTE1Ljc0NyAxNDI5LjM5IDExNC4zNjlDMTQzMC43NiAxMTIuOTg3IDE0MzIuMzUgMTExLjkxMiAxNDM0LjE3IDExMS4xNDdDMTQzNS45OSAxMTAuMzg1IDE0MzcuOTMgMTEwIDE0NDAgMTEwQzE0NDIuMDIgMTEwIDE0NDMuOTQgMTEwLjM4NSAxNDQ1Ljc2IDExMS4xNDdDMTQ0Ny41OCAxMTEuOTEyIDE0NDkuMTcgMTEyLjk4NyAxNDUwLjUzIDExNC4zNjlDMTQ1MS44OSAxMTUuNzQ3IDE0NTIuOTggMTE3LjM2NiAxNDUzLjc5IDExOS4yMTZDMTQ1NC42IDEyMS4wNjUgMTQ1NSAxMjMuMDc0IDE0NTUgMTI1LjI0N0MxNDU1IDEyNy40MTUgMTQ1NC42IDEyOS40MjMgMTQ1My43OSAxMzEuMjczQzE0NTIuOTggMTMzLjEyMyAxNDUxLjg5IDEzNC43NDIgMTQ1MC41MyAxMzYuMTJDMTQ0OS4xNyAxMzcuNTAyIDE0NDcuNTggMTM4LjU3NiAxNDQ1Ljc2IDEzOS4zNDJDMTQ0My45NCAxNDAuMTA4IDE0NDIuMDIgMTQwLjQ4OSAxNDQwIDE0MC40ODlaTTE0NDAgMTM3LjUyNkMxNDQxLjcyIDEzNy41MjYgMTQ0My4zIDEzNy4yMDggMTQ0NC43NCAxMzYuNTY3QzE0NDYuMTggMTM1LjkyNyAxNDQ3LjQxIDEzNS4wNzQgMTQ0OC40NSAxMzQuMDE0QzE0NDkuNDggMTMyLjk1NCAxNDUwLjI5IDEzMS43MzEgMTQ1MC44NyAxMzAuMzQ4QzE0NTEuNDUgMTI4Ljk3MSAxNDUxLjc0IDEyNy41NCAxNDUxLjc0IDEyNi4wNjFWMTI0LjQzM0MxNDUxLjc0IDEyMi45NDkgMTQ1MS40NSAxMjEuNTIzIDE0NTAuODcgMTIwLjE0QzE0NTAuMjkgMTE4Ljc1OCAxNDQ5LjQ4IDExNy41MzkgMTQ0OC40NSAxMTYuNDc0QzE0NDcuNDEgMTE1LjQxNSAxNDQ2LjE4IDExNC41NjcgMTQ0NC43NCAxMTMuOTIxQzE0NDMuMyAxMTMuMjg1IDE0NDEuNzIgMTEyLjk2MyAxNDQwIDExMi45NjNDMTQzOC4yOCAxMTIuOTYzIDE0MzYuNzEgMTEzLjI4NSAxNDM1LjI3IDExMy45MjFDMTQzMy44MyAxMTQuNTY3IDE0MzIuNTkgMTE1LjQxNSAxNDMxLjU1IDExNi40NzRDMTQzMC41MiAxMTcuNTM5IDE0MjkuNzEgMTE4Ljc1OCAxNDI5LjEzIDEyMC4xNEMxNDI4LjU1IDEyMS41MjMgMTQyOC4yNiAxMjIuOTQ5IDE0MjguMjYgMTI0LjQzM1YxMjYuMDYxQzE0MjguMjYgMTI3LjU0IDE0MjguNTUgMTI4Ljk3MSAxNDI5LjEzIDEzMC4zNDhDMTQyOS43MSAxMzEuNzMxIDE0MzAuNTIgMTMyLjk1NCAxNDMxLjU1IDEzNC4wMTRDMTQzMi41OSAxMzUuMDc0IDE0MzMuODMgMTM1LjkyNyAxNDM1LjI3IDEzNi41NjdDMTQzNi43MSAxMzcuMjA4IDE0MzguMjggMTM3LjUyNiAxNDQwIDEzNy41MjZaTTE0MzcuMzUgMTMzLjIzNEgxNDM0LjMyVjExNy43N0gxNDQxLjE0QzE0NDIuNjUgMTE3Ljc3IDE0NDMuODQgMTE4LjIwNCAxNDQ0LjcgMTE5LjA2NkMxNDQ1LjU2IDExOS45MjggMTQ0NS45OCAxMjEuMDUxIDE0NDUuOTggMTIyLjQzM0MxNDQ1Ljk4IDEyMy42MTkgMTQ0NS43MSAxMjQuNTc3IDE0NDUuMTUgMTI1LjMxOUMxNDQ0LjU5IDEyNi4wNjEgMTQ0My44OSAxMjYuNiAxNDQzLjAzIDEyNi45NDdMMTQ0Ni43NCAxMzMuMjM0SDE0NDMuMzRMMTQ0MCAxMjcuMzE4SDE0MzcuMzVWMTMzLjIzNFYxMzMuMjM0Wk0xNDQwLjk4IDEyNC45NDhDMTQ0Mi4xNSAxMjQuOTQ4IDE0NDIuNzMgMTI0LjQzMyAxNDQyLjczIDEyMy4zOTdWMTIxLjc2OUMxNDQyLjczIDEyMC43MzMgMTQ0Mi4xNSAxMjAuMjEzIDE0NDAuOTggMTIwLjIxM0gxNDM3LjM1VjEyNC45NDhIMTQ0MC45OFoiIGZpbGw9ImJsYWNrIi8+Cjwvc3ZnPgo="
+    },
+    "logo-vexcel": {
+      "mimeType": "image/svg+xml",
+      "id": "logo-vexcel",
+      "created": 1,
+      "lastRetrieved": 1,
+      "dataURL": "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDE0MS4wNiAxNjAuMzMiPgogIDxkZWZzPgogICAgPHN0eWxlPgogICAgICAuY2xzLTEgewogICAgICAgIGZpbGw6ICMxZjE5MWE7CiAgICAgIH0KICAgIDwvc3R5bGU+CiAgPC9kZWZzPgogIDwhLS0gR2VuZXJhdG9yOiBBZG9iZSBJbGx1c3RyYXRvciAyOC42LjAsIFNWRyBFeHBvcnQgUGx1Zy1JbiAuIFNWRyBWZXJzaW9uOiAxLjIuMCBCdWlsZCA3MDkpICAtLT4KICA8Zz4KICAgIDxnIGlkPSJMYXllcl8xIj4KICAgICAgPGc+CiAgICAgICAgPGc+CiAgICAgICAgICA8cGF0aCBjbGFzcz0iY2xzLTEiIGQ9Ik0xMC44NSwxNTAuNjJoMy4xMWMyLjEsMCw0LjExLDEuNDUsNC4xMSw0Ljc0LDAsMy42NC0yLjA5LDQuNzctNC4yLDQuNzdoLTMuMDN2LTkuNTFaTTEzLjg1LDE1OC42NWMxLjQzLDAsMi41MS0uNjQsMi41MS0zLjI5LDAtMi4zMS0xLjAzLTMuMjYtMi40My0zLjI2aC0xLjQ4djYuNTVoMS40WiIvPgogICAgICAgICAgPHBhdGggY2xhc3M9ImNscy0xIiBkPSJNMjYuMzcsMTU4LjVoLTMuODRsLS41NiwxLjYzaC0xLjU5bDMuNDItOS41MWgxLjNsMy40Miw5LjUxaC0xLjU5bC0uNTctMS42M1pNMjMsMTU3LjEzaDIuODlsLTEuNDMtNC4xOGgtLjAzbC0xLjQ0LDQuMThaIi8+CiAgICAgICAgICA8cGF0aCBjbGFzcz0iY2xzLTEiIGQ9Ik0zMi41MywxNTIuMTFoLTIuODR2LTEuNDhoNy4yNnYxLjQ4aC0yLjgydjguMDNoLTEuNnYtOC4wM1oiLz4KICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTQ0LjM3LDE1OC41aC0zLjg0bC0uNTYsMS42M2gtMS41OWwzLjQyLTkuNTFoMS4zbDMuNDIsOS41MWgtMS41OWwtLjU3LTEuNjNaTTQxLjAxLDE1Ny4xM2gyLjg5bC0xLjQzLTQuMThoLS4wM2wtMS40NCw0LjE4WiIvPgogICAgICAgICAgPHBhdGggY2xhc3M9ImNscy0xIiBkPSJNNTUuMDMsMTUwLjYyaDMuNzljMS45LDAsMy4yNSwxLjExLDMuMjUsM3MtMS4yNCwyLjk3LTMuMjMsMi45N2gtMi4ydjMuNTNoLTEuNnYtOS41MVpNNTguNzksMTU1LjEyYy45LDAsMS42My0uNTMsMS42My0xLjQ5LDAtMS4xMy0uODItMS41Mi0xLjY0LTEuNTJoLTIuMTV2My4wMWgyLjE2WiIvPgogICAgICAgICAgPHBhdGggY2xhc3M9ImNscy0xIiBkPSJNNjUuMjYsMTUwLjYyaDMuNzljMS45MywwLDMuMjUsMS4wNywzLjI1LDIuOTYsMCwxLjQ4LS44NiwyLjQzLTIuMTIsMi43NmwyLjA1LDMuNzloLTEuNzhsLTEuOTMtMy42NWgtMS42NnYzLjY1aC0xLjZ2LTkuNTFaTTY4LjkyLDE1NS4wOWMxLjAzLDAsMS43NS0uNDMsMS43NS0xLjUxcy0uNzEtMS41MS0xLjc1LTEuNTFoLTIuMDZ2My4wMmgyLjA2WiIvPgogICAgICAgICAgPHBhdGggY2xhc3M9ImNscy0xIiBkPSJNNzUuMjgsMTU1LjNjMC0zLjI3LDIuMDItNC44OCw0LjEtNC44OHM0LjA3LDEuNjIsNC4wNyw0Ljg5YzAsMy42NC0yLDUuMDItNC4wNyw1LjAycy00LjEtMS40LTQuMS01LjA0Wk04MS44LDE1NS4zMWMwLTIuMzItMS4xNC0zLjQtMi40Mi0zLjRzLTIuNDMsMS4wNS0yLjQzLDMuMzhjMCwyLjU3LDEuMTEsMy41NiwyLjQzLDMuNTZzMi40Mi0uOTYsMi40Mi0zLjU0WiIvPgogICAgICAgICAgPHBhdGggY2xhc3M9ImNscy0xIiBkPSJNODYuNTksMTU1LjI0YzAtMy4xOSwyLTQuODIsNC4wOS00LjgyLDEuODksMCwzLjM0LDEuMjQsMy42MywzLjIxbC0xLjYyLjI2Yy0uMi0xLjA1LS43Ni0xLjk3LTIuMDEtMS45N3MtMi40MywxLjA5LTIuNDMsMy4zM2MwLDIuNTUsMS4xMSwzLjYxLDIuNDMsMy42MXMyLjEyLS44LDIuMS0yLjJoLTEuOTd2LTEuMzloMy41MnYxLjE0YzAsMi40OS0xLjUzLDMuOTItMy42NSwzLjkycy00LjA5LTEuNDctNC4wOS01LjA5WiIvPgogICAgICAgICAgPHBhdGggY2xhc3M9ImNscy0xIiBkPSJNOTgsMTUwLjYyaDMuNzljMS45MywwLDMuMjUsMS4wNywzLjI1LDIuOTYsMCwxLjQ4LS44NiwyLjQzLTIuMTIsMi43NmwyLjA1LDMuNzloLTEuNzhsLTEuOTMtMy42NWgtMS42NnYzLjY1aC0xLjZ2LTkuNTFaTTEwMS42NiwxNTUuMDljMS4wMywwLDEuNzUtLjQzLDEuNzUtMS41MXMtLjcxLTEuNTEtMS43NS0xLjUxaC0yLjA2djMuMDJoMi4wNloiLz4KICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTExMy41NCwxNTguNWgtMy44NGwtLjU2LDEuNjNoLTEuNTlsMy40Mi05LjUxaDEuM2wzLjQyLDkuNTFoLTEuNTlsLS41Ny0xLjYzWk0xMTAuMTcsMTU3LjEzaDIuODlsLTEuNDMtNC4xOGgtLjAzbC0xLjQ0LDQuMThaIi8+CiAgICAgICAgICA8cGF0aCBjbGFzcz0iY2xzLTEiIGQ9Ik0xMTguODksMTUwLjYyaDEuODZsMi44NSw2LjYzaC4wM2wyLjgzLTYuNjNoMS44NXY5LjUxaC0xLjZ2LTYuNTNoLS4wM2wtMi44Nyw2LjUzaC0uNDFsLTIuODctNi41M2gtLjA0djYuNTNoLTEuNnYtOS41MVoiLz4KICAgICAgICA8L2c+CiAgICAgICAgPGc+CiAgICAgICAgICA8cG9seWdvbiBjbGFzcz0iY2xzLTEiIHBvaW50cz0iMCAxMTUuMzkgNC43MyAxMTUuMzcgMTEuOTUgMTMxLjg1IDE5LjM1IDExNS4zNyAyNCAxMTUuMzcgMTIuMTMgMTQxLjI1IDExLjgxIDE0MS4yNSAwIDExNS4zOSIvPgogICAgICAgICAgPHBvbHlnb24gY2xhc3M9ImNscy0xIiBwb2ludHM9IjMzLjAyIDEyNi4xIDMzLjAyIDExOS41MSA0NC4xMyAxMTkuNTEgNDQuMTMgMTE1LjM3IDI4Ljc3IDExNS4zNyAyOC43NyAxNDEuMjUgNDQuMTMgMTQxLjI1IDQ0LjEzIDEzNy4wMyAzMy4wMiAxMzcuMDMgMzMuMDIgMTMwLjA2IDQzLjQ2IDEzMC4wNiA0My40NiAxMjYuMSAzMy4wMiAxMjYuMSIvPgogICAgICAgICAgPHBvbHlnb24gY2xhc3M9ImNscy0xIiBwb2ludHM9IjEwNy4yNCAxMjYuMSAxMDcuMjQgMTE5LjUxIDExOC4zNSAxMTkuNTEgMTE4LjM1IDExNS4zNyAxMDIuOTggMTE1LjM3IDEwMi45OCAxNDEuMjUgMTE4LjM1IDE0MS4yNSAxMTguMzUgMTM3LjAzIDEwNy4yNCAxMzcuMDMgMTA3LjI0IDEzMC4wNiAxMTcuNjggMTMwLjA2IDExNy42OCAxMjYuMSAxMDcuMjQgMTI2LjEiLz4KICAgICAgICAgIDxwb2x5Z29uIGNsYXNzPSJjbHMtMSIgcG9pbnRzPSI0OS40NyAxMTUuMzcgNTQuMzUgMTE1LjM3IDYwLjYzIDEyNC45NCA2Ni45OSAxMTUuMzcgNzEuOTMgMTE1LjM3IDYzLjU1IDEyOC4xMiA3Mi40IDE0MS4yNSA2Ny41NiAxNDEuMjUgNjAuNjUgMTMxLjIyIDUzLjg4IDE0MS4yNSA0OC45IDE0MS4yNSA1Ny44MSAxMjguMTQgNDkuNDcgMTE1LjM3Ii8+CiAgICAgICAgICA8cGF0aCBjbGFzcz0iY2xzLTEiIGQ9Ik04Ny44NCwxMzcuNGMtNS4wMSwwLTguOTUtNC4wOC04Ljk1LTkuMDlzMy45NC05LjA5LDguOTUtOS4wOWMyLjQ4LDAsNC43NCwxLDYuMzgsMi42MmwyLjgxLTMuMDdjLTIuMzgtMi4yOS01LjYyLTMuNy05LjE5LTMuNy03LjMxLDAtMTMuMjQsNS45My0xMy4yNCwxMy4yNHM1LjkzLDEzLjI0LDEzLjI0LDEzLjI0YzMuNTgsMCw2LjgyLTEuNDIsOS4yMS0zLjcybC0yLjc4LTMuMTFjLTEuNjUsMS42NS0zLjkyLDIuNjctNi40MywyLjY3WiIvPgogICAgICAgICAgPHBvbHlnb24gY2xhc3M9ImNscy0xIiBwb2ludHM9IjEzMC4xMiAxMzcuMDUgMTMwLjEyIDExNS4zNyAxMjUuODMgMTE1LjM3IDEyNS44MyAxMzcuMDUgMTI1LjgzIDE0MS4yNSAxMzAuMTIgMTQxLjI1IDE0MS4wNiAxNDEuMjUgMTQxLjA2IDEzNy4wNSAxMzAuMTIgMTM3LjA1Ii8+CiAgICAgICAgPC9nPgogICAgICA8L2c+CiAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTcwLjUzLDBDNDQuODMsMCwyNCwyMC44MywyNCw0Ni41M3MyMC44Myw0Ni41Myw0Ni41Myw0Ni41Myw0Ni41My0yMC44Myw0Ni41My00Ni41M1M5Ni4yMywwLDcwLjUzLDBaTTk3LjYxLDI2LjEyYzUuMjgsMCw5LjU3LDQuMjgsOS41Nyw5LjU3cy00LjI4LDkuNTctOS41Nyw5LjU3LTkuNTctNC4yOC05LjU3LTkuNTcsNC4yOC05LjU3LDkuNTctOS41N1pNNDMuMzUsNjcuMjFjLTUuMjgsMC05LjU3LTQuMjgtOS41Ny05LjU3czQuMjgtOS41Nyw5LjU3LTkuNTcsOS41Nyw0LjI4LDkuNTcsOS41Ny00LjI4LDkuNTctOS41Nyw5LjU3Wk00My4zNSw0NS4yNWMtNS4yOCwwLTkuNTctNC4yOC05LjU3LTkuNTdzNC4yOC05LjU3LDkuNTctOS41Nyw5LjU3LDQuMjgsOS41Nyw5LjU3LTQuMjgsOS41Ny05LjU3LDkuNTdaTTcwLjUzLDg5LjE3Yy01LjI4LDAtOS41Ny00LjI4LTkuNTctOS41N3M0LjI4LTkuNTcsOS41Ny05LjU3LDkuNTcsNC4yOCw5LjU3LDkuNTctNC4yOCw5LjU3LTkuNTcsOS41N1pNNzAuNTMsNjcuMjFjLTUuMjgsMC05LjU3LTQuMjgtOS41Ny05LjU3czQuMjgtOS41Nyw5LjU3LTkuNTcsOS41Nyw0LjI4LDkuNTcsOS41Ny00LjI4LDkuNTctOS41Nyw5LjU3Wk03MC41Myw0NS4yNWMtNS4yOCwwLTkuNTctNC4yOC05LjU3LTkuNTdzNC4yOC05LjU3LDkuNTctOS41Nyw5LjU3LDQuMjgsOS41Nyw5LjU3LTQuMjgsOS41Ny05LjU3LDkuNTdaTTcwLjUzLDIzLjNjLTUuMjgsMC05LjU3LTQuMjgtOS41Ny05LjU3czQuMjgtOS41Nyw5LjU3LTkuNTcsOS41Nyw0LjI4LDkuNTcsOS41Ny00LjI4LDkuNTctOS41Nyw5LjU3Wk05Ny42MSw2Ny4yMWMtNS4yOCwwLTkuNTctNC4yOC05LjU3LTkuNTdzNC4yOC05LjU3LDkuNTctOS41Nyw5LjU3LDQuMjgsOS41Nyw5LjU3LTQuMjgsOS41Ny05LjU3LDkuNTdaIi8+CiAgICA8L2c+CiAgPC9nPgo8L3N2Zz4="
+    },
+    "logo-costar": {
+      "mimeType": "image/svg+xml",
+      "id": "logo-costar",
+      "created": 1,
+      "lastRetrieved": 1,
+      "dataURL": "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjIiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDE1ODAgMjc4Ij4KICA8cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0yOS41IDIxOSAuMiAxMjYuOWMtLjUtMiAuMS00LjEgMS42LTUuNWw0NC45LTM1LjhjMS40LTEuMiAzLjYtLjkgNC43LjVxMCAuMS4xLjFMODQuOCAxMzNjMS4xIDEuOCAxLjEgMy45LjEgNS43bC01Mi4zIDgwLjdjLTEuMSAxLjYtMi40IDEuNC0zLjEtLjRtMTQ3IDU4LjEtOTUuMS0uMWMtMi0uMS0zLjgtMS4zLTQuNi0zLjJsLTE5LjYtNTQuNWMtLjctMS44LjMtMy44IDIuMS00LjVsNTQtMTcuOGMyLS41IDQgLjIgNS4zIDEuN2w1OS4yIDc1LjZjMS4yIDEuNS42IDIuNy0xLjMgMi44bTk5LjctMTI0LjQtMjkuNCA5Mi4xYy0uNyAxLjktMi40IDMuMi00LjUgMy40bC01Ni45IDIuMmMtMiAwLTMuNS0xLjUtMy42LTMuNWwuMS01Ny43Yy4xLTIuMSAxLjMtMy45IDMuMi00LjdsODguOS0zNGMxLjctLjYgMi44LjQgMi4yIDIuMm0tODUuNC0xMzUgNzYuOSA1N2MxLjYgMS4zIDIuMyAzLjMgMS45IDUuM0wyNTQgMTM1Ljl2LjFjLS42IDEuOC0yLjUgMi44LTQuMyAyLjJsLTUzLjktMTcuOWMtMS45LS43LTMuMy0yLjUtMy40LTQuNWwtNC4zLTk2LjZjMC0xLjkgMS4yLTIuNiAyLjctMS41bS0xNTIuNCA0MSA3Ni45LTU2LjljMS43LTEuMSAzLjktMS4yIDUuNi0uMUwxNjguMyAzNGMxLjUgMS4xIDEuOSAzLjMuOCA0LjlsLTMzLjQgNDYuN2MtMS4zIDEuNi0zLjMgMi4zLTUuMyAxLjlMMzguOSA2MS43Yy0xLjgtLjUtMi4xLTEuOS0uNS0zbTQyOS45IDExOC43aDcuMmwtMy44IDM1LjZjLTE2LjQgNy42LTM0LjMgMTEuNS01Mi41IDExLjMtNDUgMC03MS41LTMzLjUtNzEuNS03MC43IDAtNDcgMzIuOS03Ni40IDczLjMtNzYuNCAyNC40IDAgMzguOSA2LjUgNDcuNCAxMS45bDEuMSAzMC44aC02LjljLTguMS0yMy0yMi4xLTMxLjctNDIuOS0zMS43LTM2LjIgMC00OS4zIDI2LjQtNDkuMyA1Ny43IDAgMzQuMSAxNS45IDY2LjcgNTIuNiA2Ni43IDI2LjkgMCAzNy4yLTEyLjIgNDUuMy0zNS4ybTY4LjUgNDcuM2MtMjcuNiAwLTQ5LjktMjIuNi00OS45LTUwLjcgMC0yOCAyMi4zLTUwLjYgNDkuOS01MC42IDI3LjcgMCA1MCAyMi42IDUwIDUwLjYgMCAyOC4xLTIyLjMgNTAuNy01MCA1MC43bTMwLjgtNDYuMmMwLTIzLjgtMTIuNy00My43LTM0LjQtNDMuNy0xOCAwLTI3LjEgMTQuNy0yNy4xIDM0LjggMCAyMy44IDEyLjcgNDMuNyAzNC40IDQzLjcgMTguMSAwIDI3LjEtMTQuOCAyNy4xLTM0LjhtMzIgMzMuNS0xLjQtMzQuNmg2LjdjNS42IDE5LjIgMTcuOSAzNi4zIDM5LjIgMzYuMyAxOS45IDAgMzMuMy05LjUgMzMuMy0yNS40IDAtMTQtMTAuOC0yMC0yNS44LTI2LjFsLTE5LjgtNy45Yy0xNy4zLTctMzIuMi0xNS4xLTMyLjItMzguMyAwLTIwLjEgMTkuNi0zOC43IDQ3LjYtMzguNyAxNi4zIDAgMzIuOCA0LjggNDAuNCAxMi4ydjMwLjRoLTUuM2MtNC43LTE5LjItMTUuMy0zMi4yLTM2LjMtMzIuMi0xNi44IDAtMjkuMyA5LjMtMjkuMyAyNCAwIDEyLjIgOC4zIDE3LjggMjIuMiAyMy4zbDIxLjIgOC42YzIwIDguMSAzNC41IDE2LjIgMzQuNSA0MCAwIDI2LjMtMjQgNDEtNTMuMyA0MS0xNy40IDAtMzIuNi01LTQxLjctMTIuNm0xMzMuMi04OC4zaDI2LjN2MTEuNWgtMjYuM3Y1Ny4yYzAgMTMuMiA1LjMgMTkuMSAxNi4zIDE5LjEgNC4yLjEgOC4zLS43IDEyLjItMi4zLjggMi4xIDEuNyA0IDIuNSA1LjgtNi4yIDYuMy0xNC43IDkuNy0yMy41IDkuNy0xMy44IDAtMjYuNC03LjItMjYuNC0yNi4ydi02My4yaC0xNXYtNi40YzExLjMtNS45IDE4LjYtMTIuOCAyNy45LTI0LjNoNnptMTEzIDc1LjVjMCA4LjEgMy42IDEyLjUgOSAxMi41cTMuMS0uMSA2LjEtLjZjLjYgMS45IDEuOSA0LjkgMi40IDYuMy00LjUgNC42LTEwLjcgNy4yLTE3LjEgNy4yLTkuNCAwLTE0LjEtNi42LTE3LTE2LjctNi43IDcuNS0xNyAxNi43LTMzLjggMTYuNy0xNy45IDAtMjcuNS0xMC44LTI3LjUtMjUuMiAwLTE3LjEgMTEuMS0yMS4yIDI1LTI1LjJsMzQtMTAuNnYtMy44YzAtMTUuMS02LTI2LjktMjEuNS0yNi45LTEwLjEgMC0xNC42IDQuMi0xNC42IDEzLjZxLjMgNC41IDEuMSA4LjlsLTE0LjkgMS44Yy0yLjYtMi42LTQuMS02LjItMy45LTkuOSAwLTE1LjIgMTUuOC0yNCAzNi4xLTI0IDIyLjIgMCAzNi42IDkuNCAzNi42IDM1LjR6bS0xOC45Ljd2LTI3LjJsLTMwLjcgMTAuMWMtNi40IDItOS41IDUuNy05LjUgMTIuNyAwIDEwLjUgNS44IDE1LjkgMTUuOCAxNS45IDEwLjYgMCAxNi45LTQuOCAyNC40LTExLjVtNzMuOC00OC4yYzguNS0xNS4zIDE2LjktMjguMyAzMC4xLTI4LjMgNC40IDAgNS40IDEgOS4yIDIuNXYxNi45aC04Yy0xMS42IDAtMTguNCAzLTI5LjcgMTcuM3Y0NC4zYzAgOS4yIDMuNyA5LjcgMTUgMTEuMnY3LjhoLTQ4Ljl2LTcuOGM3LjUtMS4xIDE1LTIgMTUtMTAuNXYtNjEuN2wtMTUtNi41di00LjRsMjYuOS04LjhoNi4zem0xNDAuNy03NC40YzI0LjQgMCAzOSA2LjQgNDcuNCAxMS43bDEuMSAzMC44aC02LjhjLTguMi0yMy0yMi4xLTMxLjctNDIuOS0zMS43LTM2LjIgMC00OS40IDI2LjUtNDkuNCA1Ny44IDAgMzQuMSAxNi45IDY3IDUyLjYgNjcgMTYuNCAwIDI0LjYtMy45IDMyLjItMTAuOXYtMjUuNGMwLTEyLjQtMTEuMy0xNC4zLTIyLjYtMTV2LTcuM2g1Ni41djcuM2MtNy41IDEtMTUuMSAyLjYtMTUuMSAxNXYzMy4zYy0xNi40IDkuOS0zNS4yIDE1LTU0LjMgMTQuNy00NSAwLTcxLjgtMzMuNy03MS44LTcwLjkgMC00NyAzMy4zLTc2LjQgNzMuMS03Ni40bTEwNi45IDc0LjRjOC41LTE1LjMgMTcuNC0yOC4zIDMwLjYtMjguMyAzLjQgMCA2LjcuOSA5LjcgMi41djE2LjloLTljLTExLjYgMC0xNy40IDMtMzIuNCAxNy4zdjQ0LjNjMCA5LjIgNy41IDkuNyAxOC44IDExLjJ2Ny44aC00OXYtNy44YzcuNS0xLjEgMTEuMy0yIDExLjMtMTAuNXYtNjEuN2wtMTEuMy02LjV2LTQuNGwyNS44LTguOGg2LjR6bTkwLjEgNzIuOWMtMjcuNyAwLTUwLTIyLjYtNTAtNTAuNiAwLTI4LjEgMjIuMy01MC43IDUwLTUwLjcgMjcuNiAwIDQ5LjkgMjIuNiA0OS45IDUwLjcgMCAyOC0yMi4zIDUwLjYtNDkuOSA1MC42bTMwLjctNDYuMmMwLTIzLjgtMTIuNy00My43LTM0LjQtNDMuNy0xOC4xIDAtMjcuMSAxNC44LTI3LjEgMzQuOCAwIDIzLjggMTIuNyA0My43IDM0LjQgNDMuNyAxOC4xIDAgMjcuMS0xNC44IDI3LjEtMzQuOG0xMDMuNCAyNy41Yy03LjcgOS42LTE5LjEgMTguNC0zMy40IDE4LjQtMTcuNyAwLTI5LjktOC40LTI5LjktMjkuOXYtNTAuMWMwLTYuNy0zLTguNS0xMi05LjZsLTMuMS0uNFYxMjdsMjguOS0zLjRoNC43bC4zIDE4Ljh2NDkuNGMwIDEzLjYgNy4zIDE4LjYgMTggMTguNiAxMSAwIDE5LjctNS45IDI3LjItMTIuMnYtNTMuOWMwLTYuNy0yLjktOC41LTEyLTkuNmwtMy4xLS40VjEyN2wyOC44LTMuNGg0LjdsLjQgMTguOHY1OS4zYzAgNi4zIDEuOSA3LjYgMTAuNCA4LjVsNC43LjZ2Ny4zbC0zMi43IDUuM2gtMi43em02OC40IDExLjN2MzJjMCA4LjUgMy44IDkuNCAxNS4xIDEwLjV2NS44aC00OXYtNS44YzcuNi0xLjEgMTUuMS0yIDE1LjEtMTAuNVYxNDMuM2wtMTUuMS02LjV2LTQuNGwyNy44LTguOGg2LjNsLS45IDE2LjljOC4zLTEwLjcgMjEtMTcuMSAzNC42LTE3LjIgMjcuOSAwIDQyLjUgMjAuNiA0Mi41IDQ2IDAgMzQuMS0yMy4yIDU1LjMtNTEuNyA1NS4zLTEwLjkgMC0yMC45LTMtMjQuNy03LjRtNTcuOC00MC4yYzAtMTkuMS03LjEtMzkuOC0zMC40LTM5LjgtMTEuMSAwLTIzLjYgNS41LTI3LjQgMTIuMnY0MS40YzAgMTcuNSAxMi45IDIzLjIgMjYuNiAyMy4yIDE5IDAgMzEuMi0xMy4yIDMxLjItMzdtNTUuMy01My44djIuOWgtOHYyMS41aC0zLjN2LTIxLjVoLTguMXYtMi45em0yLjkgMGg0LjdsNi44IDIwLjYgNi45LTIwLjZoNC42djI0LjRoLTMuMXYtMTQuNHEtLjEtLjggMC0yLjVWMTI3bC02LjggMjAuNmgtMy4ybC02LjktMjAuNnYzLjVxLjEgMS44LjEgMi43djE0LjRoLTMuMXoiIHN0eWxlPSJmaWxsOiMwMDAiLz4KPC9zdmc+Cg=="
+    }
+  }
 }

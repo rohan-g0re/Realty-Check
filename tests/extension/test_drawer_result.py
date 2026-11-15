@@ -164,9 +164,16 @@ def test_field_cells_before_and_after_verdicts(run):
     # before any verdict: sources with data are hollow, nothing is coloured
     assert r.R('.cell[data-s="agree"], .cell[data-s="contra"]').count() == 0
     assert r.cell("c2", "scan") == "wait"
+    # every worker has its own row in a fixed order; all that have started and are not finished work at once
     steps = r.R("#steps li")
-    assert 1 <= steps.count() <= 5
-    assert steps.first.locator(".sk").inner_text() == "County"  # latest on top
+    assert steps.locator(".sk").all_inner_texts() == ["Listing", "CoStar", "Matterport", "Vexcel", "County", "Judging"]
+    assert steps.evaluate_all("els => els.map(e => e.dataset.s)") == ["on"] * 5 + ["idle"]
+    assert r.R('#steps li[data-s="on"] .sd i').count() == 45  # five loaders
+    assert r.R('#steps li[data-s="on"] .sd i').first.evaluate("e => getComputedStyle(e).animationName") == "rc-wave"
+    # their phases differ, so five loaders never blink in unison
+    assert len(set(steps.evaluate_all("els => els.map(e => e.style.getPropertyValue('--ph'))"))) == 6
+    # nothing overflows the drawer: long lines end in an ellipsis
+    assert steps.locator(".st").evaluate_all("els => els.every(e => getComputedStyle(e).textOverflow === 'ellipsis')")
     r.R("#headline").wait_for(timeout=20000)
     # stories: aerial says 6 (the verdict's source), CoStar and County say 5 on their own record, no scan data
     assert [r.cell("c2", s) for s in ("record", "scan", "aerial", "county")] == ["agree", "none", "contra", "agree"]

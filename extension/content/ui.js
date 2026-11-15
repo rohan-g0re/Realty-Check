@@ -15,6 +15,10 @@
   const SRC = { record: "CoStar", scan: "Matterport", aerial: "Vexcel", county: "County" };
   const AG = { orchestrator: "Listing", claims: "Listing", matcher: "CoStar", inside: "Matterport", outside: "Vexcel", paper: "County", judge: "Judging" };
   const AG_SRC = { CoStar: "record", Matterport: "scan", Vexcel: "aerial", County: "county" };
+  // the live worker list, in this order always (rows never move while a check runs)
+  const WORKERS = ["Listing", "CoStar", "Matterport", "Vexcel", "County", "Judging"];
+  // the "at work" mark: a 3x3 grid of squares a wave travels across (CSS only; static under reduced motion)
+  const LOADER = `<span class="sd" aria-hidden="true">${"<i></i>".repeat(9)}</span>`;
   const BAD = new Set(["contradicted", "close"]);
   const UNIT_KINDS = new Set(["bedrooms", "bathrooms", "area_sqft"]);
   // Kinds where one source's own number can be compared with the listing's without the judge's plan/scan rules.
@@ -274,10 +278,13 @@
     if (!run) return;
     switch (ev.type) {
       case "step": {
-        // One line per source, newest text wins; the most recently active line sits on top.
+        // One line per worker, newest text wins; rows keep a fixed order (WORKERS). Every worker runs at the same
+        // time, so each row is working (on) from its first step until the judge starts (the sources have reported)
+        // or the run ends; a later step of its own wakes it again.
         run.step = ev.text;
         const k = AG[ev.agent] || "Working", s = run.steps.find((x) => x.k === k);
-        if (s) { s.text = ev.text; s.t = ++stepSeq; } else run.steps.push({ k, text: ev.text, t: ++stepSeq });
+        if (k === "Judging") for (const x of run.steps) if (x.k !== k) x.on = false;
+        if (s) { s.text = ev.text; s.t = ++stepSeq; s.on = true; } else run.steps.push({ k, text: ev.text, t: ++stepSeq, on: true });
         break;
       }
       case "run_started": {
@@ -296,8 +303,8 @@
       case "evidence": if (ev.evidence && typeof ev.evidence === "object") run.evidence.push(ev.evidence); break;
       case "verdict": run.verdicts[ev.verdict.claim_id] = cleanVerdict(ev.verdict); rebuildMarks(); break;
       case "fill_in": run.fillIn = Array.isArray(ev.facts) ? ev.facts : []; break;
-      case "done": run.done = ev; run.field = fieldOf(ev); run.t1 = Date.now(); run.step = ""; break;
-      case "error": run.error = ev.message || "Something went wrong."; break;
+      case "done": run.done = ev; run.field = fieldOf(ev); run.t1 = Date.now(); run.step = ""; for (const x of run.steps) x.on = false; break;
+      case "error": run.error = ev.message || "Something went wrong."; for (const x of run.steps) x.on = false; break;
       default: return;
     }
     render();
@@ -471,18 +478,29 @@
     updateLive(r);
     const st = $("steps");
     if (!st) return;
-    const list = r.steps.length ? r.steps.slice().sort((a, b) => b.t - a.t).slice(0, 5) : [{ k: "Starting", text: r.step, t: 0 }];
-    const top = list[0].k + "|" + list[0].t;
-    const fresh = st.dataset.top !== top;
-    st.dataset.top = top;
-    st.innerHTML = list.map((s, i) => {
-      const src = AG_SRC[s.k];
-      const cnt = src ? r.claims.filter((c) => ["data", "agree", "contra", "close"].includes(cellState(r, c, src))).length : 0;
-      return `<li class="${i === 0 ? "now" + (fresh ? " in" : "") : ""}"><span class="sd" aria-hidden="true"></span>
-        <span class="sx"><span class="sk">${esc(s.k)}</span><span class="st">${esc(s.text)}</span></span>
-        <span class="sc">${cnt ? cnt : ""}</span></li>`;
-    }).join("");
+    const ks = WORKERS.concat(r.steps.map((x) => x.k).filter((k) => !WORKERS.includes(k)));
+    if (st.dataset.ks !== ks.join("|")) { // rows are built once (and when an unknown worker turns up), then updated in place
+      st.dataset.ks = ks.join("|");
+      st.innerHTML = ks.map((k, i) => `<li data-k="${esc(k)}" data-s="idle" style="--ph:${(-0.31 * i).toFixed(2)}s">${LOADER}` +
+        `<span class="sx"><span class="sk">${esc(k)}</span><span class="st"></span></span><span class="sc"></span></li>`).join("");
+    }
+    for (const li of st.children) {
+      const k = li.dataset.k;
+      let s = r.steps.find((x) => x.k === k);
+      if (!s && k === "Listing" && !r.steps.length && r.step) s = { text: r.step, on: true }; // before the first step
+      const state = !s ? "idle" : s.on ? "on" : "done";
+      if (li.dataset.s !== state) li.dataset.s = state;
+      const text = s ? s.text : "Waiting to start", te = li.querySelector(".st");
+      if (te.textContent !== text) { te.textContent = text; te.title = text; if (s) bump(te, "chg"); }
+      const src = AG_SRC[k];
+      const cnt = src ? r.claims.filter((c) => ["data", "agree", "contra", "close"].includes(cellState(r, c, src))).length
+        : k === "Listing" ? r.claims.length : k === "Judging" ? Object.keys(r.verdicts).length : 0;
+      const ce = li.querySelector(".sc"), prev = Number(ce.dataset.n || 0);
+      if (prev !== cnt) { ce.dataset.n = cnt; ce.textContent = cnt ? cnt : ""; if (cnt > prev) bump(ce, "tick"); }
+    }
   }
+  // restart a one-shot CSS animation class
+  function bump(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
 
   function counts(r) {
     const c = r.done && r.done.counts;
@@ -1100,19 +1118,41 @@
   @keyframes rc-breathe{from{opacity:1}to{opacity:.35}}
   @keyframes rc-ping{0%,40%{outline:2px solid var(--blue);outline-offset:2px}100%{outline:2px solid transparent;outline-offset:6px}}
   .steps{list-style:none;margin-top:28px;display:flex;flex-direction:column;gap:14px}
-  .steps li{display:grid;grid-template-columns:16px minmax(0,1fr) auto;column-gap:14px;align-items:baseline;color:var(--mute)}
-  .sd{width:9px;height:9px;border-radius:50%;border:1.5px solid #9a9a9a;justify-self:center;transform:translateY(-1px)}
+  .steps li{display:grid;grid-template-columns:18px minmax(0,1fr) auto;column-gap:14px;align-items:start;color:var(--mute)}
+  /* the worker's mark: idle a faint hollow square, working a 3x3 wave (ink, its crest the one blue), done a muted check.
+     Wave and line shimmer ported by hand from beui.dev "Agent loading states" (Agent Progress grid, Thinking Shimmer,
+     Reasoning Text "swap"; github.com/starc007/ui-components): timings kept, colours and corners ours. */
+  .sd{position:relative;width:16px;height:16px;margin-top:4px;display:grid;grid-template-columns:repeat(3,4px);grid-auto-rows:4px;gap:2px;justify-self:center}
+  .sd i{display:block;background:var(--ink);opacity:0}
+  .sd::after{content:"";position:absolute;box-sizing:border-box}
+  .steps li[data-s="idle"] .sd::after{left:4px;top:4px;width:8px;height:8px;border:1px solid #cfcfcf}
+  .steps li[data-s="done"] .sd::after{left:5px;top:2px;width:6px;height:10px;border:solid #9a9a9a;border-width:0 1.5px 1.5px 0;transform:rotate(40deg)}
+  .steps li[data-s="on"] .sd i{opacity:.28;transform:scale(.72);animation:rc-wave 1.55s cubic-bezier(.42,0,.58,1) infinite;animation-delay:calc(var(--ph) + var(--w) * 140ms)}
+  .sd i:nth-child(2){--w:1}.sd i:nth-child(3){--w:2}.sd i:nth-child(4){--w:3}.sd i:nth-child(5){--w:4}
+  .sd i:nth-child(6){--w:5}.sd i:nth-child(7){--w:6}.sd i:nth-child(8){--w:7}.sd i:nth-child(9){--w:8}.sd i:nth-child(1){--w:0}
+  @keyframes rc-wave{0%,100%{opacity:.28;transform:scale(.72);background:var(--ink)}45%{background:var(--blue)}50%{opacity:1;transform:scale(1);background:var(--blue)}65%{background:var(--ink)}}
   .sx{display:flex;flex-direction:column;min-width:0}
-  .sk{font-size:17px}
+  .sk{font-size:17px;transition:color .3s ease}
   .st{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sc{font-size:15px;font-variant-numeric:tabular-nums}
-  .steps li.now{color:var(--ink)}
-  .steps li.now .sk{font-weight:500}
-  .steps li.now .sd{background:var(--ink);border-color:var(--ink);box-shadow:0 0 0 0 rgba(17,17,17,.35);animation:rc-pulse 1.6s ease-out infinite}
-  .steps li.now .st{animation:rc-breathe 1.2s ease-in-out infinite alternate}
-  .steps li.in{animation:rc-in .4s var(--ease)}
-  @keyframes rc-pulse{to{box-shadow:0 0 0 7px rgba(17,17,17,0)}}
-  @keyframes rc-in{from{transform:translateY(-8px);opacity:0}}
+  .sc{font-size:15px;font-variant-numeric:tabular-nums;display:inline-block;padding-top:2px;min-width:1ch;text-align:right}
+  .steps li[data-s="idle"]{color:#b8b8b8}
+  .steps li[data-s="idle"] .st{color:#c8c8c8}
+  .steps li[data-s="on"]{color:var(--ink)}
+  .steps li[data-s="on"] .sk{font-weight:500}
+  /* the working line: a slow light sweeps across the words */
+  .steps li[data-s="on"] .st{color:#6b6b6b;background:linear-gradient(110deg,#8a8a8a 30%,#111 50%,#8a8a8a 70%) 200% 0/200% 100%;
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:rc-shim 1.8s linear infinite;animation-delay:var(--ph)}
+  .steps li[data-s="on"] .st.chg{animation:rc-shim 1.8s linear infinite,rc-txt .2s ease-out}
+  .st.chg{animation:rc-txt .2s ease-out}
+  .sc.tick{animation:rc-tick .5s var(--ease)}
+  @keyframes rc-shim{from{background-position:200% 0}to{background-position:-200% 0}}
+  @keyframes rc-txt{from{opacity:0;transform:translateY(3px)}}
+  @keyframes rc-tick{0%{transform:translateY(-7px);opacity:0;color:var(--blue)}60%{color:var(--blue)}}
+  @media (prefers-reduced-motion: reduce){
+    .steps li[data-s="on"] .sd i{opacity:.8;transform:none}
+    .steps li[data-s="on"] .sd i:nth-child(5){background:var(--blue);opacity:1}
+    .steps li[data-s="on"] .st{background:none;-webkit-text-fill-color:currentColor;color:#4a4a4a}
+  }
   .chk{font-size:14px;line-height:1.4;color:var(--mute)}
   .run .chk{margin-top:24px}
   .res .chk{margin-top:8px}

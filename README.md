@@ -1,5 +1,11 @@
 # Realty Check
 
+**Realty Check is a custom agent harness that fact-checks a property listing.** The person selling writes the listing,
+and nobody checks it. Click the address on any listing page, whether it is a rental, a home for sale, a short stay or
+an office. About a minute later you see each claim that does not match, the value on record, a confidence score and
+the source that decided it. The record comes from four sources: CoStar, the Matterport 3D scan, Vexcel aerial imagery
+and the county.
+
 <table>
   <tr>
     <td width="50%" align="center" valign="top"><img src="docs/img/gallery/1.png" alt="Live check on a Zillow listing. The side panel streams each step of the run."><br><sub>Live check on a Zillow listing. The side panel streams each step of the run.</sub></td>
@@ -15,77 +21,26 @@
   </tr>
 </table>
 
-**Realty Check tells you, on the listing page itself, which of a listing's claims the building's own records back up and which they don't.**
-
 Built at HackPrinceton Fall 2026 (Nov 13–15).
-
-## Elevator pitch
-
-A listing is an advertisement, and nobody checks it. Realty Check is a Chrome extension that reads the listing you are
-looking at, pulls out every checkable claim (size, bedrooms, floors, year built, amenities) and has an AI agent test
-each one against four independent sources: the CoStar property record, the Matterport 3D scan, Vexcel aerial imagery
-and the county record. In about a minute you see what matches, what doesn't, how sure we are, and the exhibit behind
-every answer.
-
-## The simple explanation
-
-You open an apartment listing. It says "950 sq ft, 8 floors, built 2021".
-
-1. You click **Check this listing** in the sidebar.
-2. The agent reads the page and lists the claims it can test.
-3. Three helpers go and look: one walks the 3D scan of the inside, one measures the building from the air, one reads
-   the property and county records.
-4. A fixed set of rules compares what the listing says with what the sources found.
-5. The sidebar strikes through each claim that doesn't hold and shows the value the sources found, with a confidence
-   score and a link to the proof. A full report adds questions to ask before you tour, and facts the listing left out.
-
-The wording stays careful on purpose. A source having nothing on a claim is never counted against the listing, and a
-difference is reported as a difference, not as an accusation.
 
 ## Architecture
 
 ![Realty Check system architecture](docs/img/system-architecture.png)
 
-| Part | Where | What it does |
-|---|---|---|
-| Chrome extension (Manifest V3) | `extension/` | Reads the listing page, opens the sidebar, relays the live run, marks claims on the page |
-| Local server (FastAPI) | `server/` | `POST /check` starts a run and streams its events; also serves the full report, the 3D walkthrough and the exhibit library |
-| Orchestrator (deepagents) | `harness/graph/` | Reads the claims, matches the address to a building, decides which helpers are needed, hands out the work |
-| Inside helper | `harness/graph/`, `tools/scan/` | Matterport scan: room counts, measured floor area, in-unit features |
-| Outside helper | `harness/graph/`, `tools/aerial/` | Vexcel aerial: roof height (and so floors), pools, courts and other outdoor features |
-| Paper helper | `harness/graph/`, `tools/` | CoStar record and county record: floors, year built, unit count, floor plans, amenities |
-| Judge | `harness/graph/judge.py`, `trust.py` | Plain code, no model: tolerances per claim type, a 0–100 confidence score, a citation for every verdict |
-
-The model proposes and gathers; it never decides a verdict. Every verdict comes from the rule code and must carry a
-citation, otherwise it is downgraded to "couldn't check". The agent runs on the Claude Code CLI login, so the
-harness holds no model API key.
-
-### Inside the harness
-
-The harness is the product. One run goes like this:
-
-1. **Snapshot in.** The extension sends the page text and address. The run has a hard limit of 96 seconds.
-2. **Orchestrator, turn 1.** `read_claims` pulls claims from the page (patterns, the page's structured data and one
-   model call; up to 40 claims of 11 kinds, ranges included). `match_listing` ties the address to one building. The
-   harness then works out which helpers this listing actually needs.
-3. **Orchestrator, turn 2.** It delegates through deepagents' `task` tool to three subagents, in parallel. Each has two
-   tools and reports back after one round:
-   - `inside`: `check_floor_plans`, `unit_feature_photos` (Matterport scan)
-   - `outside`: `measure_building`, `outdoor_feature_photos` (Vexcel aerial)
-   - `paper`: `county_lookup`, `building_record` (County record, CoStar record)
-4. **Orchestrator, turn 3.** `judge_claims`, then `fill_in` for facts the listing left out. The judge refuses once if
-   a helper that was needed was never asked.
-5. **Always-run close.** Plain code makes any source call the agent skipped, so a slow or cut-off agent still ends in
-   a full answer.
-6. **Judge.** Rules per claim type: counts must match exactly, written sizes within 5%, a scan-measured area from 12%
-   smaller to 5% larger. Each difference gets a 0–100 confidence from how big the gap is, how well the source suits
-   that claim, and whether other sources agree.
-7. **Citations.** Every verdict must point at its proof. One that cannot is downgraded to "couldn't check".
-
-Guard rails in code: the model runs as a fresh Claude Code CLI process per call with every API key stripped from its
-environment; it is capped at 14 calls and a 75-second budget; a missing feature is never a mismatch; a floor count
-read from a photo never decides; people's names are never shown.
-
+1. **Listing page to extension.** The Chrome extension (`extension/`) reads the page text and the address.
+2. **Extension to local server.** `POST /check` on the FastAPI server (`server/`) starts a run and streams every step
+   back to the side panel.
+3. **The harness runs** (`harness/graph/`, built on LangChain deepagents).
+   - One orchestrator reads up to 40 claims of 11 kinds and matches the address to one building.
+   - It delegates to three agents in parallel: 3D scan (Matterport), aerial imagery (Vexcel), records (CoStar and
+     county).
+   - Agents can call our six tools and nothing else. File, shell and to-do tools are switched off.
+   - Hard limits: 14 model calls and 96 seconds per run.
+   - Plain code makes any source call the agents skipped, so a cut-off run still ends in a full answer.
+4. **Fixed rules give the verdict.** The model gathers evidence and never judges. Counts must match exactly, written
+   sizes within 5%. A verdict with no citation becomes "couldn't check".
+5. **Saved run to report.** The side panel shows the mismatches. The full report adds the 3D scan at the spot that
+   settles the claim, facts the listing left out and questions to ask.
 
 ## Tracks
 

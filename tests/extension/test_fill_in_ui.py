@@ -55,8 +55,9 @@ def test_ui_handles_fill_in_neutrally():
     assert m, "factsHTML not found"
     fn = m.group(1)
     assert "VC[" not in fn and "#dc2626" not in fn and "#16a34a" not in fn  # no verdict colours
-    for field in ("f.label", "f.value", "f.why", "f.id", "f.src"):
+    for field in ("f.label", "f.value", "f.id"):
         assert f"esc({field})" in fn, field
+    assert "f.why" not in fn and "f.src" not in fn  # one line each: the value, label as the tooltip
     assert '"#extra"' in src
 
 
@@ -101,11 +102,11 @@ def test_sample_flow_shows_fill_in(env):
     page.locator("#rc-host #fi").wait_for(timeout=3000)
     facts = page.locator("#rc-host .fact")
     # the report's own five (done.harness.top_facts), as text, shown right away
-    assert facts.locator(".fl").all_inner_texts() == ["Elevators", "Homes available", "Utility meters",
-                                                      "311 requests nearby", "Seen from above"]
+    assert facts.evaluate_all("els => els.map(e => e.title)") == ["Elevators", "Homes available", "Utility meters",
+                                                                  "311 requests nearby", "Seen from above"]
     assert facts.first.locator(".fv").inner_text() == "2 passenger elevators"
-    assert facts.first.locator(".fs").inner_text() == "CoStar"
-    assert "furniture" in facts.first.locator(".fn").inner_text()
+    assert facts.first.get_attribute("aria-label") == "Elevators: 2 passenger elevators"
+    assert facts.locator(".fl, .fs, .fn").count() == 0  # one line each: the value only
     assert "Example Property Management" not in page.locator("#rc-host #fi").inner_text()  # never the manager
     assert page.locator("#rc-host #fiAll").inner_text() == "More in the full report"
     with env["ctx"].expect_page() as newp:
@@ -144,9 +145,9 @@ def test_server_fill_in_escaped_and_links_to_extra(env, monkeypatch):
     stub, page, errors = _run_stub(env, monkeypatch, FACTS)
     try:
         assert page.locator("#rc-host .fact").count() == 4
-        assert page.locator('#rc-host .fact[data-id="f2"] .fl').inner_text() == "Pets <b>"  # escaped, not markup
+        assert page.locator('#rc-host .fact[data-id="f2"]').get_attribute("title") == "Pets <b>"  # escaped, not markup
+        assert page.locator('#rc-host .fact[data-id="f2"] b').count() == 0
         assert page.locator('#rc-host .fact[data-id="f3"]').count() == 0  # never a lot size
-        assert page.locator('#rc-host .fact[data-id="f4"] .fs').inner_text() == "Vexcel"
         with env["ctx"].expect_page() as newp:
             page.locator("#rc-host #fiAll").click()
         rep = newp.value
@@ -173,7 +174,7 @@ def test_one_fact_singular(env, monkeypatch):
     stub, page, errors = _run_stub(env, monkeypatch, json.loads(json.dumps(FACTS[:1])))
     try:
         assert page.locator("#rc-host .fact").count() == 1
-        assert page.locator("#rc-host #fiH").inner_text().lower() == "not in the listing"
+        assert page.locator("#rc-host #fiH").inner_text().lower() == "beyond the listing"
         assert not errors, errors
     finally:
         page.close()

@@ -1,4 +1,4 @@
-"""The drawer's address line ("Checking: ..."), the "Not this?" picker, the server's claim field cells, proof pictures
+"""The drawer's low-confidence line, the "Not this?" picker, the server's claim field cells, proof pictures
 and the fresh-run mark, driven by invented Event runs through a stub checker (local fixture page only).
 
 Run: .venv/Scripts/python.exe -m pytest tests/extension/test_drawer_pick.py -q
@@ -113,9 +113,8 @@ def test_generic_button_is_not_locked_and_line_shows(make):
     snap = p.stub.requests[-1]
     assert "address_locked" not in snap
     assert snap["address_candidates"] and snap["address_candidates"][0]["text"] == snap["address_text"]
-    line = " ".join(p.R("#chkLine").inner_text().split())
-    assert line == f"Checking: {NAME} · {snap['address_text']} · Matches the building named in the page title."
-    assert "not sure" not in line
+    assert p.R("#chkLine").count() == 0  # sure enough: no line at all
+    assert "Checking:" not in p.R("#body").inner_text()
     assert p.R("#alts").count() == 0  # sure enough: the picker stays shut
     assert p.R("#pickOther").get_attribute("aria-expanded") == "false"
     p.R("#pickOther").click()
@@ -127,7 +126,8 @@ def test_generic_button_is_not_locked_and_line_shows(make):
 def test_low_confidence_opens_picker_and_restart_locks(make):
     p = make(conf=0.3)
     p.start_generic()
-    assert "We're not sure this is the right building." in p.R("#chkLine").inner_text()
+    assert p.R("#chkLine").inner_text().strip() == "We're not sure this is the right building."
+    assert ALT not in p.R("#chkLine").inner_text()
     assert p.R("#pickOther").get_attribute("aria-expanded") == "true"
     n = len(p.stub.requests)
     p.R("#alts .alt").first.click()
@@ -135,7 +135,7 @@ def test_low_confidence_opens_picker_and_restart_locks(make):
     assert len(p.stub.requests) == n + 1
     snap = p.stub.requests[-1]
     assert snap["address_text"] == ALT and snap["address_locked"] is True
-    assert ALT in p.R("#chkLine").inner_text()
+    assert ALT not in p.R("#chk").inner_text()  # the picked address is never spelled out
     assert not p.errors, p.errors
 
 
@@ -178,13 +178,11 @@ def test_drawer_is_text_only(make):
     assert not p.errors, p.errors
 
 
-def test_fresh_run_mark(make):
-    p = make(cache="off")
-    p.start_generic()
-    assert p.R('#counts .fresh').inner_text() == "fresh run"
-    q = make()
-    q.start_generic()
-    assert q.R('#counts .fresh').count() == 0
+def test_no_counts_line(make):
+    for p in (make(cache="off"), make()):
+        p.start_generic()
+        assert p.R("#counts").count() == 0  # no counts line, so no "fresh run" tag in the result either
+        assert "fresh run" not in p.R("#body").inner_text()
 
 
 def test_no_field_falls_back_to_drawer_rules(make):

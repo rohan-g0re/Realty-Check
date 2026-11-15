@@ -1,4 +1,4 @@
-"""The drawer on its own: every mismatch with its why, source and score, "Not in the listing", the questions to ask,
+"""The drawer on its own: every mismatch with its why, source and score, "Beyond the listing", the questions to ask,
 what matched and what nobody could check, all as text; rows while the run goes; never on the checker's own pages.
 
 Invented Event runs (drawer_events.py) through a stub checker, local fixture page only. Skips without Playwright.
@@ -190,8 +190,10 @@ def test_sample_style_fallback_cuts_manager(make):
             {"label": "Lot size", "value": "1 acre", "sources": ["County"]}]}
         return out
     p = make(evs)
-    assert p.R(".fact .fl").all_inner_texts() == ["Elevators"]
-    assert p.R(".fact .fv").inner_text() == "2 elevators"
+    assert p.R(".fact .fv").all_inner_texts() == ["2 elevators"]
+    assert p.R(".fact").get_attribute("title") == "Elevators"
+    assert p.R(".fact").get_attribute("aria-label") == "Elevators: 2 elevators"
+    assert p.R(".fact .fl, .fact .fs, .fact .fn").count() == 0  # one line each: the value only
     assert "Example Co" not in p.R("#body").inner_text()
     # no server report: the drawer drafts the questions with the report's own template
     assert p.R(".q .qt").first.inner_text() == \
@@ -199,11 +201,12 @@ def test_sample_style_fallback_cuts_manager(make):
     assert not p.errors, p.errors
 
 
-def test_address_shown_once(make):
-    p = make(lambda a: with_report(a, name="418 Linden Grove"))
-    assert " ".join(p.R("#chkLine").inner_text().split()) == f"Checking: {ADDRESS}"
-    q = make(lambda a: with_report(a, name="Larkspur Example Commons"))
-    assert " ".join(q.R("#chkLine").inner_text().split()) == f"Checking: Larkspur Example Commons · {ADDRESS}"
+def test_no_address_line_when_sure(make):
+    for name in ("418 Linden Grove", "Larkspur Example Commons"):
+        p = make(lambda a, name=name: with_report(a, name=name))
+        assert p.R("#chkLine").count() == 0  # a sure pick needs no "Checking:" line
+        assert "Checking:" not in p.R("#body").inner_text()
+        assert p.R("#counts").count() == 0
 
 
 def test_not_on_the_checkers_own_pages(env):

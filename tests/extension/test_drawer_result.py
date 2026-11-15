@@ -81,10 +81,8 @@ def test_many_findings_every_row(run):
     r = run()  # 34 claims: 4 not true, 1 close, 4 couldn't check
     assert r.headline() == "5 things don't match."
     assert r.R("#headline").get_attribute("data-n") == "5"
-    meta = r.R("#counts").inner_text()
-    for part in ("25 true", "5 don't match", "4 couldn't check"):  # a close one counts as a mismatch
-        assert part in meta, meta
-    assert "close" not in meta, meta
+    assert r.R("#counts").count() == 0  # no counts line
+    assert r.R("#cantToggle .fit").inner_text() == "4 couldn't check"
     finds = r.R(".find")
     assert finds.count() == 5  # every mismatch, no cap: the list scrolls inside the drawer
     assert r.R("#moreF").count() == 0
@@ -105,7 +103,7 @@ def test_many_findings_every_row(run):
     assert "Close" not in r.R('.fr[data-id="c3"]').inner_text()
     assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
     assert r.R('.fr[data-id="c1"] .fy').inner_text() == "Invented reason."  # one short why line
-    assert r.R("#mmH").inner_text().lower() == "what doesn't match"
+    assert r.R("#mmH").inner_text().lower() == "mismatch"
     with r.page.context.expect_page() as newp:
         r.R('.fr[data-id="c2"] .lproof').click()
     rep = newp.value
@@ -139,8 +137,8 @@ def test_everything_matches_is_calm(run):
     assert r.headline() == "Everything we could check matches."
     assert "calm" in r.R("#headline").get_attribute("class")
     assert r.R(".find").count() == 0 and r.R("#moreF").count() == 0
-    meta = r.R("#counts").inner_text()
-    assert "9 true" in meta and "3 couldn't check" in meta and "close" not in meta, meta
+    assert r.R("#counts").count() == 0
+    assert r.R("#cantToggle .fit").inner_text() == "3 couldn't check"
     assert r.R('.cell[data-s="contra"]').count() == 0  # no blue anywhere
     assert not r.errors, r.errors
 
@@ -251,14 +249,14 @@ def test_reduced_motion_turns_animation_off(run):
     assert set(names) == {"none"}, names
 
 
-# ---------- not in the listing ----------
+# ---------- beyond the listing ----------
 
 def test_fill_in_shows_in_place(run):
     r = run()
-    assert r.R("#fiH").inner_text().lower() == "not in the listing"
+    assert r.R("#fiH").inner_text().lower() == "beyond the listing"
     # shown as text right away; never a lot size or a building class
-    assert r.R(".fact .fl").all_inner_texts() == ["Plan A", "Pets", "Rooftop", "Asking rent"]
-    assert r.R(".fact").first.locator(".fs").inner_text() == "CoStar"
+    assert r.R(".fact").evaluate_all("els => els.map(e => e.title)") == ["Plan A", "Pets", "Rooftop", "Asking rent"]
+    assert r.R(".fact .fv").count() == 4 and r.R(".fact .fl, .fact .fs, .fact .fn").count() == 0
     assert r.R("#fiAll").inner_text() == "More in the full report"
     assert r.R(".find").count() == 5  # the rest of the result stays as it was
     assert not r.errors, r.errors

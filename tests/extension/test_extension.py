@@ -92,12 +92,11 @@ def test_sample_flow_marks_and_report(env):
     page.locator("#rc-host #useSample").click()
     page.locator("#rc-host #cols .col").nth(4).wait_for(timeout=10000)  # the claim field, one column per claim
     page.locator("#rc-host #headline").wait_for(timeout=15000)
-    # concise verdict: the report's headline and lead line (done.top), quiet counts line, findings in the report's order
+    # concise verdict: the report's headline and lead line (done.top), no counts line, findings in the report's order
     assert headline(page) == "4 things don't match."  # three contradicted and one close: every one counts
     assert page.locator("#rc-host #topLine").inner_text().startswith("Biggest difference: the listing says “5-story building”")
-    meta = page.locator("#rc-host #counts").inner_text()
-    assert "Sample result" in meta and "2 true" in meta and "4 don't match" in meta and "1 couldn't check" in meta, meta
-    assert "close" not in meta, meta
+    assert page.locator("#rc-host #counts").count() == 0
+    assert page.locator("#rc-host #cantToggle .fit").inner_text() == "1 couldn't check"
     finds = page.locator("#rc-host .find")
     # strictly by score, highest first (82, 70, 64, 58); the run's pick never moves a row
     assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c2", "c7", "c1", "c3"]

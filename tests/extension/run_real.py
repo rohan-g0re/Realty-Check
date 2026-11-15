@@ -40,13 +40,13 @@ def text_of(page, sel) -> str:
 
 
 def drawer_counts(page) -> dict:
-    """The drawer's counts: the headline number (things that don't match) and the meta line (#counts span[data-k]:
-    "3 true", "1 close", "4 couldn't check")."""
+    """The drawer's counts: the headline number (things that don't match) and the collapsed lines
+    ("#okToggle": "3 confirmed", "#cantToggle": "4 couldn't check")."""
     out = {"doesnt_match": page.locator("#rc-host #headline").first.get_attribute("data-n")}
-    for k, t in page.locator("#rc-host #counts span[data-k]").evaluate_all(
-            "els => els.map(e => [e.dataset.k, e.innerText])"):
-        if k in ("confirmed", "close", "cant_check"):
-            out[k] = t.split(" ", 1)[0]
+    for k, sel in (("confirmed", "#okToggle .fit"), ("cant_check", "#cantToggle .fit")):
+        loc = page.locator(f"#rc-host {sel}")
+        if loc.count():
+            out[k] = loc.first.inner_text().split(" ", 1)[0]
     return out
 
 
@@ -144,7 +144,7 @@ def run_page(ctx, base, server, name, out, tag, timeout_s):
         print(f"  (could not read saved events: {type(e).__name__})")
 
     print(f"\n== {name}: {secs:.1f} s")
-    print(f"address:  {text_of(page, '#rc-host #chkLine') or text_of(page, '#rc-host #where')}")
+    print(f"address:  {text_of(page, '#rc-host #where') or text_of(page, '#rc-host #chkLine')}")
     print(f"headline: {headline}")
     print(f"counts:   {counts}")
     print(f"page marks: {n_marks}; proof image shown in drawer: {proof}; report images loaded: {sum(rep_imgs)}/{len(rep_imgs)}")

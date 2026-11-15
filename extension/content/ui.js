@@ -1,5 +1,5 @@
 // Realty Check: edge tab, drawer and run flow. Everything lives in ONE shadow root on <div id="rc-host">.
-// The drawer has two states: Running (clock, claim field, step list) and Result (headline, counts, field, top findings).
+// The drawer has two states: Running (clock, claim field, step list) and Result (headline, field, top findings).
 (() => {
   if (window.top !== window || document.getElementById("rc-host")) return;
   // Never on the checker's own pages (its report, 3D tour and data routes): the button would cover the report.
@@ -264,7 +264,13 @@
       else if (m.type === "unreachable") { me.unreachable = true; render(); }
       else if (m.type === "end" && !me.done && !me.error) { me.error = "The checker stopped before finishing."; render(); }
     });
-    p.onDisconnect.addListener(() => { if (port === p) port = null; void chrome.runtime.lastError; });
+    p.onDisconnect.addListener(() => {
+      const mine = port === p; // false when we closed it ourselves (stopRun)
+      if (mine) port = null;
+      void chrome.runtime.lastError;
+      // the link to the checker dropped mid-run: say so, never keep counting
+      if (mine && run === me && !me.done && !me.error && !me.unreachable) { me.error = "The checker stopped before finishing."; render(); }
+    });
     p.postMessage({ type: "check", snapshot });
   }
   function startSample() {
@@ -424,7 +430,6 @@
 
   // ---------- clock ----------
   const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
-  const took = (ms) => { const s = Math.max(1, Math.round(ms / 1000)); return s < 60 ? s + " s" : Math.floor(s / 60) + " min " + (s % 60) + " s"; };
   setInterval(() => {
     if (!open || !run || run.done || run.error || run.unreachable) return;
     const el = $("elapsed");
@@ -849,7 +854,7 @@
   }, true);
   addEventListener("resize", () => { if (ccBtn) ccPlace(); }, { passive: true });
   body.addEventListener("scroll", () => { if (ccBtn) requestAnimationFrame(ccPlace); }, { passive: true });
-  // "Not in the listing": the report's top five (done.report.facts, else done.harness.top_facts, else the fill_in
+  // "Beyond the listing": the report's top five (done.report.facts, else done.harness.top_facts, else the fill_in
   // list in renter order), text only; never a manager, owner, parcel, class or lot size, and no "; managed by" clause.
   function factsOf(r) {
     const rep = repOf(r), hz = r.done && r.done.harness;
@@ -872,10 +877,9 @@
   }
   function factsHTML(facts) {
     if (!facts.length) return "";
-    return `<section class="sec" id="fi" aria-labelledby="fiH"><h2 class="sl" id="fiH">Not in the listing</h2><ul class="facts" id="fiList">` +
-      facts.map((f, i) => `<li class="fact"${f.id ? ` data-id="${esc(f.id)}"` : ""} style="--i:${i}">` +
-        `<div class="fq"><span class="fl">${esc(f.label)}</span><span class="fs">${esc(f.src)}</span></div>` +
-        `<div class="fv">${esc(f.value)}</div>${f.why ? `<div class="fn">${esc(f.why)}</div>` : ""}</li>`).join("") +
+    return `<section class="sec" id="fi" aria-labelledby="fiH"><h2 class="sl" id="fiH">Beyond the listing</h2><ul class="facts" id="fiList">` +
+      facts.map((f, i) => `<li class="fact"${f.id ? ` data-id="${esc(f.id)}"` : ""} style="--i:${i}"` +
+        ` title="${esc(f.label)}" aria-label="${esc(f.label + ": " + f.value)}"><div class="fv">${esc(f.value)}</div></li>`).join("") +
       `</ul><button class="lnk fiall" id="fiAll">More in the full report</button></section>`;
   }
   // "Ask before you tour": the report's drafted questions (done.report.questions); without them, the same template
@@ -938,17 +942,9 @@
     const t = topOf(r), rows = badRows(r);
     ccClose(true);
     ccRows = new Map(rows.map((x) => [String(x.id), x.src.pv || {}]));
-    const meta = [
-      r.mode === "sample" ? `<span>Sample result</span>` : "",
-      r.cache === "off" ? `<span class="fresh" data-k="fresh">fresh run</span>` : "",
-      k.confirmed ? `<span data-k="confirmed">${k.confirmed} true</span>` : "",
-      k.contradicted + k.close ? `<span data-k="off" class="b">${k.contradicted + k.close} ${k.contradicted + k.close === 1 ? "doesn't" : "don't"} match</span>` : "",
-      k.cant_check ? `<span data-k="cant_check">${k.cant_check} couldn't check</span>` : "",
-      `<span data-k="time">${took((r.t1 || Date.now()) - r.t0)}</span>`,
-    ].filter(Boolean).join(`<span class="sep" aria-hidden="true"> · </span>`);
-    let h = `<div class="res">${whoHTML(r)}${headlineHTML(r, k)}${t && t.line ? `<p class="topl" id="topLine">${esc(t.line)}</p>` : ""}<p class="meta" id="counts">${meta}</p><div class="chk" id="chk"></div>`;
+    let h = `<div class="res">${whoHTML(r)}${headlineHTML(r, k)}${t && t.line ? `<p class="topl" id="topLine">${esc(t.line)}</p>` : ""}<div class="chk" id="chk"></div>`;
     if (r.claims.length) h += fieldHTML(r, true);
-    if (rows.length) h += `<section class="sec" id="mm" aria-labelledby="mmH"><h2 class="sl" id="mmH">What doesn't match</h2><ul class="finds" id="finds">` +
+    if (rows.length) h += `<section class="sec" id="mm" aria-labelledby="mmH"><h2 class="sl" id="mmH">Mismatch</h2><ul class="finds" id="finds">` +
       rows.map((row, i) => findHTML(row, i, true, true)).join("") + `</ul></section>`;
     h += factsHTML(factsOf(r)) + questionsHTML(questionsOf(r, rows)) + checkedHTML(r) + `</div>`;
     body.innerHTML = h;
@@ -989,7 +985,7 @@
     };
     try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
   }
-  // ---------- "Checking: <building> · <address> · <why>" and "Not this? Pick another" ----------
+  // ---------- a guess says so; "Not this? Pick another" ----------
   const normA = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   function addrFor(text) {
     const k = normA(text);
@@ -1005,18 +1001,12 @@
   }
   function checkHTML(r) {
     if (r.mode !== "server" || !r.match) return "";
-    const m = r.match, pk = r.pick || {};
-    const ok = m.status === "matched";
-    const name = ok && m.name ? m.name : "";
-    const addr = (ok && m.address) || pk.chosen || r.address.full;
+    const pk = r.pick || {};
     const low = typeof pk.confidence === "number" && pk.confidence < LOW_PICK;
     const alts = altsOf(r);
     const shown = alts.length > 0 && (r.pickOpen == null ? low && !r.locked : r.pickOpen); // opened for a guess, not for a pick
-    // a guess keeps it short: the soft note replaces the reason (kept as the tooltip)
-    // the building's name once: dropped when the address already starts with it ("Linden Grove" · "418 Linden Grove Ave, ...")
-    const named = name && !normA(addr).startsWith(normA(name)) ? name : "";
-    const line = [named, addr, low ? "" : pk.why].filter(Boolean).map(esc).join(" · ");
-    let h = `<p class="chkl${low ? " low" : ""}" id="chkLine"${low && pk.why ? ` title="${esc(pk.why)}"` : ""}><span class="chkw">Checking:</span> ${line}${low ? `. <span class="unsure">We're not sure this is the right building.</span>` : ""}</p>`;
+    // only a guess gets a line (the reason kept as the tooltip)
+    let h = low ? `<p class="chkl low" id="chkLine"${pk.why ? ` title="${esc(pk.why)}"` : ""}>We're not sure this is the right building.</p>` : "";
     if (alts.length) {
       h += `<button class="lnk chkb" id="pickOther" aria-expanded="${shown}">Not this? Pick another</button>`;
       if (shown) h += `<ul class="alts" id="alts">` + alts.map((a) => `<li><button class="alt" data-t="${esc(a.text)}"><span class="aa">${esc(a.text)}</span>${a.name ? `<span class="an">${esc(a.name)}</span>` : ""}</button></li>`).join("") + `</ul>`;
@@ -1223,6 +1213,9 @@
   .cell{display:block;background:#f4f4f4;transition:background-color .45s ease,box-shadow .45s ease;transition-delay:calc(var(--r,0) * 80ms)}
   .cell[data-s="none"]{background:#ebebeb}
   .cell[data-s="data"]{background:#ebebeb}
+  /* while the run is on: a source that has brought something for a claim shows at once, before the judge calls it */
+  .run .cell[data-s="data"]{background:#9a9a9a;animation:rc-got .45s var(--ease) backwards}
+  @keyframes rc-got{from{background:#ebebeb;transform:scaleY(.4)}}
   .cell[data-s="agree"]{background:var(--ink)}
   .cell[data-s="contra"],.cell[data-s="close"]{background:var(--blue)}
   .cell[data-s="close"]:not([data-sh]),.cell[data-sh="low"]{background:#bccbf7}
@@ -1273,7 +1266,7 @@
   .res .chk{margin-top:8px}
   .chk:empty{display:none}
   .chkl{overflow-wrap:anywhere}
-  .chkw,.chkl .unsure{color:var(--ink)}
+  .chkl.low{color:var(--ink)}
   .chkb{min-height:36px;font-size:14px;color:var(--mute)}
   .alts{list-style:none;margin:2px 0 4px}
   .alts li{border-top:1px solid var(--line)}
@@ -1293,13 +1286,11 @@
   .hn{display:inline-block;animation:rc-settle .9s cubic-bezier(.2,1.5,.35,1) .1s backwards}
   @keyframes rc-rise{from{transform:translateY(.25em);opacity:0}}
   @keyframes rc-settle{0%{transform:translateY(-.5em);opacity:0}60%{opacity:1}}
-  .meta{margin-top:12px;font-size:15px;color:var(--mute);animation:rc-fade .5s ease .2s backwards}
-  .meta .b{color:var(--blue)}
   .topl{margin-top:14px;font-size:16px;line-height:1.4;animation:rc-fade .5s ease .15s backwards}
   .res .field{margin-top:24px}
   /* sections: a hairline and a small label each */
   .sec{margin-top:22px;padding-top:12px;border-top:1px solid var(--line)}
-  .sl{font-size:11px;line-height:1.3;font-weight:500;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);margin-bottom:4px}
+  .sl{font-size:15px;line-height:1.3;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:var(--ink);margin-bottom:6px}
   /* every mismatch, one compact row each */
   .finds{list-style:none;margin:0 -12px}
   .finds.live{margin-top:24px;border-top:1px solid var(--line);padding-top:4px}
@@ -1403,13 +1394,9 @@
   .filine.open .go{transform:rotate(90deg)}
   .filine:hover .go{color:var(--ink)}
   .facts{list-style:none}
-  .fact{padding:9px 0;border-top:1px solid #f0f0f0;animation:rc-rise .4s var(--ease) calc(var(--i) * 50ms) backwards}
+  .fact{padding:7px 0;border-top:1px solid #f0f0f0;animation:rc-rise .4s var(--ease) calc(var(--i) * 50ms) backwards}
   .fact:first-child{border-top:0}
-  .fq{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
-  .fl{font-size:15px;color:var(--mute);min-width:0}
-  .fs{flex:none;font-size:13px;color:#9a9a9a}
-  .fv{font-size:17px;color:var(--ink);overflow-wrap:anywhere}
-  .fn{font-size:13px;color:#8a8a8a;margin-top:1px}
+  .fv{font-size:16px;line-height:1.35;color:var(--ink);overflow-wrap:anywhere}
   .fiall,.qall{min-height:36px;margin-top:2px;font-size:14px;text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bbb;align-self:flex-start}
   /* questions to ask, each with Copy */
   .qs{list-style:none}

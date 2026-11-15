@@ -781,15 +781,96 @@ def _numeric_confidence(claim: dict, kind: str, claimed: float, winner: dict, fo
     return trust.confidence(trust.kind_key(claim), kind, claimed, found, winner["source"], out, small)
 
 
+# ---- building-wide ranges ("Studios–2 beds", "475–966 sq ft"): against the record's list of floor plans ----------
+
+RANGE_SQFT_TOL = 0.05   # the written-size tolerance (_written_band's confirmed band)
+RANGE_SQFT_FAR = 0.30   # a listing range reaching this far past the record's sizes: contradicted, not close
+RANGE_COUNT_FAR = 2     # bedrooms / bathrooms this many past the record's plans: contradicted, not close
+RANGE_MAX_SCORE = 40    # a plan list is often incomplete: a range mismatch stays in the low confidence band
+RANGE_KEY = {"bedrooms": "beds", "bathrooms": "baths", "area_sqft": "sqft"}
+
+
+def is_range(claim: dict) -> bool:
+    """A building range claim (harness.claims.extract): value = the low end, value_max = the high end."""
+    return (isinstance(claim, dict) and claim.get("kind") in UNIT_KINDS and _num(claim.get("value")) is not None
+            and _num(claim.get("value_max")) is not None)
+
+
+def range_phrase(kind: str, lo: float, hi: float) -> str:
+    """'studio to 2 bedrooms', '1 to 2 bathrooms', '475 to 966 sq ft'; one value when both ends are the same."""
+    if lo == hi:
+        return "studio" if kind == "bedrooms" and lo == 0 else phrase(kind, lo)
+    low = "studio" if kind == "bedrooms" and lo == 0 else _n(lo)
+    return f"{low} to {phrase(kind, hi)}"
+
+
+def _plan_list(e: dict) -> list | None:
+    """The building record's list of floor plans an evidence carries: observed.floorplans, or observed.range_plans
+    (the same list added for range claims only, run.Run.plan_list_for_ranges)."""
+    obs = e.get("observed") or {}
+    for k in ("floorplans", "range_plans"):
+        if isinstance(obs.get(k), list):
+            return obs[k]
+    return None
+
+
+def _judge_range(claim: dict, evidences: list[dict], base: dict) -> dict:
+    """A listing's range across the building against the range of the building record's floor plans. Within it
+    (sq ft within RANGE_SQFT_TOL): confirmed. Reaching past it: close, contradicted only when far off, always with
+    low confidence (a record's plan mix is often incomplete). No plan numbers: couldn't check. A 3D scan of one
+    unit never decides a building range."""
+    kind, claimed_txt = claim["kind"], base["claimed"]
+    lo, hi = _num(claim["value"]), _num(claim["value_max"])
+    key = RANGE_KEY[kind]
+    lists = [e for e in evidences or [] if isinstance(e, dict) and e.get("status") == "ok"
+             and e.get("source") == "record" and _plan_list(e) is not None]
+    vals = [v for e in lists for fp in _plan_list(e) if isinstance(fp, dict) for v in [_num(fp.get(key))]
+            if v is not None]
+    if not vals:
+        why = ("The building record's floor plans do not give this, so we could not check it." if lists else
+               "None of our sources lists the building's floor plans, so we could not check it.")
+        return {**base, "verdict": "cant_check", "found": "no floor plans" if lists else "no data", "source": None,
+                "reason": f"Listing says {claimed_txt}. {why}"}
+    rlo, rhi = min(vals), max(vals)
+    found_txt = range_phrase(kind, rlo, rhi)
+    runs = (f"The building record's floor plans run from {found_txt}." if rlo < rhi
+            else f"The building record's floor plans are all {found_txt}." if kind == "bedrooms" and rlo == 0
+            else f"The building record's floor plans all have {found_txt}.")
+    if kind == "area_sqft":
+        below = (rlo - lo) / rlo if lo < rlo and rlo else 0.0
+        above = (hi - rhi) / rhi if hi > rhi and rhi else 0.0
+        over = max(below, above)
+        verdict = "confirmed" if over <= RANGE_SQFT_TOL else "contradicted" if over > RANGE_SQFT_FAR else "close"
+    else:
+        below, above = max(0.0, rlo - lo), max(0.0, hi - rhi)
+        over = max(below, above)
+        verdict = "confirmed" if over == 0 else "contradicted" if over >= RANGE_COUNT_FAR else "close"
+    out = {**base, "verdict": verdict, "found": found_txt, "source": "record"}
+    if verdict == "confirmed":
+        return {**out, "reason": f"Listing says {claimed_txt}. {runs[:-1]}, which covers that."}
+    out["reason"] = (f"Listing says {claimed_txt}. {runs} The listing's range goes past that, but a building "
+                     "record's list of floor plans is often incomplete.")
+    claimed_edge, found_edge = (hi, rhi) if above >= below else (lo, rlo)
+    rows = [{"source": "record", "says": found_txt, "weight": trust.weight({**lists[0], "observed": {"floorplans": _plan_list(lists[0])}}, claim),
+             "agrees_with_listing": False, "same_as_decider": True, "covers_listing": False}]
+    conf = trust.confidence(trust.kind_key(claim), kind, claimed_edge, found_edge, "record", rows)
+    out["confidence"] = trust.cap(conf, RANGE_MAX_SCORE, "a building record's list of floor plans is often incomplete")
+    return out
+
+
 def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict:
     """single_unit: the run found the page is about one home (run.Run.single_unit_page), so a unit claim that names
     no floor plan may be decided by that home's own scan or the record's only plan, mismatch included."""
     kind = claim.get("kind")
-    claimed_txt = phrase(kind, claim.get("value"))
+    ranged = is_range(claim)
+    claimed_txt = (range_phrase(kind, _num(claim["value"]), _num(claim["value_max"])) if ranged
+                   else phrase(kind, claim.get("value")))
     base = {"claim_id": claim.get("id"), "claimed": claimed_txt, "image": None}
     if not claim.get("checkable", True):
         return {**base, "verdict": "cant_check", "found": "nothing to measure", "source": None,
                 "reason": "This is a marketing phrase with nothing we can measure."}
+    if ranged:
+        return _judge_range(claim, evidences, base)
     if amenities.is_feature_claim(claim):
         return judge_feature(claim, evidences, base)
     claimed = _num(claim.get("value"))

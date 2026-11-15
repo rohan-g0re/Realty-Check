@@ -22,7 +22,7 @@ METADATA = "metadata"
 MAX_CLAIMS = 40
 PROMPT_BUDGET = 9000
 # Bump whenever the prompt, the candidate rules or the post-model rules change: it keys the per-page claim cache.
-EXTRACTOR_VERSION = "claims-2026-11-14.3"
+EXTRACTOR_VERSION = "claims-2026-11-14.4"
 
 # ---------------------------------------------------------------- addresses and page regions
 
@@ -149,6 +149,49 @@ BUILDING_PATTERNS = [
                               r"(?!\s*(?:now\s+)?(?:available|left|for rent|remaining))", re.I)),
     ("unit_count", re.compile(r"\b(?:units|number of units|total units)\s*:\s*(\d{1,4})\b", re.I)),
 ]
+# Ranges over the whole building ("BEDS Studios–2", "Studio - 2 Beds", "1–2 Baths", "SQFT 475–966", "475 to 966 Sq
+# Ft"): a building-scope claim per kind, value = the low end, value_max = the high end (Studio = 0 bedrooms). Only
+# outside a plan card or unit row; inside one, a sq ft range stays that plan's size (its low end, as before).
+RANGE_DASH = r"\s*(?:-|–|—|to)\s*"
+BED_WORD = r"(?:bd|bds|bdrms?|beds?|bedrooms?|br)"
+BATH_WORD = r"(?:ba|baths?|bathrooms?)"
+RANGE_PATTERNS = [
+    ("bedrooms", re.compile(rf"(?<![\d,.])(studios?|\d)(?:\s*{BED_WORD})?{RANGE_DASH}(\d)\s*{BED_WORD}\b", re.I)),
+    ("bedrooms", re.compile(rf"\b(?:beds?|bedrooms?)\s*:?\s*(studios?|\d){RANGE_DASH}(\d)(?![\d.,])", re.I)),
+    ("bathrooms", re.compile(rf"(?<![\d,.])(\d(?:\.\d)?)(?:\s*{BATH_WORD})?{RANGE_DASH}(\d(?:\.\d)?)\s*{BATH_WORD}\b",
+                             re.I)),
+    ("bathrooms", re.compile(rf"\b(?:baths?|bathrooms?)\s*:?\s*(\d(?:\.\d)?){RANGE_DASH}(\d(?:\.\d)?)(?![\d.,])", re.I)),
+    ("area_sqft", re.compile(rf"(?<![\d,.]){SQFT_NUM}(?:\s*{SQFT_WORD})?{RANGE_DASH}{SQFT_NUM}\s*{SQFT_WORD}", re.I)),
+    ("area_sqft", re.compile(r"\b(?:sq\.?\s*ft\.?|sqft|square\s+(?:feet|footage))\s*:?\s*"
+                             rf"{SQFT_NUM}{RANGE_DASH}{SQFT_NUM}(?![\d,])", re.I)),
+]
+RANGE_TOP = {"bedrooms": 8, "bathrooms": 8, "area_sqft": 20000}
+# a line that is only a spec label ("BEDS", "Sq Ft:"): its value is on the next line
+BARE_LABEL_RE = re.compile(r"^\s*(?:beds?|bedrooms?|baths?|bathrooms?|sq\.?\s*ft\.?|sqft|square\s+(?:feet|footage))"
+                           r"\s*:?\s*$", re.I)
+
+
+def ranges_in(s: str) -> dict[str, tuple]:
+    """{kind: (low, high, quote, (start, end))} for the bed / bath / sq ft ranges one text states (first per kind)."""
+    got: dict[str, tuple] = {}
+    for kind, rx in RANGE_PATTERNS:
+        if kind in got or (kind == "area_sqft" and re.search(r"\blot\b|\bacres?\b", s, re.I)):
+            continue
+        for m in rx.finditer(s):
+            lo = 0 if m.group(1).lower().startswith("studio") else to_number(m.group(1))
+            hi = to_number(m.group(2))
+            if lo is None or hi is None or not lo < hi <= RANGE_TOP[kind]:
+                continue
+            got[kind] = (lo, hi, m.group(0), m.span())
+            break
+    return got
+
+
+def is_range(claim: Any) -> bool:
+    """A building-wide range claim ("Studios–2 beds"): value is the low end, value_max the high end."""
+    return isinstance(claim, dict) and claim.get("value_max") is not None
+
+
 RANGE_BEFORE = re.compile(r"(?:\d|studio)\s*(?:-|–|to)\s*$", re.I)
 # A statement with one of these words counts homes for rent, not the building's total ("11 Units Available",
 # "11 unit Rentals", "Showing 11 units"): no unit_count claim from it.
@@ -372,16 +415,26 @@ def _regex_claims(lines: list[str], excluded: list[bool], self_lines: list[int],
     blocks = _plan_blocks(lines, street, excluded, self_lines)
     labels, headed = blocks.labels, blocks.headed
     out: list[dict] = []
+    ranged: set[str] = set()  # kinds with a building range already (the first on the page wins)
     for i, ln in enumerate(lines):
         if excluded[i] or not ln.strip():
             continue
         label = labels[i]
         unit_ln = ln
-        if SPEC_TAIL_RE.search(ln) and i + 1 < len(lines) and not excluded[i + 1]:
+        if (SPEC_TAIL_RE.search(ln) or BARE_LABEL_RE.match(ln)) and i + 1 < len(lines) and not excluded[i + 1]:
             unit_ln = f"{ln.rstrip()} {lines[i + 1].strip()}"  # "SQFT:" / "559-603" on two lines
         unit_hits = []
+        spans = []
+        if not label:  # a range outside any plan card or unit row: the building's range
+            for kind, (lo, hi, quote, span) in ranges_in(unit_ln).items():
+                spans.append(span)
+                if kind not in ranged:
+                    ranged.add(kind)
+                    out.append({**_claim(kind, lo, "building", None, quote, line=i), "value_max": hi})
         for kind, rx in UNIT_PATTERNS:
             for m in rx.finditer(unit_ln):
+                if any(a < m.end() and m.start() < b for a, b in spans):
+                    continue  # one end of a building range
                 before = unit_ln[:m.start()]
                 if RANGE_BEFORE.search(before) or SPEC_TAIL_RE.search(before):
                     continue  # part of a range, or the value of another label ("Bedrooms: 2 Bathrooms: 1")
@@ -396,7 +449,8 @@ def _regex_claims(lines: list[str], excluded: list[bool], self_lines: list[int],
                     unit_hits[-1]["_row"] = True  # a unit row's own number: the rules own it, not the model
         # "Studio" counts as 0 bedrooms only inside a plan block or next to other unit numbers on the line
         sm = STUDIO_RE.search(ln)
-        if sm and (label or unit_hits) and not RANGE_BEFORE.search(ln[:sm.start()]):
+        if sm and (label or unit_hits) and not RANGE_BEFORE.search(ln[:sm.start()]) \
+                and not any(a < sm.end() and sm.start() < b for a, b in spans):
             unit_hits.append(_claim("bedrooms", 0, "unit", label, sm.group(0), line=i))
         out += unit_hits
         for kind, rx in BUILDING_PATTERNS:
@@ -427,9 +481,9 @@ def _resolve_unlabeled(claims: list[dict], self_lines: list[int]) -> list[dict]:
     value found closest to the clicked address (other values are usually page clutter)."""
     def dist(c):
         return min((abs(c["_line"] - s) for s in self_lines), default=c["_line"])
-    keep = [c for c in claims if c["kind"] not in NUMERIC_KINDS or c["label"]]
+    keep = [c for c in claims if c["kind"] not in NUMERIC_KINDS or c["label"] or is_range(c)]
     for kind in NUMERIC_KINDS:
-        unl = [c for c in claims if c["kind"] == kind and not c["label"]]
+        unl = [c for c in claims if c["kind"] == kind and not c["label"] and not is_range(c)]
         if not unl:
             continue
         if kind in UNIT_KINDS and any(c["kind"] == kind and c["label"] for c in claims):
@@ -692,7 +746,7 @@ bedrooms. A size range inside one plan card: value = the low end. unit_count is 
 units ("120 units", "This building has 11 units"); "11 units available" or "for rent" is availability: skip it.
 Skip prices, fees, specials, availability, dates,
 phone numbers, hours, schools, reviews, neighborhood and nearby places, and ranges over the whole building like
-"1-3 Beds" or "Studio, 1, 2 Bedrooms". Skip pure marketing words. A statement that states no fact gets no item.
+"1-3 Beds", "Studios–2" or "475–966 sq ft" (those are read separately). Skip pure marketing words. A statement that states no fact gets no item.
 Items in statement order. JSON only."""
 
 
@@ -822,6 +876,8 @@ def _read_reply(items: Any, cands: list[dict], page_norm: str) -> list[dict]:
                 continue
             if kind == "unit_count" and (AVAIL_RE.search(text) or cand.get("row")):
                 continue  # homes for rent now, not the building's total
+            if kind in UNIT_KINDS and not cand["label"] and kind in ranges_in(text):
+                continue  # a building range: read by the rules as a range claim, never as one unit's number
             if kind == "area_sqft" and (r := RANGE_RE.search(text)):
                 lo, hi = to_number(r.group(1)), to_number(r.group(2))
                 if value in (lo, hi):
@@ -880,7 +936,7 @@ def _key(c: dict) -> tuple:
         if c["kind"] == "amenity" and (names := _amenity_names(v)):
             return c["kind"], _norm_label(c["label"]), names
         v = " ".join(re.sub(r"[^a-z0-9]+", " ", _norm(v.translate(QUOTE_CHARS))).split())
-    return c["kind"], _norm_label(c["label"]), v
+    return c["kind"], _norm_label(c["label"]), v, c.get("value_max")
 
 
 def _drop_unlabeled_on_plan_pages(claims: list[dict]) -> list[dict]:
@@ -889,7 +945,7 @@ def _drop_unlabeled_on_plan_pages(claims: list[dict]) -> list[dict]:
     states the same value (the page unit's "705 sq ft" in JSON-LD repeats its row in the unit table)."""
     plans = {k: {_norm_label(c["label"]) for c in claims if c["kind"] == k and c["label"]} for k in UNIT_KINDS}
     vals = {(c["kind"], c["value"]) for c in claims if c["kind"] in UNIT_KINDS and c["label"]}
-    return [c for c in claims if not (c["kind"] in UNIT_KINDS and not c["label"] and len(plans[c["kind"]]) >= 2
+    return [c for c in claims if is_range(c) or not (c["kind"] in UNIT_KINDS and not c["label"] and len(plans[c["kind"]]) >= 2
                                       and (c.get("origin") != METADATA or (c["kind"], c["value"]) in vals))]
 
 
@@ -927,6 +983,8 @@ def _finish(groups: list[list[dict]]) -> list[dict]:
     for n, c in enumerate(merged[:MAX_CLAIMS], 1):
         out.append({"id": f"c{n}", "kind": c["kind"], "value": c["value"], "unit": None,
                     "scope": c["scope"], "label": c["label"], "quote": c["quote"], "checkable": c["checkable"]})
+        if is_range(c):
+            out[-1]["value_max"] = c["value_max"]
         if c.get("origin"):
             out[-1]["origin"] = c["origin"]
     for c in out:
@@ -1013,8 +1071,8 @@ def extract_claims(snapshot: dict, use_model: bool = True) -> list[dict]:
     # Other regex claims fill only (kind, label) slots the model left empty, so model judgement wins on conflicts.
     covered = {(c["kind"], _norm_label(c["label"])) for c in model}
     covered_kinds = {c["kind"] for c in model}
-    fill = [c for c in regex if (c["kind"], _norm_label(c["label"])) not in covered
-            and (c["kind"] in NUMERIC_KINDS or c["kind"] not in covered_kinds)]
+    fill = [c for c in regex if is_range(c) or ((c["kind"], _norm_label(c["label"])) not in covered
+                                               and (c["kind"] in NUMERIC_KINDS or c["kind"] not in covered_kinds))]
     out = _finish([model, jsonld, fill])
     _page_cache_write(cache, out)
     return out
@@ -1067,8 +1125,14 @@ def validate_claim(c: Any) -> list[str]:
         return ["not a dict"]
     errs = []
     want = {"id", "kind", "value", "unit", "scope", "label", "quote", "checkable"}
-    if set(c) - {"origin"} != want:
-        errs.append(f"keys {sorted((set(c) - {'origin'}) ^ want)} differ")
+    if set(c) - {"origin", "value_max"} != want:
+        errs.append(f"keys {sorted((set(c) - {'origin', 'value_max'}) ^ want)} differ")
+    if "value_max" in c:
+        hi, lo = c["value_max"], c.get("value")
+        if (c.get("kind") not in UNIT_KINDS or c.get("scope") != "building" or c.get("label") is not None
+                or isinstance(hi, bool) or not isinstance(hi, (int, float)) or isinstance(lo, bool)
+                or not isinstance(lo, (int, float)) or not lo < hi):
+            errs.append("value_max: only on a building bed / bath / sq ft range, above value")
     if "origin" in c and c["origin"] != METADATA:
         errs.append(f"origin must be {METADATA!r} when present")
     if not (isinstance(c.get("id"), str) and re.fullmatch(r"c\d+", c["id"])):

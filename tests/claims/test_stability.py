@@ -185,7 +185,8 @@ def test_unlabeled_unit_number_dropped_on_a_plan_page(monkeypatch):
         return [{"n": hero, "kind": "bedrooms", "value": 2}] + answers(c)
     monkeypatch.setattr(ex, "_ask_cached", ask)
     claims = ex.extract_claims(snap(text))
-    assert not [c for c in claims if c["kind"] == "bedrooms" and c["label"] is None], claims
+    # the hero line stays only as the building's range, never as one home's bedroom count
+    assert not [c for c in claims if c["kind"] == "bedrooms" and c["label"] is None and c.get("value_max") is None], claims
 
 
 # ---------------------------------------------------------------- per-page cache

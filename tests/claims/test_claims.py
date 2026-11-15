@@ -299,7 +299,10 @@ def test_unlabeled_sqft_range_is_not_a_unit_claim():
     # a range for the whole building ("650 - 1,400 sq ft", "Beds: 1-3") is not one unit's size
     page = "Maple Yard Lofts\nBeds: 1-3\nSquare Feet: 650 - 1,400\n650 - 1,400 sq ft"
     claims = extract_claims({"address_text": "", "text": page, "jsonld": []}, use_model=False)
-    assert not [c for c in claims if c["kind"] in ("bedrooms", "area_sqft")], claims
+    # ... it is a claim about the building's range of homes, never a single unit's number
+    got = {(c["kind"], c["value"], c.get("value_max"), c["scope"], c["label"]) for c in claims
+           if c["kind"] in ("bedrooms", "area_sqft")}
+    assert got == {("bedrooms", 1, 3, "building", None), ("area_sqft", 650, 1400, "building", None)}, claims
 
 
 def test_single_fact_sheet_is_not_plan_cards():

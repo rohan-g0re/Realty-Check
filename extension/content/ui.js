@@ -341,7 +341,7 @@
   }
   function ownReading(evs, c, src) {
     // true / false when this source's own number settles it on its face; null when only the judge can say.
-    if (!COMPARABLE.has(c.kind) || c.scope === "unit" || src === "scan") return null;
+    if (!COMPARABLE.has(c.kind) || c.scope === "unit" || src === "scan" || c.value_max != null) return null;
     const want = num(c.value);
     if (!Number.isFinite(want)) return null;
     const vals = evs.map((e) => num((e.observed || {})[c.kind])).filter(Number.isFinite);
@@ -1049,6 +1049,11 @@
   function said(c) {
     const n = num(c.value), s = (w) => (n === 1 ? w : w + "s");
     if (!Number.isFinite(n)) return String(c.value || c.quote || "");
+    if (c.value_max != null && Number.isFinite(num(c.value_max))) { // a range for the whole building
+      const m = num(c.value_max), lo = c.kind === "bedrooms" && n === 0 ? "Studio" : n.toLocaleString("en-US");
+      const unit = { bedrooms: m === 1 ? "bedroom" : "bedrooms", bathrooms: m === 1 ? "bathroom" : "bathrooms", area_sqft: "sq ft" }[c.kind] || "";
+      return `${lo} to ${m.toLocaleString("en-US")} ${unit}`.trim();
+    }
     if (c.kind === "bedrooms") return n === 0 ? "Studio" : `${n} ${s("bedroom")}`;
     if (c.kind === "bathrooms") return `${n} ${s("bathroom")}`;
     if (c.kind === "area_sqft") return `${n.toLocaleString("en-US")} sq ft`;

@@ -125,7 +125,8 @@ class _Page:
         self.topics = {k for k, rx in PAGE_SAYS.items() if re.search(rx, text, re.I)}
         self.topics |= {t for k, t in KIND_TOPICS.items() if k in self.kinds}
         self.labels = sorted({(c.get("label") or "").strip() for c in claims if (c.get("label") or "").strip()})
-        self.sizes = [_n(c.get("value")) for c in claims if c.get("kind") == "area_sqft"]
+        self.sizes = [_n(c.get(k)) for c in claims if c.get("kind") == "area_sqft" for k in ("value", "value_max")
+                      if c.get(k) is not None]  # a building range's high end is a size on the page too
 
     def says(self, topic: str) -> bool:
         return topic in self.topics

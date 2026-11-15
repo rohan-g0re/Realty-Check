@@ -20,8 +20,8 @@ from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
 from harness.graph import amenities, trust
-from harness.graph.judge import (UNIT_KINDS, _num, _same_plan, _usable, phrase, property_reading,
-                                 record_names)
+from harness.graph.judge import (UNIT_KINDS, _num, _plan_list, _same_plan, _usable, is_range, phrase,
+                                 property_reading, record_names)
 from harness.graph.plans import title_sqft
 
 SOURCE = {"record": "CoStar", "scan": "Matterport", "aerial": "Vexcel", "county": "County"}
@@ -271,7 +271,8 @@ def _plan_hit(e: dict, kind: str, value: float | None) -> str | None:
 def _numeric(verdict: dict, claim: dict, evs: list[dict], match: dict | None, decider: str | None) -> list[dict]:
     kind = str(claim.get("kind"))
     found_from = verdict.get("found_from")
-    usable = _usable(claim, evs) or _usable(claim, evs, any_plan=True)
+    ranged = is_range(claim)  # a building range: decided by the record's floor plan list, nothing else compared
+    usable = [] if ranged else (_usable(claim, evs) or _usable(claim, evs, any_plan=True))
     found = _found_number(verdict)
     out: list[dict] = []
     dec = None
@@ -284,6 +285,9 @@ def _numeric(verdict: dict, claim: dict, evs: list[dict], match: dict | None, de
         plan_lists = [e for e in mine if _plan_hit(e, kind, found)]
         label = str(claim.get("label") or "")
         same_plan = [e for e in mine if label and _obs(e).get("plan") and _same_plan(str(_obs(e)["plan"]), label)]
+        if ranged:
+            hit, ranked = [], []
+            plan_lists = [e for e in mine if _plan_list(e) is not None]
         pick = (hit or ranked or plan_lists or same_plan or [None])[0]
         if pick is None and mine:
             pick = mine[0]
@@ -291,7 +295,7 @@ def _numeric(verdict: dict, claim: dict, evs: list[dict], match: dict | None, de
             dec = pick
             img = verdict.get("image") if verdict.get("source") == decider and verdict.get("image") \
                 else _first_image(pick)
-            plan_name = _plan_hit(pick, kind, found) if _num(_obs(pick).get(kind)) is None else None
+            plan_name = _plan_hit(pick, kind, found) if _num(_obs(pick).get(kind)) is None and not ranged else None
             value = verdict.get("found") or _num_value(pick, kind)
             out.append(_entry(pick, "decided", _read(pick, kind, False, found_from),
                               _where(pick, kind, match, img, evs, plan_name), value, img))

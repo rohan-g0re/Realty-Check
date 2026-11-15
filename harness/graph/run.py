@@ -28,7 +28,7 @@ from rc_common import evidence as make_evidence
 from tools import cachectl
 
 from . import amenities, plans, trust
-from .judge import SOURCE_NAME, VERB, _plan_code, judge
+from .judge import SOURCE_NAME, VERB, _plan_code, is_range, judge
 from .toolbox import Toolbox
 
 AGENT_ENABLED = True  # False: no agent at all (claims and match only, every claim "couldn't check")
@@ -412,7 +412,7 @@ class Run:
     def _unit_value(self, kind: str, key: str, norm: Callable) -> Any:
         """The one value the page gives for this unit kind (unnamed, or naming the unit), else None."""
         vals = {c.get("value") for c in self.claims if c.get("checkable") and c.get("kind") == kind
-                and (not c.get("label") or norm(c["label"]) == key)}
+                and not is_range(c) and (not c.get("label") or norm(c["label"]) == key)}
         return vals.pop() if len(vals) == 1 else None
 
     # ---- other units the page lists ("Unit 1310"), and a building known only from its units ---------------
@@ -1038,7 +1038,8 @@ class Run:
         """Every listing floor plan (or the given ones): its kit plan, 3D scan or record numbers, then cached or
         a few fresh scan stills as proof pictures (plans whose scan disagrees with the listing first)."""
         self.helpers_used.add(agent)
-        listing = sorted({c.get("label") or "" for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS})
+        listing = sorted({c.get("label") or "" for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS
+                          and not is_range(c)})
         # the plans the agent names first, then any listing plan it left out (every claimed plan gets checked)
         todo = list(dict.fromkeys([self.canon_plan(str(n)) for n in names or [] if str(n).strip()] + listing))
         if not todo:
@@ -1062,7 +1063,7 @@ class Run:
 
     def _plan_disagrees(self, plan: str) -> bool:
         claimed = {c.get("kind"): c.get("value") for c in self.claims
-                   if (c.get("label") or "") == plan and c.get("kind") in ("bedrooms", "bathrooms")}
+                   if (c.get("label") or "") == plan and c.get("kind") in ("bedrooms", "bathrooms") and not is_range(c)}
         for e in list(self.evidence.values()):
             o = e["observed"]
             if e["source"] == "scan" and e["status"] == "ok" and str(o.get("plan", "")) == plan:
@@ -1171,6 +1172,7 @@ class Run:
             if self.verdicts is not None:
                 return self.verdicts
             self.ensure_claims_and_match()
+            self.plan_list_for_ranges()
             self.sealed = True
             self.step("judge", "Comparing every claim with the evidence.")
             t = time.monotonic()
@@ -1200,6 +1202,24 @@ class Run:
                 self._spans.setdefault("judge", []).append((t - self.t0, time.monotonic() - self.t0))
         self._judged.set()
         return verdicts
+
+    def plan_list_for_ranges(self) -> None:
+        """A building range claim ("Studios–2 beds") is judged on the building record's list of floor plans: add
+        that list once (no I/O, the match carries it) when a range is claimed and no evidence has it yet."""
+        try:
+            if not any(is_range(c) and c.get("checkable") for c in self.claims):
+                return
+            if self.match.get("status") != "matched" or not self.match.get("floorplans"):
+                return
+            if any(e.get("status") == "ok" and any(isinstance((e.get("observed") or {}).get(k), list)
+                                                   for k in ("floorplans", "range_plans"))
+                   for e in list(self.evidence.values())):
+                return
+            ev = self._all_plans()  # under its own key: only range claims read it (unit claims keep their rules)
+            ev["observed"] = {"range_plans": ev["observed"]["floorplans"]}
+            self.add(ev, "record")
+        except Exception as e:  # never breaks a run: the range claims are then "couldn't check"
+            self.agent_stats["plan_list_error"] = f"{type(e).__name__}: {str(e)[:200]}"
 
     def type_verdict(self, claim: dict) -> dict | None:
         """A unit claim on a type-level plan link (several record plans fit, none picked) is only ever confirmed
@@ -1296,7 +1316,7 @@ class Run:
         if getattr(self, "unit_row", None):
             return True
         m = self.match or {}
-        unit = [c for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS]
+        unit = [c for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS and not is_range(c)]
         values: dict[str, set] = {}
         for c in unit:
             values.setdefault(c["kind"], set()).add(str(c.get("value")).replace(",", "").strip())
@@ -1655,7 +1675,8 @@ class Run:
     def proof_images(self) -> None:
         """Cheap, cached stills for each claimed floor plan that has a scan, so verdicts carry a picture.
         Runs after the agent too; checks already done are not repeated."""
-        plans = sorted({c.get("label") or "" for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS})
+        plans = sorted({c.get("label") or "" for c in self.claims if c.get("checkable") and c.get("kind") in UNIT_KINDS
+                        and not is_range(c)})
         for plan in plans:
             if self.model_for(plan) and self.time_left() > 5:
                 self.scan_photos(plan)
@@ -1683,7 +1704,7 @@ class Run:
     def fixed_plan(self) -> None:
         checkable = [c for c in self.claims if c.get("checkable")]
         kinds = {c.get("kind") for c in checkable}
-        plans = sorted({c.get("label") or "" for c in checkable if c.get("kind") in UNIT_KINDS})
+        plans = sorted({c.get("label") or "" for c in checkable if c.get("kind") in UNIT_KINDS and not is_range(c)})
         for plan in plans:
             self.scan_rooms(plan)
             if self.model_for(plan):
@@ -1973,7 +1994,7 @@ def helpers_needed(claims: list[dict], match: dict | None = None) -> dict[str, s
     feats = [amenities.feature_for(c) for c in checkable]
     need: dict[str, str] = {}
     inside = []
-    if kinds & set(UNIT_KINDS):
+    if {c.get("kind") for c in checkable if not is_range(c)} & set(UNIT_KINDS):
         inside.append("floor plan bedrooms/bathrooms/area")
     if any(f and f[2] == "scan" for f in feats):
         inside.append("in-unit features on scan photos")

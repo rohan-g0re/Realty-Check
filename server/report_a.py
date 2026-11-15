@@ -18,7 +18,7 @@ appears exactly once on the page, in section 2.
                 "Confidence 82 / 100 · high" and its why, and the proof. Columnar (Listed | In reality, one record
                 line) for a figure; vertical (claim, found value, then the proof filling the panel: live 3D viewer,
                 pictures, or the measured roof-height drawing) for a visual proof. One mismatch: the panel alone.
-  3 extra       "Not in the listing" (#extra): at most five things the listing does not say that matter to a renter
+  3 extra       "Beyond the listing" (#extra): at most five things the listing does not say that matter to a renter
                 or buyer: label, value, one line on why it matters, source, a picture when there is one. Data:
                 done.harness.top_facts; else harness.top_facts.pick_top_facts(facts, llm=None); else a small local
                 rule (elevator / walk-up, homes available and vacancy, utility meters, 311 count, measured height).
@@ -255,7 +255,7 @@ figure.lvr-proof .thumbs{grid-template-columns:repeat(auto-fill,96px)}
 figure.lvr-proof figcaption{flex:none}
 figure.lvr-proof .draw{padding:clamp(12px,1.6vw,24px)}
 figure.lvr-proof .draw svg{height:100%;max-height:100%}
-.strike{background:linear-gradient(var(--acc,var(--blue)),var(--acc,var(--blue))) no-repeat 0 52%/100% .075em;
+.strike{background:linear-gradient(var(--acc-t,var(--acc,var(--blue))),var(--acc-t,var(--acc,var(--blue)))) no-repeat 0 52%/100% .075em;
 -webkit-box-decoration-break:clone;box-decoration-break:clone;padding:0 .03em}
 .js .rv .strike{background-size:0 .075em;transition:background-size 1s cubic-bezier(.7,0,.2,1) .35s}
 .js .rv.in .strike{background-size:100% .075em}
@@ -1398,7 +1398,7 @@ def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | 
         others = _also_keys(run, v, keys)  # also checked: spoke, did not back it
         layout, proof = _panel_proof(run, v, first, live_3d, used_imgs, used_walk)
         layouts.append(layout)
-        strike = "strike" if hard else ""  # a close one: the listing's words in plain grey, never struck
+        strike = "strike"  # every mismatch is struck, close ones too
         cid = str(v.get("claim_id") or "")
         sid = re.sub(r"[^A-Za-z0-9_-]", "", cid) + f"-{i}"
         names = _src_names(run, cid, keys, live_3d, lead=True, v=v, uid=sid)
@@ -1753,10 +1753,10 @@ def _clean_top_fact(it, off_kinds: set) -> dict | None:
 
 
 def _not_listed(run: Run, facts: list, off: list) -> str:
-    """3 'Not in the listing': at most five rows, each a label, the value, one line on why it matters, the source
+    """3 'Beyond the listing': at most five rows, each a label, the value, one line on why it matters, the source
     and a picture when there is one."""
     items = _top_facts(run, facts, off)
-    head = "<h2 class='sh rv' id=nil-h>Not in the listing.</h2>"
+    head = "<h2 class='sh rv' id=nil-h>Beyond the listing.</h2>"
     if not items:
         return (f"<section class='wrap nil' id=extra aria-labelledby=nil-h>{head}"
                 "<p class=empty>Our sources have nothing to add beyond the listing.</p></section>")

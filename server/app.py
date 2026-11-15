@@ -297,7 +297,7 @@ def _drawer_rows(R, run, off: list) -> list:
             walk = None
         rows.append({"id": cid, "verdict": v.get("verdict"), "kind": kind,
                      "label": " · ".join(x for x in (what, c.get("label")) if x),
-                     "said": said if is_q else R._cap(said), "quoted": bool(is_q), "strike": hard,
+                     "said": said if is_q else R._cap(said), "quoted": bool(is_q), "strike": True,
                      "found": "Not seen in the photos" if soft else R._truth_text(v).rstrip("."),
                      "why": why, "credit": credit, "also": also, "previews": previews, "score": score,
                      "band": band or None,
@@ -307,7 +307,7 @@ def _drawer_rows(R, run, off: list) -> list:
 
 
 def _drawer_facts(R, run, off: list) -> list:
-    """'Not in the listing': the report's top five (done.harness.top_facts, else its rule), text only; never a
+    """'Beyond the listing': the report's top five (done.harness.top_facts, else its rule), text only; never a
     manager, owner, parcel, class or lot size; any '; managed by ...' clause cut."""
     out = []
     for f in R._top_facts(run, R._fill_in(run), off):

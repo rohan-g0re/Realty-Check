@@ -55,7 +55,7 @@ def test_ui_handles_fill_in_neutrally():
     assert m, "factsHTML not found"
     fn = m.group(1)
     assert "VC[" not in fn and "#dc2626" not in fn and "#16a34a" not in fn  # no verdict colours
-    for field in ("f.label", "f.value", "f.id"):
+    for field in ("f.label", "factLine(f)", "f.id"):
         assert f"esc({field})" in fn, field
     assert "f.why" not in fn and "f.src" not in fn  # one line each: the value, label as the tooltip
     assert '"#extra"' in src
@@ -113,7 +113,7 @@ def test_sample_flow_shows_fill_in(env):
         page.locator("#rc-host #fiAll").click()
     rep = newp.value
     rep.wait_for_selector("#extra")
-    assert rep.url.endswith("#extra")  # the sample report (design A) opens at its "Not in the listing" section
+    assert rep.url.endswith("#extra")  # the sample report (design A) opens at its "Beyond the listing" section
     extra = rep.locator("#extra").inner_text()  # the report lists the sample's top picks, not every fact
     assert "Seen from above" in extra and "Sport court" in extra
     rep.close()

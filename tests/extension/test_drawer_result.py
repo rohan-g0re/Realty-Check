@@ -92,7 +92,7 @@ def test_many_findings_every_row(run):
     assert finds.first.locator(".fk").inner_text().lower() == "bedrooms · plan e"
     assert finds.first.locator(".wt").inner_text() == "“2 Beds”"
     assert finds.first.locator("s.wt").count() == 1  # struck through: it doesn't match
-    assert r.R('.find[data-id="c3"] s').count() == 0  # close: never struck
+    assert r.R('.find[data-id="c3"] s.wt').count() == 1  # close: struck too
     # one blue, fainter when less sure: the close one faint, the tag the same words for both
     assert r.R('.fr[data-id="c3"]').get_attribute("data-shade") == "low"
     assert r.R('.fr[data-id="c1"]').get_attribute("data-shade") == "high"

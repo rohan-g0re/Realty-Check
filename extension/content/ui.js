@@ -700,10 +700,10 @@
       src.pv = pv;
       if (s) {
         return { c, v, id: c.id, label: String(s.label || kindLabel(c)), said: s.quoted ? `“${s.said}”` : String(s.said || ""),
-          strike: !!s.strike, found: String(s.found || v.found || ""), why: kindText(s.why), src, shade, tag,
+          strike: true, found: String(s.found || v.found || ""), why: kindText(s.why), src, shade, tag,
           walk: typeof s.walk === "string" && /^\/tour\//.test(s.walk) ? s.walk : "" };
       }
-      return { c, v, id: c.id, label: kindLabel(c), said: listingWords(r, c, v), strike: hard,
+      return { c, v, id: c.id, label: kindLabel(c), said: listingWords(r, c, v), strike: true,
         found: !hard && SOFT_KINDS.has(c.kind) ? "Not seen in the photos" : cap(String(v.found || "")),
         why: kindText(firstSentence(v.reason)), src, shade, tag, walk: "" };
     });
@@ -875,11 +875,18 @@
     }
     return out;
   }
+  // One line per fact. A value that never says what it counts ("18 since 2026-01-01 within 100 m") leads with its
+  // label; one that already carries the label's words ("32 of 317 homes available") stands alone.
+  function factLine(f) {
+    const stems = (t) => String(t).toLowerCase().match(/[a-z]{4,}/g) || [];
+    const val = stems(f.value).map((w) => w.slice(0, 5));
+    return stems(f.label).some((w) => val.includes(w.slice(0, 5))) ? f.value : `${f.label}: ${f.value}`;
+  }
   function factsHTML(facts) {
     if (!facts.length) return "";
     return `<section class="sec" id="fi" aria-labelledby="fiH"><h2 class="sl" id="fiH">Beyond the listing</h2><ul class="facts" id="fiList">` +
       facts.map((f, i) => `<li class="fact"${f.id ? ` data-id="${esc(f.id)}"` : ""} style="--i:${i}"` +
-        ` title="${esc(f.label)}" aria-label="${esc(f.label + ": " + f.value)}"><div class="fv">${esc(f.value)}</div></li>`).join("") +
+        ` title="${esc(f.label)}" aria-label="${esc(f.label + ": " + f.value)}"><div class="fv">${esc(factLine(f))}</div></li>`).join("") +
       `</ul><button class="lnk fiall" id="fiAll">More in the full report</button></section>`;
   }
   // "Ask before you tour": the report's drafted questions (done.report.questions); without them, the same template

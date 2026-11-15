@@ -233,16 +233,16 @@ def test_each_mismatch_once_lead_first_and_selected():
     assert srcs and len(srcs) == len(set(srcs)) and all(re.fullmatch(r"/img/[a-f0-9]{16}", s) for s in srcs)
 
 
-def test_close_rows_are_faint_never_struck():
+def test_close_rows_are_faint_and_struck():
     html = render_report(_rich())
     rows = _rows(html)
-    # a close one is a mismatch like any other, only fainter: never struck, no separate "close" tag
-    assert "strike" not in rows["c2"] and "close, not exact" not in rows["c2"] and "<em>" not in rows["c2"]
-    assert "<span class=lvr-said><span class=''>“Built in 2010”</span></span>" in rows["c2"]
+    # a close one is a mismatch like any other, only fainter: struck too, no separate "close" tag
+    assert "class='strike'" in rows["c2"] and "close, not exact" not in rows["c2"] and "<em>" not in rows["c2"]
+    assert "<span class=lvr-said><span class='strike'>“Built in 2010”</span></span>" in rows["c2"]
     assert "md-i s-low' id=tab-c2-3" in html and "lvr-row md-p lay-c s-low" in rows["c2"]
     assert "md-i s-high' id=tab-c1-0" in html and "lvr-close" not in html
     assert "<span class=lvr-tag></span>" in rows["c2"]  # no confidence sent: no figure, no class word
-    assert "Not seen in the photos" in rows["c5"] and "strike" not in rows["c5"]  # a photo look: never struck
+    assert "Not seen in the photos" in rows["c5"] and "class='strike'" in rows["c5"]  # every mismatch row is struck
 
 
 @pytest.mark.parametrize("claim,verdict,said,truth", [
@@ -302,7 +302,7 @@ def test_only_close_counts_as_a_mismatch_and_leads():
     html = render_report(_run(claims, verdicts))
     assert "<h1><span>1 thing</span><span class=l2>doesn&#x27;t match.</span></h1>" in html
     assert "Biggest difference: the listing says “Year Built 2015”; county records say built in 2014." in html
-    assert "class='strike" not in html and "s-low" in html and "href='#mismatch'>Show me what" in html
+    assert "class='strike'" in html and "s-low" in html and "href='#mismatch'>Show me what" in html
     assert "Nothing is" not in html and "clearly off" not in html and html.count("<span class=md-g") == 1  # one difference keeps its list
     assert "id='claim-c1'" in html
     for anchor in ("id=mismatch", "id=match", "id=cant-verify", "id=extra"):
@@ -347,7 +347,7 @@ def test_listed_vs_reality_on_the_invented_sample_run(monkeypatch, tmp_path):
     assert ("<span class=cite-l>Source</span><span class='cite dec'>Matterport</span>" in rows["c1"]
             and "<span class=sc-n>64</span><span class=sc-u>/ 100 · medium</span>" in rows["c1"])
     assert "/artifacts/" not in html  # the static copy has no server: plain names, no library link
-    assert "strike" not in rows["c6"] and " s-medium" in rows["c6"]  # the close year: a mismatch, mid blue
+    assert "class='strike'" in rows["c6"] and " s-medium" in rows["c6"]  # the close year: a mismatch, mid blue
     assert not re.search(r"\b(fake|lie|lies|scam)\b", re.sub(r"<style>.*?</style>", "", html), re.I)
 
 
@@ -393,7 +393,7 @@ def test_credit_without_confidence_names_only_the_deciding_source():
     assert srcs and all(s.count("class='cite") == 1 and "CoStar" not in s for s in srcs)
 
 
-# ---------- 3 "Not in the listing" ----------
+# ---------- 3 "Beyond the listing" ----------
 
 def _facts_run(facts, harness=None, verdicts=None, claims=None):
     claims = claims or [_claim("c1", "bedrooms", 2, "2 Beds", None, "unit")]
@@ -451,7 +451,7 @@ def test_not_in_listing_uses_the_runs_top_facts():
            {"label": "311 requests", "value": "Loud music at night", "why": "", "sources": ["County"], "image": None}]
     html = render_report(_facts_run(FACTS, {"top_facts": top}))
     nil = _nil(html)
-    assert "Not in the listing." in nil and nil.count("class='nil-row") == 2
+    assert "Beyond the listing." in nil and nil.count("class='nil-row") == 2
     assert "Walk-up, no elevator" in nil and "Every trip is by the stairs." in nil and "CoStar" in nil
     assert "Sport court" in nil and f"<img src='{IMG[4]}'" in nil  # the aerial photo, from the fill_in facts
     assert "C:/private" not in html and "parcel" not in nil and "Loud music" not in html

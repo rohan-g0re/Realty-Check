@@ -12,6 +12,7 @@
 - Time budget: run target 55 s, agent budget 35 s; vision calls are skipped when under 15 s remain. Vision is not run on scan photos when the scan already gave room counts; scan stills are still fetched (cached) as proof images, after the agent too.
 - Server: `RC_PORT` overrides the port (default 8787). Replays are capped at about 6 s and rewrite `report_url` to the serving server.
 - Demo snapshots are invented listing text plus the public street address, in `tests/fixtures/public/`; `python -m server.demo_post <name>` posts one.
+- Demo listing pages live in `demo_site/` (see `demo_site/README.md`). `demo_site/real/` holds copies of two real property websites with a few values changed on purpose; it is the only place real buildings are named, and it keeps the repo private.
 
 ## Wider checks (2026-11-14)
 - Floor plans: name match, else beds + baths + nearest size within 8% against the kit's plans; a kit plan without a scan borrows a property-level scan only when its title fits (beds, baths, title sq ft within 3%); otherwise the kit's own plan numbers are compared as `source="record"`, said in the reason ("according to the building record", "matched to the building's plan A2s by size"). A listing plan matching no kit plan is "not in the building's records". A kit plan's own scan whose title gives a size >8% off is not used (LA Plan F's scan is titled 1060 SF).

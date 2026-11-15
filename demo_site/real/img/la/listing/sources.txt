@@ -1,0 +1,21 @@
+# LA listing photos - origin page: https://www.3700sepulveda.com/gallery/ (property's official website). Unsigned public URLs.
+l01_pool.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/PoolArea1-min.jpg
+l02_living.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/apartment-view-FIXED.jpg
+l03_2bed_living.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/2BedroomUnit2_result.jpg
+l04_2bed_kitchen.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/2BedroomUnit1_result.jpg
+l05_1bed_living.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/1BedroomUnit5_result.jpg
+l06_1bed_bedroom.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/1BedroomUnit1_result.jpg
+l07_1bed_bedroom.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/1BedroomUnit2_result.jpg
+l08_bath.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/1BedroomUnit3_result.jpg
+l09_studio.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/Studio_Unit_1_result.jpg
+l10_studio.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/Studio_Unit_2_result.jpg
+l11_2bed_living.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/2BedroomUnit3_result.jpg
+l12_lobby.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/Lobby2-min-1.jpg
+l13_clubhouse.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/ClubhouseInterior1-min-1.jpg
+l14_fitness.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/FitnessCenter1-min.jpg
+l15_pool_spa.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/PoolArea2-min.jpg
+l16_spa.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/HotTub-min.jpg
+l17_lounge.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/OutdoorSeating1-min-1.jpg
+l18_grill.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/GrillArea1-min-1.jpg
+l19_court.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/BasketballCourt-min.jpg
+l20_soccer.jpg  page=https://www.3700sepulveda.com/gallery/  image=https://www.3700sepulveda.com/wp-content/uploads/2024/07/SoccerArea-min.jpg

@@ -1,0 +1,41 @@
+# Houston listing photos - origin page: https://www.2111austin.com/ (property's official website, Photo Gallery section). Image host: capi.myleasestar.com (unsigned public URLs).
+h01_exterior.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397870/1920x1080/154397870.png
+h02_pool.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397866/1920x1080/154397866.jpg
+h03_courtyard.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397865/1920x1080/154397865.jpg
+h04_exterior_sign.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397871/1920x1080/154397871.jpg
+h05_pool_cabanas.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154398069/1920x1080/154398069.jpg
+h06_pool.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154398071/1920x1080/154398071.jpg
+h07_pool_lounge.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154398006/1920x1080/154398006.jpg
+h08_sky_lounge.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397877/1920x1080/154397877.jpg
+h09_sky_lounge_bar.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397874/1920x1080/154397874.jpg
+h10_clubhouse.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154398036/1920x1080/154398036.jpg
+h11_lobby.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154398032/1920x1080/154398032.jpg
+h12_clubhouse_lounge.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397982/1920x1080/154397982.jpg
+h13_conference.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397980/1920x1080/154397980.jpg
+h14_sunroom.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397873/1920x1080/154397873.jpg
+h15_fitness.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154398018/1920x1080/154398018.jpg
+h16_fitness.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154398005/1920x1080/154398005.jpg
+h17_fitness.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154397990/1920x1080/154397990.jpg
+h18_fitness.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/154398015/1920x1080/154398015.jpg
+# Floor-plan drawings - origin page: https://www.2111austin.com/ (Floor Plans section)
+plans/plan_A.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464505/657x885/67464505.png
+plans/plan_A1.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464506/657x885/67464506.png
+plans/plan_A1s.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464508/657x885/67464508.png
+plans/plan_A2.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464509/657x885/67464509.png
+plans/plan_A2s.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464510/657x885/67464510.png
+plans/plan_A3.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464511/657x885/67464511.png
+plans/plan_A4s.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464512/657x885/67464512.png
+plans/plan_A5.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464513/657x885/67464513.png
+plans/plan_B.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464514/657x885/67464514.png
+plans/plan_B1.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464515/657x885/67464515.png
+plans/plan_B2.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464516/657x885/67464516.png
+plans/plan_C.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464517/657x885/67464517.png
+plans/plan_E.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464518/657x885/67464518.png
+plans/plan_E1.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464519/657x885/67464519.png
+plans/plan_E2.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464520/657x885/67464520.png
+plans/plan_E3s.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464521/657x885/67464521.png
+plans/plan_EF1.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464522/657x885/67464522.png
+plans/plan_EF2.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464523/657x885/67464523.png
+plans/plan_Es.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464524/657x885/67464524.png
+plans/plan_F.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464525/657x885/67464525.png
+plans/plan_G.jpg  page=https://www.2111austin.com/  image=https://capi.myleasestar.com/v2/dimg/67464526/657x885/67464526.png

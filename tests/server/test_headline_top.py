@@ -83,9 +83,25 @@ def test_top_uses_the_report_ranking_not_page_order():
                 _v("c3", "contradicted", "2 bedrooms", "1 bedroom", "scan")])
     top = top_finding(run)
     assert top["headline"] == "3 things don't match." and top["hard"] == 3
-    # no confidence sent: a contradicted one counts as sure (full blue), a close one as unsure, so it comes last
-    assert top["claim_id"] == "c3" and top["order"] == ["c3", "c1", "c2"]
-    assert "2 Beds" in top["line"] and top["line"] == _hero(render_report(run))[1]
+    # no score sent: a contradicted one before a close one, then the page's order (strictly by score otherwise)
+    assert top["claim_id"] == "c1" and top["order"] == ["c1", "c3", "c2"]
+    assert "floors" in top["line"] and top["line"] == _hero(render_report(run))[1]
+
+
+def test_order_is_strictly_by_score_and_the_pick_never_moves_a_row():
+    vs = [_v("c1", "contradicted", "5 floors", "6 floors", "aerial"),
+          _v("c2", "close", "built in 2016", "built in 2015", "county"),
+          _v("c3", "contradicted", "2 bedrooms", "1 bedroom", "scan"),
+          _v("c4", "contradicted", "900 sq ft", "700 sq ft", "scan")]
+    vs[0]["confidence"] = {"score": 40, "band": "low"}
+    vs[1]["confidence"] = {"score": 80, "band": "high"}
+    vs[2]["confidence"] = {"band": "high"}  # no score: after every scored one
+    vs[3]["confidence"] = {"score": 82, "band": "high"}
+    run = _run(vs)
+    run["events"][-1]["harness"] = {"top_mismatch": {"claim_id": "c1", "by": "model"}}
+    top = top_finding(run)
+    assert top["order"] == ["c4", "c2", "c1", "c3"] and top["claim_id"] == "c4"
+    assert top["line"] == _hero(render_report(run))[1]
 
 
 def test_top_of_an_empty_run():

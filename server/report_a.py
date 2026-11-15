@@ -151,8 +151,12 @@ transition:transform .22s cubic-bezier(.2,.7,.2,1)}
 .md-t{font-size:19px;line-height:1.25;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .md-s{grid-column:1/-1;font-size:14px;line-height:1.35;color:var(--mute);min-width:0;overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap}
-.md-g{grid-row:1;grid-column:2;display:inline-flex;align-items:baseline;gap:8px;font-size:12px;letter-spacing:.03em;
-color:var(--acc-t,var(--blue));white-space:nowrap;font-variant-numeric:tabular-nums}
+.md-g{grid-row:1/3;grid-column:2;align-self:center;display:flex;flex-direction:column;align-items:flex-end;
+color:var(--acc-t,var(--blue));white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1}
+/* the score: a serif numeral, the row's right-hand element; "/100" and the level small under it */
+.sc-n{font-weight:300;font-size:36px;letter-spacing:-.03em;line-height:.95}
+.sc-w{font-weight:300;font-size:24px;letter-spacing:-.01em;line-height:1.1}
+.sc-u{font-size:12px;letter-spacing:.03em;margin-top:4px;opacity:.9}
 /* one blue accent, fainter as the confidence drops: high full, medium mid, low (or close with no score) faint */
 .s-high{--acc:#1a4be0;--acc-t:#1a4be0;--acc-bg:#eef2fd}
 .s-medium{--acc:#6585ea;--acc-t:#4a6fe6;--acc-bg:#f1f4fd}
@@ -162,7 +166,10 @@ color:var(--acc-t,var(--blue));white-space:nowrap;font-variant-numeric:tabular-n
 .md-p.in{animation:mdin .34s cubic-bezier(.2,.7,.2,1)}
 @keyframes mdin{from{opacity:0;transform:translateY(8px)}}
 .lvr-k{margin:0;display:flex;align-items:baseline;gap:12px;font-size:15px;color:var(--mute);flex:none}
-.lvr-tag{font-size:13px;letter-spacing:.02em;color:var(--acc-t,var(--blue));font-variant-numeric:tabular-nums}
+.lvr-tag{margin-left:auto;display:inline-flex;align-items:baseline;gap:6px;color:var(--acc-t,var(--blue));
+font-variant-numeric:tabular-nums;white-space:nowrap}
+.lvr-tag .sc-n{font-size:clamp(36px,3.4vw,52px)}.lvr-tag .sc-w{font-size:28px}
+.lvr-tag .sc-u{font-size:15px;margin:0}
 .lvr-lab{display:block;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-bottom:4px}
 .lvr-r .lvr-lab,.vstack>div+div .lvr-lab{color:var(--acc-t,var(--blue))}
 .lvr-said,.lvr-truth{display:block;font-weight:300;letter-spacing:-.04em;overflow-wrap:anywhere}
@@ -176,15 +183,18 @@ border-top:1px solid var(--line);padding:clamp(14px,2vh,26px) 0 clamp(6px,1vh,14
 border-top:1px solid var(--line);padding-top:12px}
 .vstack .lvr-said,.vstack .lvr-truth{font-size:clamp(26px,2.5vw,40px);line-height:1.05}
 .lvr-why{margin:0;font-size:18px;line-height:1.4;max-width:62ch;flex:none}
-.lvr-cred{flex:none;display:flex;flex-direction:column;gap:2px}
+.lvr-cred{flex:none;display:flex;flex-direction:column;gap:6px}
 .lvr-cred p{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
-.lvr-src{font-size:15px;color:var(--ink)}
-.lvr-also{font-size:14px;color:var(--mute)}.lvr-also a{color:var(--mute)}
-a.art{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
-a.art:hover{color:var(--blue);text-decoration-color:var(--blue)}
+.lvr-cite{gap:6px 8px}
+.cite-l{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.cite-l+.cite{margin-left:2px}.cite+.cite-l{margin-left:10px}
+.cite{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:3px 10px;border:1px solid var(--line);
+font-size:15px;line-height:1.2;color:var(--ink);text-decoration:none;background:#fff;transition:border-color .15s,color .15s}
+.cite.dec{border-color:var(--ink);font-size:16px}
+.cite i{font-style:normal;font-size:13px;color:var(--blue)}
+a.cite:hover,a.cite:focus-visible{border-color:var(--blue);color:var(--blue)}
 .art-lib{margin:16px 0 0 auto;max-width:360px;font-size:17px}.art-lib a{color:#fff}
-.lvr-conf{font-size:15px;color:var(--mute);font-variant-numeric:tabular-nums}
-.lvr-cred .lvr-cwhy{font-size:14px;line-height:1.4;color:var(--mute);max-width:72ch;display:-webkit-box;-webkit-line-clamp:2;
+.lvr-cred .lvr-cwhy{font-size:15px;line-height:1.4;color:var(--mute);max-width:72ch;display:-webkit-box;-webkit-line-clamp:2;
 -webkit-box-orient:vertical;overflow:hidden}
 .lvr-proof{margin:0;min-width:0}
 .lvr-proof .rline{margin:0;font-size:15px;line-height:1.4;color:var(--ink);border-left:2px solid var(--acc,var(--blue));padding:2px 0 2px 12px}
@@ -215,7 +225,9 @@ figure.lvr-proof .draw svg{height:100%;max-height:100%}
 .md{display:block;height:auto}
 .md-list{flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;gap:8px;padding:2px 2px 10px;
 scroll-snap-type:x proximity}
-.md-i{width:auto;min-width:170px;max-width:72vw;border:1px solid var(--line);padding:10px 14px 10px 16px;scroll-snap-align:start}
+.md-i{width:auto;min-width:190px;max-width:76vw;border:1px solid var(--line);padding:10px 14px 10px 16px;scroll-snap-align:start}
+.sc-n{font-size:30px}
+.lvr-k{flex-wrap:wrap;row-gap:4px}.lvr-tag .sc-n{font-size:34px}.lvr-tag .sc-u{font-size:14px}
 .md-ps{margin-top:14px}
 .md-p{height:auto;overflow:visible}
 .pcols,.vstack{grid-template-columns:minmax(0,1fr);row-gap:12px}
@@ -238,8 +250,8 @@ background:var(--blue);box-shadow:0 0 0 3px #fff}
 .cf-panel .walk,.see3d-box .walk{aspect-ratio:4/3;min-height:0}
 .walk>iframe{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:1;background:#17181a}
 .walk>iframe.dock{position:fixed;inset:auto;left:0;top:0;opacity:0;pointer-events:none;z-index:-1}
-.walk>.stage{position:absolute;inset:0;z-index:2;aspect-ratio:auto;min-height:0;transition:opacity .6s ease,visibility 0s linear 0s}
-.walk.live>.stage{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .6s ease,visibility 0s linear .6s}
+.walk>.stage{position:absolute;inset:0;z-index:2;aspect-ratio:auto;min-height:0;transition:opacity .2s ease,visibility 0s linear 0s}
+.walk.live>.stage{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s ease,visibility 0s linear .2s}
 .walk .spin{position:absolute;right:clamp(12px,2vw,24px);bottom:clamp(12px,2vw,24px);width:26px;height:26px;border-radius:50%;
 border:3px solid rgba(255,255,255,.55);border-top-color:var(--blue);animation:spin 1s linear infinite;display:none}
 .walk.loading .spin{display:block}
@@ -870,8 +882,7 @@ def _headline(n: dict) -> tuple[str, str, bool]:
 
 
 def _lead(off: list):
-    """The finding the hero names: the top-ranked mismatch (_ranked_off: the run's pick, else the most certain one;
-    a close one leads when nothing else is off)."""
+    """The finding the hero names: the first mismatch in the list (_ranked_off: the highest score)."""
     return off[0] if off else None
 
 
@@ -880,8 +891,8 @@ def top_finding(run_dict: dict) -> dict:
     and words the report uses, so the two never disagree.
     {"headline": "1 thing doesn't match.", "lines": ["1 thing", "doesn't match."], "calm": bool,
      "hard": the mismatch count (contradicted + close), "claim_id": id of the lead mismatch or None,
-     "line": "Biggest difference: ..." or "", "order": claim ids of every mismatch in the report's order (the run's
-     pick first, then the most certain first)}"""
+     "line": "Biggest difference: ..." or "", "order": claim ids of every mismatch in the report's order (highest
+     confidence score first)}"""
     run = Run(run_dict)
     n = _counts(run)
     off = _ranked_off(run, run.verdicts)
@@ -1102,11 +1113,27 @@ def _strength(v: dict) -> float:
 
 
 def _tag(v: dict) -> str:
-    """'Doesn't match · 40 low', 'Doesn't match · 40', 'Doesn't match · low' (no score: the word only, never a made-up
-    number), or 'Doesn't match'."""
+    """The score as text: '82 / 100 · high', '82 / 100', 'High' (no score: the level word only, never a made-up
+    number), or '' (neither)."""
     score, band, _ = _conf(v)
-    conf = " ".join(x for x in (str(score) if score is not None else "", band) if x)
-    return "Doesn't match" + (f" · {conf}" if conf else "")
+    if score is not None:
+        return f"{score} / 100" + (f" · {band}" if band else "")
+    return _cap(band)
+
+
+def _score_html(v: dict) -> str:
+    """The score as the eye reads it: a serif numeral with a small '/ 100 · high' after it; no score: the level word
+    alone at the numeral's size; '' with neither."""
+    score, band, _ = _conf(v)
+    if score is not None:
+        unit = "/ 100" + (f" · {band}" if band else "")
+        return f"<span class=sc-n>{score}</span><span class=sc-u>{_e(unit)}</span>"
+    return f"<span class=sc-w>{_e(_cap(band))}</span>" if band else ""
+
+
+def _tidy(s: str) -> str:
+    """'its plan Plan F 2 Bedroom has' -> 'its Plan F 2 Bedroom has' (a doubled word from harness/graph/judge.py)."""
+    return re.sub(r"\b(?i:plan)\s+(?=Plan\b)", "", str(s or ""))
 
 
 def _conf_text(v: dict) -> str:
@@ -1130,13 +1157,24 @@ def _art_href(run: Run, cid: str | None = None, key: str | None = None) -> str:
     return f"/artifacts/{rid}#a-{cid}-{SRC_NAME[key].lower()}"
 
 
-def _src_names(run: Run, cid: str, keys: list, links: bool) -> str:
-    """Source names joined with ' + ', each a link to its artifact (links=True, the server's page) or plain text."""
+def _src_names(run: Run, cid: str, keys: list, links: bool, lead: bool = False) -> str:
+    """One square-cornered chip per source, each a link to its artifact in a new tab (links=True, the server's page)
+    or plain text; lead=True: the first one (the deciding source) emphasised."""
     out = []
-    for k in keys:
+    for i, k in enumerate(keys):
+        cls = "cite dec" if lead and i == 0 else "cite"
         href = _art_href(run, cid, k) if links else ""
-        out.append(f"<a class=art href='{_e(href)}'>{_e(SRC_NAME[k])}</a>" if href else _e(SRC_NAME[k]))
-    return " + ".join(out)
+        out.append(f"<a class='{cls}' href='{_e(href)}' target=_blank rel=noopener>{_e(SRC_NAME[k])}"
+                   "<i aria-hidden=true>\u2197</i></a>" if href else f"<span class='{cls}'>{_e(SRC_NAME[k])}</span>")
+    return "".join(out)
+
+
+def _also_keys(run: Run, v: dict, keys: list) -> list:
+    """The sources that spoke to this claim (_relevant, and the judge's own list) but do not back the found value:
+    the 'also checked' ones, in source order. The drawer uses the same list (server/app.py)."""
+    conf_rows = (v.get("confidence") or {}).get("sources") if isinstance(v.get("confidence"), dict) else None
+    spoke = _relevant(run, v) | {r.get("source") for r in conf_rows or [] if isinstance(r, dict)}
+    return [k for k in SRC_ORDER if k in spoke and k not in keys]
 
 
 def _panel_proof(run: Run, v: dict, first: bool, live_3d: bool, used_imgs: set, used_walk: list) -> tuple[str, str]:
@@ -1204,32 +1242,29 @@ def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | 
         if kind == "amenity" and isinstance(c.get("value"), str) and 0 < len(c["value"]) <= 28:
             what = _cap(c["value"])  # "Pool" reads better in the list than "Amenity"
         name = " · ".join(x for x in (what, c.get("label")) if x)
-        why = _kind_text(_pick_why(run, v) or _first_sentence(v.get("reason") or ""))
+        why = _kind_text(_tidy(_pick_why(run, v) or _first_sentence(v.get("reason") or "")))
         keys, _band = _credit(v)
         _s, _b, cwhy = _conf(v)
         conf_txt = _conf_text(v)
-        conf_rows = (v.get("confidence") or {}).get("sources") if isinstance(v.get("confidence"), dict) else None
-        spoke = _relevant(run, v) | {r.get("source") for r in conf_rows or [] if isinstance(r, dict)}
-        others = [k for k in SRC_ORDER if k in spoke and k not in keys]  # also checked: spoke, did not back it
+        others = _also_keys(run, v, keys)  # also checked: spoke, did not back it
         layout, proof = _panel_proof(run, v, first, live_3d, used_imgs, used_walk)
         layouts.append(layout)
         strike = "strike" if hard else ""  # a close one: the listing's words in plain grey, never struck
         cid = str(v.get("claim_id") or "")
-        names = _src_names(run, cid, keys, live_3d)
+        names = _src_names(run, cid, keys, live_3d, lead=True)
         also = _src_names(run, cid, others, live_3d)
         sid = re.sub(r"[^A-Za-z0-9_-]", "", cid) + f"-{i}"
         anchor = f"<span class=cl-a id='claim-{_e(cid)}'></span>" if cid else ""
-        word = _tag(v)
+        word = _score_html(v)
         shade = f" s-{_shade(v)}"
         listed = (f"<span class=lvr-lab>Listed</span><span class=lvr-said><span class='{strike}'>{said_html}</span>"
                   "</span>")
         found = f"<span class=lvr-lab>In reality</span><span class=lvr-truth>{_e(truth)}</span>"
         cred = ""
-        if names or conf_txt:
-            cred = (f"<div class=lvr-cred><p>{_squares(keys)}"
-                    + (f"<span class=lvr-src>Source: {names}</span>" if names else "")
-                    + (f"<span class=lvr-also>also checked: {also}</span>" if also and names else "")
-                    + (f"<span class=lvr-conf>{_e(conf_txt)}</span>" if conf_txt else "") + "</p>"
+        if names or cwhy:
+            cred = ("<div class=lvr-cred>"
+                    + (f"<p class=lvr-cite><span class=cite-l>{'Sources' if len(keys) > 1 else 'Source'}</span>{names}"
+                       + (f"<span class=cite-l>also checked</span>{also}" if also else "") + "</p>" if names else "")
                     + (f"<p class=lvr-cwhy>{_e(cwhy)}</p>" if cwhy else "") + "</div>")
         why_html = f"<p class=lvr-why>{_e(why)}</p>" if why else ""
         if layout == "v":
@@ -1242,15 +1277,15 @@ def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | 
         role = "" if one else f" role=tabpanel aria-labelledby=tab-{sid} tabindex=0"
         hide = "" if first or one else " hidden"
         panels.append(f"<div class='{cls}' id=pan-{sid}{role}{hide} data-claim='{_e(cid)}' data-layout='{layout}'>"
-                      f"{anchor}<p class=lvr-k><span>{_e(name)}</span><span class=lvr-tag>{_e(word)}</span></p>{body}</div>")
+                      f"{anchor}<p class=lvr-k><span>{_e(name)}</span><span class=lvr-tag{f" aria-label='{_e(conf_txt)}'" if conf_txt else ""}>{word}</span></p>{body}</div>")
         tip = f" title='{_e(conf_txt)}'" if conf_txt else ""
         short = f"“{said}”" if is_q else _cap(said)
         tabs.append(f"<button type=button role=tab class='md-i{shade}' id=tab-{sid} "
                     f"aria-controls=pan-{sid} aria-selected={'true' if first else 'false'} "
                     f"tabindex={'0' if first else '-1'}><span class=md-t>{_e(name)}</span>"
-                    f"<span class=md-g{tip}>{_e(word)}</span><span class=md-s>{_e(short)}</span></button>")
+                    f"<span class=md-g{tip}>{word}</span><span class=md-s>{_e(short)}</span></button>")
     n = len(off)
-    sub = "1 difference." if one else f"{n} differences, most certain first."
+    sub = "1 difference." if one else f"{n} differences, highest confidence first."
     lst = "" if one else (f"<div class=md-list role=tablist aria-orientation=vertical aria-label=Differences>"
                           f"{''.join(tabs)}</div>")
     return ("<section class='wrap lvr' id=mismatch aria-labelledby=lvr-h><span id=compare></span>"
@@ -1293,16 +1328,15 @@ def _pick(run: Run) -> dict | None:
 
 
 def _ranked_off(run: Run, verdicts: list) -> list:
-    """Every mismatch (contradicted or close), the most certain first (_strength; ties by _rank: a contradicted one,
-    renter impact, gap, page order); the run's recorded pick (_pick) goes first when it is one of them."""
-    off = sorted((v for v in verdicts if v.get("verdict") in ("contradicted", "close")),
-                 key=lambda v: (-_strength(v),) + _rank(run, v))
-    p = _pick(run)
-    if p and off:
-        hit = next((v for v in off if v.get("claim_id") == p["claim_id"]), None)
-        if hit is not None:
-            off = [hit] + [v for v in off if v is not hit]
-    return off
+    """Every mismatch (contradicted or close), strictly by confidence score, highest first; the ones with no score
+    after them, a contradicted one before a close one; ties keep the run's own order. The run's recorded pick
+    (_pick) never moves a row: the hero names whichever comes first."""
+    def key(iv):
+        i, v = iv
+        score, _, _ = _conf(v)
+        return (score is None, -(score or 0), 0 if v.get("verdict") == "contradicted" else 1, i)
+    off = [iv for iv in enumerate(verdicts) if iv[1].get("verdict") in ("contradicted", "close")]
+    return [v for _, v in sorted(off, key=key)]
 
 
 def _pick_by(run: Run, v: dict | None) -> str | None:
@@ -1426,7 +1460,7 @@ def _sources(run: Run, facts: list, links: bool = True) -> str:
     return ("<section class='dark' id=sources aria-label='Four sources'><div class='wrap srcs'>"
             "<h2 class='h2 rv'><span>Four sources.</span><span class=l2>One address.</span></h2>"
             "<p class='lede mute rv'>Every claim goes to each source that can speak to it. The number is how many it spoke to.</p>"
-            + (f"<p class='art-lib rv'><a href='{_e(_art_href(run))}'>Open the artifact library \u2192</a></p>"
+            + (f"<p class='art-lib rv'><a href='{_e(_art_href(run))}' target=_blank rel=noopener>Open the artifact library \u2192</a></p>"
                if links and _art_href(run) else "")
             +
             f"<div class=src-grid>{''.join(cells)}</div></div></section>")

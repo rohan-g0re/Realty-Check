@@ -94,37 +94,38 @@ def test_sample_flow_marks_and_report(env):
     page.locator("#rc-host #headline").wait_for(timeout=15000)
     # concise verdict: the report's headline and lead line (done.top), quiet counts line, findings in the report's order
     assert headline(page) == "4 things don't match."  # three contradicted and one close: every one counts
-    assert page.locator("#rc-host #topLine").inner_text().startswith("Biggest difference: the listing says “2 Beds”")
+    assert page.locator("#rc-host #topLine").inner_text().startswith("Biggest difference: the listing says “5-story building”")
     meta = page.locator("#rc-host #counts").inner_text()
     assert "Sample result" in meta and "2 true" in meta and "4 don't match" in meta and "1 couldn't check" in meta, meta
     assert "close" not in meta, meta
     finds = page.locator("#rc-host .find")
-    # the run's pick first, then the most certain first (82, 70, 58)
-    assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c2", "c7", "c3"]
+    # strictly by score, highest first (82, 70, 64, 58); the run's pick never moves a row
+    assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c2", "c7", "c1", "c3"]
     assert page.locator("#rc-host .fr").evaluate_all("els => els.map(e => e.dataset.shade)") == [
-        "medium", "high", "medium", "medium"]
-    assert page.locator("#rc-host .ftag").evaluate_all("els => els.map(e => e.textContent)") == [
-        "Doesn't match · 64 medium", "Doesn't match · 82 high", "Doesn't match · 70 medium", "Doesn't match · 58 medium"]
+        "high", "medium", "medium", "medium"]
+    assert page.locator("#rc-host .ftag .scn").evaluate_all("els => els.map(e => e.textContent)") == ["82", "70", "64", "58"]
+    assert page.locator("#rc-host .ftag .scu").first.inner_text() == "/ 100 · high"
     assert page.locator("#rc-host #moreF").count() == 0
-    assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
-    assert page.locator("#rc-host .fr .bys").first.inner_text() == "Source: Matterport"
+    assert finds.first.locator(".is").inner_text() == "6 floors"
+    # citations: the sample has no server, so plain chips, the deciding one emphasised
+    assert page.locator("#rc-host .fr .cite.dec").first.inner_text() == "Vexcel"
+    assert page.locator("#rc-host .fr a.cite").count() == 0
     # which home was checked, above the headline
     assert " ".join(page.locator("#rc-host #who").inner_text().split()) == \
         "Checked: Unit 1204 (this home) 3D scan is of the same floor plan"
     # how sure: one chip per finding (all three carry a confidence block), the why and the sources on demand
     chips = page.locator("#rc-host .cf .cfb")
     assert chips.count() == 4
-    # the judge's own 0-100 score next to the word
-    assert chips.evaluate_all("els => els.map(e => e.textContent.replace(/\\s+/g, ' ').trim())") == [
-        "64 · medium confidence", "82 · high confidence", "70 · medium confidence", "58 · medium confidence"]
+    # the score itself stands at the row's right; the chip only opens why
+    assert chips.evaluate_all("els => els.map(e => e.textContent.replace(/\\s+/g, ' ').trim())") == ["Why this score"] * 4
     assert page.locator("#rc-host .cfx:visible").count() == 0
     chips.first.click()
     x = page.locator("#rc-host #cfx0")
     assert x.is_visible() and chips.first.get_attribute("aria-expanded") == "true"
     assert "CoStar matches the listing" in x.locator(".cfw").inner_text()
     rows = x.locator(".cfl li").evaluate_all("els => els.map(e => [...e.children].map(c => c.textContent).join(' | '))")
-    assert rows[0] == "Matterport | 1 bedroom + den | decides", rows
-    assert rows[1] == "CoStar | 2 bedrooms | matches the listing", rows
+    assert rows[0] == "Vexcel | about 6 floors | decides", rows
+    assert rows[1] == "CoStar | 5 floors | matches the listing", rows
     chips.first.click()
     assert not x.is_visible()
     assert page.locator("#rc-host #body").evaluate("e => e.scrollWidth <= e.clientWidth + 1")

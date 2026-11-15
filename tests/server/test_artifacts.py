@@ -57,12 +57,21 @@ def _run():
         {"claim_id": "c1", "verdict": "contradicted", "claimed": "120 apartments", "found": "150 apartments",
          "source": "county", "reason": "Listing says 120 apartments. County lists 150 apartments; CoStar lists 90.",
          "image": None,
+         "citations": [
+             {"source": "County", "read": "Number of units field", "date": "2026", "value": "150 apartments",
+              "where": "Invented County Appraisal District, parcel 0099887766, field Number of units",
+              "link": "https://records.invalid/query?where=SECRETTOKEN", "image": None, "role": "decided"},
+             {"source": "CoStar", "read": "Units field", "date": None, "value": "90 apartments",
+              "where": "CoStar property 900001, field Number of units", "link": None, "image": None,
+              "role": "differs"},
+             {"source": "Listing", "read": "Listing text", "where": "listing page", "value": "120 apartments",
+              "role": "context"}],
          "confidence": {"score": 60, "band": "medium", "why": "The records differ.", "decided_by": "county",
                         "sources": [{"source": "county", "says": "150 apartments", "agrees_with_listing": False},
                                     {"source": "record", "says": "90 apartments", "agrees_with_listing": False}]}},
         {"claim_id": "c2", "verdict": "contradicted", "claimed": "2 bedrooms", "found": "1 bedroom and a den",
          "source": "scan", "reason": "Listing says 2 bedrooms. The 3D scan shows 1 bedroom and a den.",
-         "image": f"/img/{TOKEN}"},
+         "image": f"/img/{TOKEN}", "confidence": {"score": 40, "band": "low", "decided_by": "scan"}},
         {"claim_id": "c3", "verdict": "cant_check", "claimed": "Resort pool", "found": "Not seen in the aerial photo",
          "source": None, "reason": "Listing says “Resort pool”. Not seen in the aerial photo.", "image": None},
         {"claim_id": "c4", "verdict": "cant_check", "claimed": "Concierge", "found": "no data", "source": None,
@@ -90,6 +99,12 @@ def _card(html, aid):
     return m.group(0)
 
 
+def _exhibit(html, cid):
+    m = re.search(rf"<section class='[^']*' id='c-{cid}'.*?</section>", html, re.S)
+    assert m, cid
+    return m.group(0)
+
+
 def test_link_helpers():
     assert artifact_href(RID, "c1", "county") == f"/artifacts/{RID}#a-c1-county"
     assert artifact_href(RID, "c1", "record") == artifact_href(RID, "c1", "CoStar") == f"/artifacts/{RID}#a-c1-costar"
@@ -114,10 +129,40 @@ def test_two_sources_disagree_tags_the_decider():
     costar = _card(html, "a-c1-costar")
     assert "Decided this" in county and "150 apartments" in county
     assert "Differs" in costar and "Decided this" not in costar and "90" in costar
-    # the deciding card comes first in its claim
-    claim = re.search(r"<section class=claim id='c-c1'.*?</section>", html, re.S).group(0)
-    assert claim.index("a-c1-county") < claim.index("a-c1-costar")
-    assert "Confidence 60" in claim and "medium" in claim
+    ex = _exhibit(html, "c1")
+    # plates in the fixed source order: CoStar, Matterport, Vexcel, County
+    assert ex.index("a-c1-costar") < ex.index("a-c1-county")
+    # the confidence figure, the listing's words and what was found
+    assert "class=cfn>60<small>/100</small>" in ex and "Medium confidence" in ex
+    assert "120 apartments" in ex and "150 apartments" in ex
+    # sources with nothing for the claim: a quiet plate, still addressable
+    for slug in ("matterport", "vexcel"):
+        q = _card(html, f"a-c1-{slug}")
+        assert "plate nil" in q and "Had nothing" in q
+
+
+def test_citations_where_when_read():
+    html = build_artifacts(_run())
+    county = _card(html, "a-c1-county")
+    assert "Number of units field" in county and "field Number of units" in county
+    assert "As of the 2026 county roll" in county
+    costar = _card(html, "a-c1-costar")
+    assert "CoStar property record, field Number of units" in costar
+    assert "From the listing page" in _exhibit(html, "c1")
+    for bad in ("0099887766", "900001", "parcel 0", "SAMPLEscan01", "records.invalid", "SECRETTOKEN"):
+        assert bad not in html, bad
+
+
+def test_rail_order_selection_and_groups():
+    html = build_artifacts(_run())
+    tabs = re.findall(r"role=tab class='[^']*' id='t-([^']+)'", html)
+    # mismatches by confidence (60 before 40), then couldn't check
+    assert tabs == ["c1", "c2", "c3"]
+    assert "id='t-c1' aria-controls='c-c1' aria-selected=true" in html
+    assert html.count("<section class='on claim") == 1 and "<section class='on claim x-contradicted" in html
+    assert "<span class=ri-sc>60</span>" in html and "<span class=ri-sc>40</span>" in html
+    # a low-confidence mismatch is still "Doesn't match", in fainter blue; never a separate "Close" group
+    assert "s-low" in _exhibit(html, "c2") and "Doesn&#x27;t match" in _exhibit(html, "c2") and "g-close" not in html and "Close<b>" not in html
 
 
 def test_anchors_and_artifacts():
@@ -127,11 +172,20 @@ def test_anchors_and_artifacts():
     assert {"a-c1-county", "a-c1-costar", "a-c2-matterport", "a-c2-costar", "a-c3-vexcel"} <= set(ids)
     scan = _card(html, "a-c2-matterport")
     assert "Decided this" in scan and "Plan Q - 1 Bed + Den" in scan and "Den" in scan
-    assert f"/img/{TOKEN}" in scan  # the raw cache path shown only as its server token
+    assert f"/img/{TOKEN}" in scan and "class='gal" in scan  # the raw cache path shown only as its token
     assert "Artifact library" in html and ADDR in html and "artifacts from" in html
-    assert f"href='/report/{RID}'" in html  # back link
+    assert f"href='/report/{RID}'" in html and "Back to the report" in html
     assert "Records checker" in _card(html, "a-c1-county")  # tool trace
     assert "county_lookup()" in _card(html, "a-c1-county")
+    assert "id=lb" in html  # the in-page lightbox
+
+
+def test_long_tables_fold():
+    from server.artifacts import _kv
+    rows = [(f"Fact {i}", str(i)) for i in range(10)]
+    h = _kv(rows, "kv-x")
+    assert h.count("<div class=x>") == 4 and "Show all 10 facts" in h
+    assert "Show all" not in _kv(rows[:7], "kv-y")  # one row more than shown is never folded
 
 
 def test_no_paths_names_contacts_or_free_text():
@@ -149,12 +203,11 @@ def test_no_paths_names_contacts_or_free_text():
 
 def test_cant_check_collapsed_and_absence_is_not_a_mismatch():
     html = build_artifacts(_run())
-    m = re.search(r"<details class=grp id=g-cant>(.*?)</details>", html, re.S)
-    assert m and "id='c-c3'" in m.group(1)
-    assert "<details class=grp id=g-cant open" not in html
+    m = re.search(r"<div class='rg shut' id=g-cant>(.*?)</div>", html, re.S)
+    assert m and "id='t-c3'" in m.group(1) and "aria-expanded=false" in m.group(1)
     vex = _card(html, "a-c3-vexcel")
     assert "doesn't match" not in vex.lower()
-    # a claim no source spoke to has no card, only the count
+    # a claim no source spoke to has no plate, only the count
     assert "a-c4-" not in html and "1 claim had nothing from any source" in html
     # mismatches come before the collapsed group
     assert html.index("id=g-off") < html.index("id=g-cant")

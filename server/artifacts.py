@@ -1,19 +1,23 @@
 """Artifact library: GET /artifacts/<run_id>, one page per run that shows what each source actually gave us.
 
-The report stays simple; this page shows the agent's depth. For every claim that any source spoke to (mismatches
-first, the report's lead on top, then close, then confirmed, then couldn't-check collapsed), a claim header and one
-ARTIFACT CARD per source, each with the anchor `a-<claim_id>-<source slug>` (costar | matterport | vexcel | county):
-  - the source's name and a tag: "Decided this" (the source whose evidence backs the found value, `deciding_source`,
-    the report's own truthful-credit rule `server.report_a._credit`), else "Agrees" / "Differs" / "Had nothing";
-  - the artifact itself: CoStar record fields, County record fields with publisher and roll year, Vexcel pictures
-    (/img/<token> only) and measured values, Matterport scan title, rooms, measured area, stills and "See it in 3D";
-  - the value read from it and how it compares with the listing (that source alone, judged by the same judge the
-    report's claim field uses, `server.claim_field.claim_field`);
-  - one grey trace line: which agent and tool produced it, and when in the run.
+The report stays simple; this page shows the agent's depth, laid out like the report (Newsreader, hairlines, one blue):
+  - hero: big staggered title, the address, one summary line;
+  - a dark band, one tile per source (CoStar, Matterport, Vexcel, County): artifacts held, how often it decided /
+    agreed / differed; a tile is also the source filter;
+  - "The exhibits": a master-detail browser. The left rail lists the claims any source spoke to: mismatches first,
+    the most certain on top with the confidence score shown large (fainter blue as it drops), then matches, then
+    couldn't-check collapsed. Arrow keys move along it. The right pane shows the selected claim as an exhibit: the
+    listing's words vs. what was found, the confidence figure, then one PLATE per source in source order, each with
+    the anchor `a-<claim_id>-<source slug>` (costar | matterport | vexcel | county): a tag "Decided this" (the
+    report's own truthful-credit rule, `deciding_source`) / "Agrees" / "Differs" / "Had nothing", the value read in
+    large type, a key-value table (long ones behind "Show all N"), where / when (the verdict's `citations` when the
+    run has them, else read from the evidence), a picture gallery with an in-page lightbox, "See it in 3D", and a
+    grey trace line (agent -> tool, timing). A source with nothing for the claim gets a quiet compact plate.
+    A deep link selects its claim, opens its group, and scrolls to and marks the plate.
 
 Other pages link here with `artifact_href(run_id, claim_id, source)`. Privacy (same rules as the report): no people's
-names or contacts (owner type only), 311 as a count only, no file paths or signed URLs (pictures only as
-/img/<token>), no keys, never unkind words; absence is never a mismatch.
+names or contacts (owner type only), no parcel / property / scan ids, 311 as a count only, no file paths, query URLs
+or signed URLs (pictures only as /img/<token>), no keys, never unkind words; absence is never a mismatch.
 
 Wiring: `register(app)` adds the route; server/app.py calls it once.
 """
@@ -510,8 +514,12 @@ def _trace(evs: list, info: dict, steps: list, harness: dict, timing: dict) -> s
         d = re.split(r"(?<=[.;])\s", str(ev.get("detail") or "").strip(), maxsplit=1)[0].rstrip(".;")
         if d.count("(") != d.count(")"):
             d = d[:d.rfind("(")].rstrip(" ,:")
+        d = re.sub(r"\s*\b(?:for |of )?(?:model|scan)\s+(?=[\w-]*[A-Z])(?=[\w-]*[a-z])(?=[\w-]*\d|[\w-]{10,})[\w-]{8,24}\b",
+                   "", d)
+        d = re.sub(r"\b(?=[\w-]*[A-Z])(?=[\w-]*[a-z])(?=[\w-]*\d)[\w-]{9,24}\b", "", d)
+        d = re.sub(r"\s*\((?=[\w-]*[A-Z])(?=[\w-]*[a-z])[\w-]{8,24}\)", "", d).strip(" ,:")
         d = _safe(d, 130)
-        if d and not re.search(r"\d{7,}", d):
+        if d and not re.search(r"\d{5,}", d):
             method = d
             break
     out = " · ".join(bits + ms)
@@ -520,25 +528,61 @@ def _trace(evs: list, info: dict, steps: list, harness: dict, timing: dict) -> s
     return out
 
 
-def _card(R, run, raw_run: dict, v: dict, c: dict, key: str, evs: list, nothing: list, cell: dict, decider,
-          credited: list, info: dict, steps: list) -> str:
+R_SOFT = {"amenity", "parking", "laundry", "view", "other"}
+CIT_KEY = {"costar": "record", "matterport": "scan", "vexcel": "aerial", "county": "county",
+           "record": "record", "scan": "scan", "aerial": "aerial"}
+ROLE_TAG = {"decided": "Decided this", "agrees": "Agrees", "differs": "Differs"}
+KV_SHOW = 6       # facts shown before "Show all N"
+PLANS_SHOW = 5    # floor plans shown before "Show all N"
+SRC_GLYPH = {  # a small line drawing per source, for the source strip when it holds no picture
+    "record": "<svg viewBox='0 0 80 60' aria-hidden=true><rect x=14 y=6 width=52 height=48 fill=none stroke=currentColor "
+              "stroke-width=1.4/><path d='M22 18h36M22 26h36M22 34h24M22 42h30' stroke=currentColor stroke-width=1.4/></svg>",
+    "scan": "<svg viewBox='0 0 80 60' aria-hidden=true><path d='M12 46 40 54 68 46V18L40 10 12 18Z M12 18 40 26 68 18 M40 26V54' "
+            "fill=none stroke=currentColor stroke-width=1.4 stroke-linejoin=round/></svg>",
+    "aerial": "<svg viewBox='0 0 80 60' aria-hidden=true><rect x=8 y=6 width=64 height=48 fill=none stroke=currentColor "
+              "stroke-width=1.4/><rect x=24 y=18 width=22 height=18 fill=none stroke=currentColor stroke-width=1.4/>"
+              "<path d='M52 40h12v8H52Z' fill=none stroke=currentColor stroke-width=1.4/></svg>",
+    "county": "<svg viewBox='0 0 80 60' aria-hidden=true><path d='M10 24 40 8 70 24Z M16 28v20M28 28v20M40 28v20M52 28v20M64 28v20"
+              " M10 52h60' fill=none stroke=currentColor stroke-width=1.4 stroke-linejoin=round/></svg>",
+}
+
+
+def _where(s) -> str:
+    """A citation's 'where', fit to show: no parcel / property / scan ids, no link, no path; '' otherwise."""
+    s = str(s or "")
+    s = re.sub(r"(?i),?\s*\bparcels?\s*(?:no\.?|number|#)?\s*[\w-]*\d[\w-]*", "", s)
+    s = re.sub(r"(?i)\b(property|record|account|acct|model|scan id)\s*#?\s*\d[\w-]*", r"\1 record", s)
+    s = re.sub(r"(?i)\brecord record\b|\bproperty record record\b", "record", s)
+    s = re.sub(r"\s*\((?=[\w-]*[A-Z])(?=[\w-]*[a-z])[\w-]{8,24}\)", "", s)  # a scan's id in brackets
+    s = re.sub(r"[\w-]*\d{5,}[\w-]*", "", s)
+    s = re.sub(r"\s+,", ",", re.sub(r"\s{2,}", " ", s)).strip(" ,;")
+    return _safe(s, 160)
+
+
+def _cites(v: dict) -> dict:
+    """{source key: [citation, ...]} from the verdict's `citations` (new runs); {} for old runs."""
+    out: dict = {}
+    for ct in v.get("citations") or []:
+        if not isinstance(ct, dict):
+            continue
+        k = CIT_KEY.get(str(ct.get("source") or "").strip().lower())
+        if k:
+            out.setdefault(k, []).append(ct)
+        elif str(ct.get("source") or "").strip().lower() == "listing":
+            out.setdefault("listing", []).append(ct)
+    return out
+
+
+def _pictures(run, raw_run: dict, v: dict, c: dict, key: str, evs: list, decider, cits: list) -> list:
+    """[(url, caption)] for one plate: the verdict's own picture (deciding source only), the citation's, this source's
+    relevant evidence, then same-plan stills / the building's aerial photos. /img/<token> only."""
     images = raw_run.get("images") or {}
-    cid = c.get("id") or v.get("claim_id")
-    usable = bool(evs)
-    tag = _tag(key, decider, v, cell, credited, usable)
-    plans = []
-    if key == "record":
-        rows, plans, asof = _rows_record(evs or nothing)
-    elif key == "county":
-        rows, asof = _rows_county(evs or nothing)
-    elif key == "aerial":
-        rows, asof = _rows_aerial(evs or nothing)
-    else:
-        rows, asof = _rows_scan(evs or nothing)
-    # pictures: the verdict's own (deciding source only), this source's relevant evidence, then same-plan stills
     pool = []
     if key == decider and v.get("image"):
         pool.append((v.get("image"), ""))
+    for ct in cits:
+        if ct.get("image"):
+            pool.append((ct.get("image"), ""))
     for ev in evs:
         pool += [(im.get("path"), im.get("caption")) for im in ev.get("images") or [] if isinstance(im, dict)]
     if key == "scan" and c.get("label"):
@@ -557,15 +601,98 @@ def _card(R, run, raw_run: dict, v: dict, c: dict, key: str, evs: list, nothing:
         for im in ev.get("images") or []:
             if isinstance(im, dict) and im.get("path"):
                 caps.setdefault(im["path"], im.get("caption") or "")
+                u = _img_url(im["path"], images)
+                if u:
+                    caps.setdefault(u, im.get("caption") or "")
     pics, seen = [], set()
     for p, cap in pool:
         url = _img_url(p, images)
         if url and url not in seen:
             seen.add(url)
-            pics.append((url, _short_caption(cap or caps.get(p) or "")))
-    pics = pics[:MAX_IMGS]
+            pics.append((url, _short_caption(cap or caps.get(p) or caps.get(url) or "")))
+    return pics[:MAX_IMGS]
 
-    value = _read_value(cell, rows) if usable else ""
+
+def _gallery(pics: list, name: str) -> str:
+    if not pics:
+        return ""
+    out = []
+    for i, (u, cp) in enumerate(pics):
+        alt = cp or f"Picture from {name}"
+        plan = " plan" if re.search(r"(?i)floor ?plan|schematic", cp or "") else ""
+        out.append(f"<figure class=g><a class='pic{plan}' href='{_e(u)}' data-cap='{_e(alt)}'>"
+                   f"<img src='{_e(u)}' alt='{_e(alt)}' loading=lazy decoding=async></a>"
+                   + (f"<figcaption>{_e(cp)}</figcaption>" if cp else "") + "</figure>")
+    n = len(pics)
+    return (f"<div class='gal n{min(n, 3)}' aria-label='{n} picture{'s' if n != 1 else ''} from {_e(name)}'>"
+            + "".join(out) + "</div>")
+
+
+def _kv(rows: list, uid: str) -> str:
+    if not rows:
+        return ""
+    trs = "".join(f"<div{' class=x' if i >= KV_SHOW else ''}><dt>{_e(a)}</dt><dd>{_e(b)}</dd></div>"
+                  for i, (a, b) in enumerate(rows))
+    more = ""
+    if len(rows) > KV_SHOW + 1:
+        more = (f"<button type=button class=allbtn aria-controls='{_e(uid)}' aria-expanded=false "
+                f"data-more='Show all {len(rows)} facts' data-less='Show fewer'>Show all {len(rows)} facts</button>")
+    else:
+        trs = trs.replace("<div class=x>", "<div>")
+    return f"<dl class=kv id='{_e(uid)}'>{trs}</dl>{more}"
+
+
+def _plans_table(plans: list, uid: str) -> str:
+    rows = [p for p in plans[:MAX_PLANS * 3] if isinstance(p, dict)]
+    if not rows:
+        return ""
+    trs = "".join(f"<tr{' class=x' if i >= PLANS_SHOW and len(rows) > PLANS_SHOW + 1 else ''}>"
+                  f"<td>{_e(_safe(p.get('name'), 40))}</td><td>{_e(_n(p.get('beds')))}</td>"
+                  f"<td>{_e(_n(p.get('baths')))}</td><td>{_e(_n(p.get('sqft')))}</td></tr>" for i, p in enumerate(rows))
+    more = ""
+    if len(rows) > PLANS_SHOW + 1:
+        more = (f"<button type=button class=allbtn aria-controls='{_e(uid)}' aria-expanded=false "
+                f"data-more='Show all {len(rows)} floor plans' data-less='Show fewer'>Show all {len(rows)} floor plans</button>")
+    extra = f"<p class=pnote>+ {len(plans) - len(rows)} more floor plans on record</p>" if len(plans) > len(rows) else ""
+    return (f"<div class=ptw><p class=k>Floor plans on record</p><table class=plans id='{_e(uid)}'><thead><tr><th>Plan</th>"
+            f"<th>Beds</th><th>Baths</th><th>Sq ft</th></tr></thead><tbody>{trs}</tbody></table>{more}{extra}</div>")
+
+
+def _plate(R, run, raw_run, v: dict, c: dict, key: str, evs: list, nothing: list, cell: dict, decider,
+           credited: list, info: dict, steps: list, cits: list) -> tuple[str, str, bool]:
+    """(html, tag) of one source's plate for one claim. A full plate when the source gave something for the claim;
+    a quiet compact one when it had nothing."""
+    cid = c.get("id") or v.get("claim_id")
+    aid = f"a-{_cid(cid)}-{SRC_SLUG[key]}"
+    name = SRC_NAME[key]
+    cit = next((ct for ct in cits if ct.get("role") in ROLE_TAG), cits[0] if cits else {})
+    cit_val = _safe(cit.get("value"), 120) if cit else ""
+    usable = bool(evs) or bool(cit_val)
+    tag = _tag(key, decider, v, cell, credited, bool(evs))
+    if cit and cit.get("role") in ("agrees", "differs") and key != decider and usable:
+        tag = ROLE_TAG[cit["role"]]  # the run's own word for this source, when it gave one
+    if tag == "Had nothing" and cit_val:
+        tag = "Agrees" if cit.get("role") == "agrees" else "Differs" if cit.get("role") == "differs" else tag
+    if not usable or tag == "Had nothing" and not evs:
+        why = ""
+        for ev in nothing:
+            why = _safe(ev.get("summary"), 140)
+            if why:
+                break
+        return (f"<article class='plate nil' id='{_e(aid)}' data-src={key}><p class=psrc><b>{name}</b>"
+                f"<span>{_e(SRC_WHAT[key])}</span></p><p class=pnil>{_e(why or 'Had nothing for this claim.')}</p>"
+                "</article>"), "Had nothing", False
+    plans = []
+    if key == "record":
+        rows, plans, asof = _rows_record(evs or nothing)
+    elif key == "county":
+        rows, asof = _rows_county(evs or nothing)
+    elif key == "aerial":
+        rows, asof = _rows_aerial(evs or nothing)
+    else:
+        rows, asof = _rows_scan(evs or nothing)
+    pics = _pictures(run, raw_run, v, c, key, evs, decider, cits)
+    value = (_read_value(cell, rows) if evs else "") or cit_val
     summary = ""
     for ev in (evs or nothing):
         summary = _safe(ev.get("summary"), 240)
@@ -576,63 +703,71 @@ def _card(R, run, raw_run: dict, v: dict, c: dict, key: str, evs: list, nothing:
         said, is_q = _listing_words(R, run, v, c)
         said = f"“{said}”" if is_q else said
     alone = cell.get("verdict")
-    if usable and alone in ALONE_WORD:
-        cmp = f"{SRC_NAME[key]} alone {ALONE_WORD[alone]} ({said})"
-    elif usable and c.get("kind") in R_SOFT and str(cell.get("found") or "").lower().startswith("not seen"):
+    if evs and alone in ALONE_WORD:
+        cmp = f"On its own, {name} {ALONE_WORD[alone]} ({said})"
+    elif evs and c.get("kind") in R_SOFT and str(cell.get("found") or "").lower().startswith("not seen"):
         cmp = "Not seen; a photo can't prove something is absent, so this is not a mismatch"
-    elif usable:
+    elif evs:
         cmp = "Nothing here could be compared with the listing"
     else:
-        cmp = "Nothing usable for this claim"
+        cmp = ""
+    # where / when: the run's citation when it has one, else what the evidence itself tells us
+    where = _where(cit.get("where")) if cit else ""
+    read = _safe(cit.get("read"), 60) if cit else ""
+    date = str(cit.get("date") or "").strip() if cit else ""
+    if re.fullmatch(r"\d{4}", date):
+        asof = f"As of the {date} county roll" if key == "county" else f"Dated {date}"
+    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        asof = f"Photos of {date}" if key == "aerial" else f"Dated {date}"
+    if key == "aerial" and asof.startswith("Photos of") and any(a == "Photos taken" and asof.endswith(b)
+                                                               for a, b in rows):
+        rows = [r for r in rows if r[0] != "Photos taken"]
     tour = ""
-    if key == "scan" and usable:
+    if key == "scan" and evs:
         try:
             from server.tour import tour_href, tour_target
             if RUN_ID_RE.match(str(raw_run.get("run_id") or "")) and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", str(cid)) \
                     and tour_target(raw_run, cid):
-                tour = f"<a class=tour href='{_e(tour_href(raw_run, cid))}'>See it in 3D →</a>"
+                tour = (f"<a class=tour href='{_e(tour_href(raw_run, cid))}'>See it in 3D "
+                        "<span aria-hidden=true>→</span></a>")
         except Exception:  # noqa: BLE001
             tour = ""
     tcls = {"Decided this": "t-dec", "Agrees": "t-agr", "Differs": "t-dif"}.get(tag, "t-nil")
-    h = [f"<article class='card{' dec' if tag == 'Decided this' else ''}' id='a-{_e(_cid(cid))}-{SRC_SLUG[key]}' "
-         f"data-src={key}><header class=ch><p class=sn>{SRC_NAME[key]} <span class=sw>{_e(SRC_WHAT[key])}</span></p>"
-         f"<span class='tag {tcls}'>{_e(tag)}</span></header>"]
+    h = [f"<article class='plate full {tcls}' id='{_e(aid)}' data-src={key}>"
+         f"<header class=ph><p class=psrc><b>{name}</b><span>{_e(SRC_WHAT[key])}</span></p>"
+         f"<span class='tag {tcls}'>{_e(tag)}</span></header><div class=pb><div class=pmain>"]
     if value:
-        h.append(f"<p class=val><span class=k>Value read</span> {_e(_cap(value))}</p>")
-    h.append(f"<p class=cmp>{_e(_cap(cmp))}.</p>")
+        h.append(f"<div class=pv><p class=k>{_e(read) if read else 'Value read'}</p>"
+                 f"<p class=pval>{_e(_cap(value))}</p></div>")
+    if cmp:
+        h.append(f"<p class=pcmp>{_e(_cap(cmp))}.</p>")
     if summary:
-        h.append(f"<p class=sum>{_e(summary)}</p>")
-    if pics:
-        h.append("<div class=pics>" + "".join(
-            f"<a href='{_e(u)}' target=_blank rel=noopener><img src='{_e(u)}' alt='{_e(cp or 'Picture from ' + SRC_NAME[key])}'"
-            f" loading=lazy onerror=\"this.parentNode.remove()\">"
-            + (f"<span>{_e(cp)}</span>" if cp else "") + "</a>" for u, cp in pics) + "</div>")
-    if rows:
-        h.append("<dl class=rows>" + "".join(f"<div><dt>{_e(a)}</dt><dd>{_e(b)}</dd></div>" for a, b in rows) + "</dl>")
+        h.append(f"<p class=psum>{_e(summary)}</p>")
+    h.append(_gallery(pics, name))
+    h.append("</div><div class=pside>")
+    h.append(_kv(rows, f"kv-{aid}"))
     if plans:
-        shown = plans[:MAX_PLANS]
-        trs = "".join(f"<tr><td>{_e(_safe(p.get('name'), 40))}</td><td>{_e(_n(p.get('beds')))}</td>"
-                      f"<td>{_e(_n(p.get('baths')))}</td><td>{_e(_n(p.get('sqft')))}</td></tr>" for p in shown)
-        more = f"<p class=more>+ {len(plans) - len(shown)} more plans</p>" if len(plans) > len(shown) else ""
-        h.append("<table class=plans><thead><tr><th>Plan</th><th>Beds</th><th>Baths</th><th>Sq ft</th></tr></thead>"
-                 f"<tbody>{trs}</tbody></table>{more}")
-    if key == "aerial" and asof.startswith("Photos of") and any(a == "Photos taken" for a, _ in rows):
-        asof = ""  # the date is already a row
-    if asof and (rows or pics):
-        h.append(f"<p class=asof>{_e(asof)}</p>")
+        h.append(_plans_table(plans, f"pl-{aid}"))
+    meta = []
+    if where:
+        meta.append(f"<p><span class=k>Where</span>{_e(_cap(where))}</p>")
+    if asof and (rows or pics or where):
+        meta.append(f"<p><span class=k>When</span>{_e(asof)}</p>")
+    if meta:
+        h.append("<div class=pmeta>" + "".join(meta) + "</div>")
     if tour:
         h.append(tour)
+    h.append("</div></div>")
     tr = _trace(evs or nothing, info, steps, run.done.get("harness") or {}, run.done.get("timing") or {})
     if tr:
-        h.append(f"<p class=trace>{_e(tr)}</p>")
+        h.append(f"<footer class=trace>{_e(tr)}</footer>")
     h.append("</article>")
-    return "".join(h)
+    return "".join(h), tag, True
 
 
-R_SOFT = {"amenity", "parking", "laundry", "view", "other"}
-
-
-def _claim_block(R, run, raw_run, v: dict, cells: dict, info: dict, steps: list, top_id) -> tuple[str, int, set]:
+def _exhibit(R, run, raw_run, v: dict, cells: dict, info: dict, steps: list, top_id, no: int) -> dict | None:
+    """One claim as an exhibit: its head (listed vs. found, confidence) and the four sources' plates in source
+    order (full plates first, then the quiet ones). None when no source spoke to the claim."""
     c = run.claim(v)
     if not c:
         c = {"id": v.get("claim_id"), "kind": "", "label": None}
@@ -643,9 +778,9 @@ def _claim_block(R, run, raw_run, v: dict, cells: dict, info: dict, steps: list,
         credited = list(R._credit(v)[0]) if v.get("verdict") in ("contradicted", "close") else []
     except Exception:  # noqa: BLE001
         credited = [decider] if decider else []
-    cards, used = [], set()
-    order = ([decider] if decider else []) + [k for k in SRC_ORDER if k != decider]
-    for k in order:
+    cites = _cites(v)
+    full, quiet, tags, spoke = [], [], {}, []
+    for k in SRC_ORDER:
         try:
             rel = _relevant(c, by_src[k])
         except Exception:  # noqa: BLE001
@@ -659,167 +794,470 @@ def _claim_block(R, run, raw_run, v: dict, cells: dict, info: dict, steps: list,
                     continue
                 if (lab and _same_plan(o.get("plan"), lab)) or cid in (o.get("claim_ids") or []):
                     nothing.append(e)
-        if not rel and not nothing and k != decider:
-            continue
-        if not rel and not nothing:
-            continue
-        cards.append(_card(R, run, raw_run, v, c, k, rel, nothing, cells.get(k) or {}, decider, credited, info,
-                           steps))
-        used.add(k)
-    if not cards:
-        return "", 0, used
+        html, tag, is_full = _plate(R, run, raw_run, v, c, k, rel, nothing, cells.get(k) or {}, decider, credited, info,
+                           steps, cites.get(k) or [])
+        tags[k] = tag
+        if not is_full:
+            quiet.append(html)
+        else:
+            full.append(html)
+            spoke.append(k)
+    if not full:
+        return None
     kind = c.get("kind") or ""
     what = KIND_LABEL.get(kind) or _cap(str(kind).replace("_", " ")) or "Claim"
-    if c.get("label"):
-        what += f" · {c['label']}"
+    if kind == "amenity" and isinstance(c.get("value"), str) and 0 < len(c["value"]) <= 28:
+        what = _cap(c["value"])
+    name = " · ".join(x for x in (what, c.get("label")) if x)
     said, is_q = _listing_words(R, run, v, c)
-    said = f"“{said}”" if is_q else _cap(said)
+    said_t = f"“{said}”" if is_q else _cap(said)
     verdict = v.get("verdict") if v.get("verdict") in VERDICT_WORD else "cant_check"
+    off = verdict in ("contradicted", "close")
     try:
-        score, band, why = R._conf(v)
+        score, band, cwhy = R._conf(v)
     except Exception:  # noqa: BLE001
-        score, band, why = None, "", ""
-    conf = ""
-    if score is not None:
-        conf = f"<span class=conf>Confidence {score}" + (f" · {_e(band)}" if band else "") + "</span>"
-    elif band:
-        conf = f"<span class=conf>{_e(_cap(band))} confidence</span>"
-    reason = ""
+        score, band, cwhy = None, "", ""
+    try:
+        shade = R._shade(v) if off else ""
+    except Exception:  # noqa: BLE001
+        shade = "high" if verdict == "contradicted" else "low"
     try:
         reason = R._kind_text(R._first_sentence(v.get("reason") or ""))
     except Exception:  # noqa: BLE001
         reason = _safe(v.get("reason"), 160)
     found = _safe(v.get("found"), 100)
-    if found.lower() in ("no data", "not checked", ""):
+    if found.lower() in ("no data", "not checked", "") or found.lower() in JUNK_FOUND:
         found = ""
+    found = re.sub(r"\s*\((?:scan title|[^)]*record[^)]*)\)\s*$", "", found)
+    lst = next((ct for ct in cites.get("listing") or []), {})
+    lst_where = _where(lst.get("where")) if lst else ""
+    word = "Doesn't match" if off else VERDICT_WORD[verdict]
+    conf_txt = ""
+    if score is not None:
+        conf_txt = f"Confidence {score} / 100" + (f" · {band}" if band else "")
+    elif band:
+        conf_txt = f"{_cap(band)} confidence"
+    # the head: listed | found | confidence
+    strike = " class=strike" if verdict == "contradicted" else ""
+    listed = (f"<div class=xl><p class=k>Listed</p><p class=said><span{strike}>{_e(said_t)}</span></p>"
+              + (f"<p class=xsrc>From the {_e(lst_where[0].lower() + lst_where[1:])}</p>" if lst_where else "")
+              + "</div>")
+    if off:
+        rhs = found or "Sources differ"
+        right = f"<div class=xr><p class=k>Found</p><p class=truth>{_e(_cap(rhs))}</p></div>"
+    elif verdict == "confirmed":
+        right = (f"<div class=xr><p class=k>Found</p><p class='truth ok'>{_e(_cap(found) if found else 'The same')}"
+                 "</p></div>")
+    else:
+        right = (f"<div class=xr><p class=k>Found</p><p class='truth nil'>{_e(_cap(found) if found else 'Nothing to compare')}"
+                 "</p></div>")
+    if score is not None:
+        meter = (f"<div class=xc><p class=k>Confidence</p><p class=cfn>{score}<small>/100</small></p>"
+                 f"<span class=meter aria-hidden=true><i style='--w:{score}%'></i></span>"
+                 f"<p class=cfb>{_e(_cap(band) + ' confidence' if band else conf_txt)}</p></div>")
+    elif band:
+        meter = f"<div class=xc><p class=k>Confidence</p><p class='cfn word'>{_e(_cap(band))}</p></div>"
+    elif verdict == "confirmed":
+        meter = (f"<div class=xc><p class=k>Result</p><p class='cfn word ok'>Matches</p></div>")
+    elif verdict == "cant_check":
+        meter = (f"<div class=xc><p class=k>Result</p><p class='cfn word nil'>Couldn't check</p></div>")
+    else:
+        meter = ""
     pick = "<span class=pick>Top finding</span>" if cid == top_id else ""
-    off = verdict in ("contradicted", "close")
-    head = (f"<header class=clh><p class=kind>{_e(what)}{pick}</p>"
-            f"<p class=said>{_e(said)}</p>"
-            f"<p class=res><span class='vw{' off' if off else ''}'>{_e(VERDICT_WORD[verdict])}</span>"
-            + (f"<span class=fnd>{_e(_cap(found))}</span>" if found and verdict != "confirmed" else "")
-            + conf + "</p>"
+    srcs_sq = "".join(f"<i class='{'hit' if tags[k] == 'Decided this' else 'on' if k in spoke else ''}' "
+                      f"title='{SRC_NAME[k]}: {_e(tags[k])}'></i>" for k in SRC_ORDER)
+    head = (f"<header class=xh><p class=xk><span class=xno>No. {no:02d}</span><span class=xn>{_e(name)}</span>{pick}"
+            f"<span class=xt>{_e(word)}</span></p>"
+            f"<div class='xg{' three' if meter else ''}'>{listed}{right}{meter}</div>"
             + (f"<p class=why>{_e(reason)}</p>" if reason else "")
-            + (f"<p class=why>{_e(why)}</p>" if why and why != reason else "") + "</header>")
-    srcs = " ".join(sorted(used))
-    return (f"<section class=claim id='c-{_e(_cid(cid))}' data-verdict={verdict} data-srcs='{srcs}'>{head}"
-            f"<div class=cards>{''.join(cards)}</div></section>"), len(cards), used
+            + (f"<p class=cwhy>{_e(cwhy)}</p>" if cwhy and cwhy != reason else "") + "</header>")
+    n_full = len(full)
+    sub = (f"<div class=plh><p class=k>The sources</p><p class=plsum><span class=sq aria-hidden=true>{srcs_sq}</span>"
+           f"{n_full} of 4 gave something for this claim</p></div>")
+    body = (f"{sub}<div class='plates n{min(n_full, 3)}'>{''.join(full)}</div>"
+            + (f"<div class=quiet>{''.join(quiet)}</div>" if quiet else ""))
+    cls = f"claim x-{verdict}" + (f" s-{shade}" if shade else "")
+    sec = (f"<section class='{cls}' id='c-{_e(_cid(cid))}' data-verdict={verdict} data-srcs='{' '.join(spoke)}' "
+           f"role=tabpanel aria-labelledby='t-{_e(_cid(cid))}' tabindex=-1>{head}{body}</section>")
+    # the rail entry
+    if off and score is not None:
+        mark = f"<span class=ri-sc>{score}</span>"
+    elif off:
+        mark = f"<span class='ri-sc word'>{_e(band or 'off')}</span>"
+    elif verdict == "confirmed":
+        mark = ("<span class='ri-sc ok' aria-label=Matches><svg viewBox='0 0 20 20' width=16 height=16 aria-hidden=true>"
+                "<path d='M4 10.5 8.2 14.5 16 6' fill=none stroke=currentColor stroke-width=1.8/></svg></span>")
+    else:
+        mark = "<span class='ri-sc nil'>–</span>"
+    short = said_t if len(said_t) <= 60 else said_t[:57].rstrip() + "…"
+    tip = f" title='{_e(conf_txt)}'" if conf_txt else ""
+    tab = (f"<button type=button role=tab class='ri{' s-' + shade if shade else ''}' id='t-{_e(_cid(cid))}' "
+           f"aria-controls='c-{_e(_cid(cid))}' aria-selected=false tabindex=-1 data-srcs='{' '.join(spoke)}'{tip}>"
+           f"<span class=ri-n>{no:02d}</span><span class=ri-t>{_e(name)}</span>{mark}"
+           f"<span class=ri-s>{_e(short)}</span><span class=sq aria-hidden=true>{srcs_sq}</span></button>")
+    decided = [k for k in SRC_ORDER if tags[k] == "Decided this"]
+    return {"section": sec, "tab": tab, "n": n_full, "spoke": spoke, "decided": decided, "verdict": verdict,
+            "tags": tags}
 
 
 # ---------- page ----------
 
 CSS = """
-:root{--ink:#111;--blue:#1a4be0;--mute:#6b6b6b;--ghost:#858585;--soft:#f4f4f4;--line:#d9d9d9;--bg:#fff;
+:root{--ink:#111;--blue:#1a4be0;--mute:#6b6b6b;--ghost:#858585;--soft:#f4f4f4;--line:#d9d9d9;--hair:#ececec;--bg:#fff;
 --gut:clamp(16px,5vw,72px)}
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 Newsreader,Georgia,'Times New Roman',serif;
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.5 Newsreader,Georgia,'Times New Roman',serif;
 -webkit-font-smoothing:antialiased;overflow-x:hidden}
 a{color:var(--ink)}a:hover{color:var(--blue)}
-a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
 img{max-width:100%;display:block}
-.wrap{max-width:1440px;margin:0 auto;padding:0 var(--gut)}
-.top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;min-height:80px;gap:8px 16px}
+p{margin:0}
+.wrap{max-width:1520px;margin:0 auto;padding:0 var(--gut)}
+.k{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);line-height:1.3}
+.hid{display:none!important}
+/* header + hero */
+.top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;min-height:88px;gap:8px 16px}
 .brand{font-size:19px;font-weight:500;letter-spacing:-.01em;text-decoration:none}
-.back{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:15px;text-decoration:none}
-h1{margin:clamp(8px,2vw,24px) 0 10px;font-weight:300;font-size:clamp(46px,7vw,104px);line-height:.95;letter-spacing:-.045em}
-.where{margin:0;font-size:clamp(19px,2vw,24px);letter-spacing:-.01em}
-.lede{margin:4px 0 0;color:var(--mute);font-size:16px}
-.filters{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--ink);
-margin-top:clamp(20px,3vw,36px);padding:10px 0;display:flex;flex-direction:column;gap:6px}
-.fr{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
-.fr>span{font-size:13px;color:var(--mute);min-width:62px}
-.chip{font:inherit;font-size:14px;min-height:34px;padding:0 12px;background:var(--bg);color:var(--ink);
-border:1px solid var(--line);cursor:pointer;border-radius:0}
+.back{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-size:15px;text-decoration:none}
+.hero{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px 6%;align-items:end;
+padding:clamp(0px,1vw,16px) 0 clamp(48px,6vw,96px)}
+h1{margin:0;font-weight:300;font-size:clamp(56px,10vw,164px);line-height:.9;letter-spacing:-.05em;display:flex;flex-direction:column}
+h1 .l2{padding-left:clamp(0px,14vw - 30px,220px)}
+.hero-r{display:flex;flex-direction:column;gap:12px;padding-bottom:.6em}
+.hero-r .where{font-size:clamp(21px,1.9vw,26px);line-height:1.25;letter-spacing:-.01em}
+.hero-r .sum{font-size:18px;line-height:1.45}
+.hero-r .meta{font-size:14px;color:var(--mute)}
+.btn{display:inline-flex;align-items:center;gap:10px;min-height:48px;padding:0 22px;background:var(--ink);color:#fff;
+border:0;font:inherit;font-size:16px;text-decoration:none;cursor:pointer;align-self:flex-start;transition:background-color .18s}
+.btn:hover{background:#333;color:#fff}
+/* the four sources: a dark band, one tile per source (also the source filter) */
+.dark{background:#111;color:#f2f2f2}
+.band{padding:clamp(48px,6vw,96px) 0 clamp(44px,5vw,80px)}
+.band h2{margin:0;font-weight:300;font-size:clamp(40px,6vw,96px);line-height:.92;letter-spacing:-.05em;display:flex;flex-direction:column}
+.band h2 .l2{padding-left:clamp(0px,12vw,180px)}
+.band .lede{margin:clamp(14px,2vw,24px) 0 0;max-width:52ch;font-size:16px;color:#bdbdbd}
+.srcs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(14px,2vw,36px);margin-top:clamp(28px,4vw,56px)}
+.src{display:flex;flex-direction:column;gap:10px;min-width:0;text-align:left;background:none;border:0;padding:0;color:inherit;
+font:inherit;cursor:pointer}
+.src .tile{position:relative;background:#1d1d1d;aspect-ratio:4/3;overflow:hidden;display:flex;align-items:center;
+justify-content:center;color:#8d8d8d;transition:transform .3s ease}
+.src .tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:transform .6s}
+.src .tile svg{width:46%;height:auto}
+.src:hover .tile{transform:translateY(-4px)}.src:hover .tile img{transform:scale(1.03)}
+.src .tile .what{position:absolute;left:12px;top:12px;background:#111;color:#e8e8e8;font-size:13px;padding:3px 9px}
+.src .row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px solid #333;padding-bottom:8px}
+.src .h3{margin:0;font-weight:400;font-size:clamp(20px,1.8vw,26px)}
+.src .n{font-weight:300;font-size:clamp(44px,5vw,84px);line-height:.95;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.src .n small{font-size:15px;letter-spacing:0;color:#a9a9a9;margin-left:8px;font-weight:400}
+.src .roles{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:14px;color:#bdbdbd}
+.src .roles b{font-weight:400;color:#fff;font-variant-numeric:tabular-nums}
+.src .roles .dec b{color:#8eaaff}
+.src .go{font-size:14px;color:#a9a9a9}
+.src:hover .go,.src[aria-pressed=true] .go{color:#fff}
+.src[aria-pressed=true] .tile{outline:2px solid #fff;outline-offset:4px}
+.src.off{cursor:default}.src.off .tile,.src.off .n{opacity:.35}.src.off:hover .tile{transform:none}
+/* the exhibits: a rail of claims, one exhibit shown */
+.lib{padding-top:clamp(48px,6vw,96px);padding-bottom:clamp(48px,6vw,96px);scroll-margin-top:0}
+.lib-top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;
+padding-bottom:14px;border-bottom:1px solid var(--ink)}
+.sh{margin:0;font-weight:300;font-size:clamp(40px,5vw,76px);line-height:.95;letter-spacing:-.045em}
+.lib-n{font-size:16px;color:var(--mute)}
+.fl{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.fl>span{font-size:13px;color:var(--mute);margin-right:4px}
+.chip{font:inherit;font-size:14px;min-height:36px;padding:0 12px;background:var(--bg);color:var(--ink);
+border:1px solid var(--line);cursor:pointer;border-radius:0;transition:border-color .18s,background-color .18s}
 .chip:hover{border-color:var(--ink)}
 .chip[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
-.chip b{font-weight:400;color:var(--ghost);margin-left:6px}.chip[aria-pressed=true] b{color:#bbb}
-.grp{margin-top:clamp(28px,4vw,52px)}
-.gh{margin:0 0 4px;font-weight:300;font-size:clamp(28px,3.2vw,44px);letter-spacing:-.035em;line-height:1.1}
-details.grp>summary{cursor:pointer;list-style:none}
-details.grp>summary::-webkit-details-marker{display:none}
-details.grp>summary .gh::after{content:' +';color:var(--mute)}
-details.grp[open]>summary .gh::after{content:' −'}
-.claim{border-top:1px solid var(--line);padding:clamp(18px,2vw,28px) 0;scroll-margin-top:120px}
-.clh{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;margin-bottom:14px;max-width:900px}
-.kind{margin:0;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);display:flex;
-flex-wrap:wrap;gap:8px;align-items:center}
-.pick{text-transform:none;letter-spacing:0;font-size:12px;color:#fff;background:var(--blue);padding:1px 8px}
-.said{margin:0;font-size:clamp(22px,2.4vw,30px);line-height:1.2;letter-spacing:-.02em;overflow-wrap:anywhere}
-.res{margin:4px 0 0;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;font-size:16px}
-.vw{font-weight:500}.vw.off{color:var(--blue)}
-.fnd{color:var(--ink)}.conf{color:var(--mute);font-variant-numeric:tabular-nums}
-.why{margin:2px 0 0;font-size:15px;color:var(--mute);max-width:80ch}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:12px}
-.card{border:1px solid var(--line);padding:14px 16px 12px;display:flex;flex-direction:column;gap:8px;min-width:0;
-scroll-margin-top:130px;transition:box-shadow .3s ease,border-color .3s ease}
-.card.dec{border-color:var(--ink)}
-.card.hit,.card:target{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue)}
-.ch{display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-bottom:1px solid var(--line);
-padding-bottom:8px}
-.sn{margin:0;font-size:20px;font-weight:500;letter-spacing:-.01em}
-.sw{font-size:13px;font-weight:400;color:var(--mute);margin-left:4px}
-.tag{font-size:12px;letter-spacing:.03em;padding:2px 8px;border:1px solid var(--line);white-space:nowrap;color:var(--mute)}
-.t-dec{background:var(--blue);border-color:var(--blue);color:#fff}
-.t-agr{border-color:var(--ink);color:var(--ink)}
-.t-dif{border-color:var(--blue);color:var(--blue)}
-.val{margin:0;font-size:19px;line-height:1.3}
-.k{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
-.cmp{margin:0;font-size:15px}
-.sum{margin:0;font-size:14px;color:var(--mute)}
-.pics{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
-.pics a{display:flex;flex-direction:column;gap:2px;text-decoration:none;font-size:12px;color:var(--mute);min-width:0}
-.pics img{width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
-.pics span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rows{margin:0;display:grid;grid-template-columns:minmax(0,1fr);border-top:1px solid #ececec}
-.rows div{display:grid;grid-template-columns:minmax(90px,38%) minmax(0,1fr);gap:10px;padding:4px 0;
-border-bottom:1px solid #ececec;font-size:14px}
-.rows dt{color:var(--mute)}.rows dd{margin:0;overflow-wrap:anywhere}
-.plans{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
-.plans th{text-align:left;font-weight:400;color:var(--mute);border-bottom:1px solid var(--line);padding:3px 4px 3px 0}
-.plans td{border-bottom:1px solid #ececec;padding:3px 4px 3px 0;overflow-wrap:anywhere}
-.more{margin:0;font-size:13px;color:var(--mute)}
-.asof{margin:0;font-size:13px;color:var(--mute)}
-.tour{align-self:flex-start;font-size:15px;color:#fff;background:var(--ink);text-decoration:none;padding:6px 14px}
-.tour:hover{background:#333;color:#fff}
-.trace{margin:auto 0 0;padding-top:6px;border-top:1px dashed #e4e4e4;font:12px/1.45 ui-monospace,SFMono-Regular,
-Menlo,Consolas,monospace;color:var(--ghost);overflow-wrap:anywhere}
-.none{color:var(--mute);font-size:15px;margin:clamp(28px,4vw,48px) 0 0}
-.hid{display:none!important}
-.foot{margin-top:clamp(40px,6vw,80px);padding:20px 0 40px;border-top:1px solid var(--ink);font-size:14px;color:var(--mute);
-display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px}
-@media (max-width:600px){.filters{margin-left:calc(-1 * var(--gut));margin-right:calc(-1 * var(--gut));padding:8px var(--gut)}.fr{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}.fr::-webkit-scrollbar{display:none}.fr>span{min-width:auto;flex:none}.chip{flex:none;min-height:38px}}
-@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.card{transition:none}}
+.chip b{font-weight:400;color:var(--ghost);margin-left:6px;font-variant-numeric:tabular-nums}.chip[aria-pressed=true] b{color:#bbb}
+.md{display:grid;grid-template-columns:minmax(260px,330px) minmax(0,1fr);column-gap:clamp(24px,3vw,52px);align-items:start}
+.rail{position:sticky;top:0;max-height:100vh;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;
+border-right:1px solid var(--line);padding:6px 0 24px}
+.rg-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;width:100%;margin:0;padding:18px 16px 8px 0;
+font:inherit;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);background:none;border:0;
+border-bottom:1px solid var(--ink);text-align:left}
+.rg-h b{font-weight:400;font-variant-numeric:tabular-nums;letter-spacing:0;font-size:14px}
+button.rg-h{cursor:pointer;min-height:44px}
+button.rg-h::after{content:'+';font-size:18px;letter-spacing:0;color:var(--ink);margin-left:auto}
+button.rg-h[aria-expanded=true]::after{content:'\\2212'}
+button.rg-h b{margin-left:8px}
+.rg.shut .ri{display:none}
+.ri{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr) auto;column-gap:10px;row-gap:2px;
+align-items:baseline;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--hair);
+padding:12px 16px 12px 12px;font:inherit;color:var(--ink);cursor:pointer;transition:background-color .18s}
+.ri:hover{background:var(--soft)}
+.ri:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.ri[aria-selected=true]{background:var(--acc-bg,#f2f2f2)}
+.ri::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc,var(--ink));transform:scaleY(0);
+transition:transform .22s cubic-bezier(.2,.7,.2,1)}
+.ri[aria-selected=true]::before{transform:none}
+.ri-n{font-size:12px;color:var(--ghost);font-variant-numeric:tabular-nums}
+.ri-t{font-size:18px;line-height:1.25;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ri-sc{grid-row:1/3;grid-column:3;align-self:center;font-weight:300;font-size:30px;line-height:1;letter-spacing:-.03em;
+color:var(--acc-t,var(--blue));font-variant-numeric:tabular-nums;min-width:36px;text-align:right}
+.ri-sc.word{font-size:14px;font-weight:400;letter-spacing:.02em}
+.ri-sc.ok{color:var(--ink);display:flex;justify-content:flex-end}.ri-sc.nil{color:var(--ghost);font-size:22px}
+.ri-s{grid-column:2;font-size:14px;line-height:1.35;color:var(--mute);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ri .sq{grid-column:2;margin-top:4px}
+.sq{display:inline-flex;gap:3px;flex:none;vertical-align:middle}.sq i{width:8px;height:8px;background:var(--hair);display:block}
+.sq i.on{background:var(--ink)}.sq i.hit{background:var(--acc,var(--blue))}
+/* one blue accent, fainter as the confidence drops */
+.s-high{--acc:#1a4be0;--acc-t:#1a4be0;--acc-bg:#eef2fd}
+.s-medium{--acc:#6585ea;--acc-t:#4a6fe6;--acc-bg:#f1f4fd}
+.s-low{--acc:#b3c2f4;--acc-t:#8199ec;--acc-bg:#f6f8fe}
+.pane{min-width:0;padding-top:clamp(18px,2vw,28px)}
+html.js .claim:not(.on){display:none}
+.claim{scroll-margin-top:12px;outline:0}
+.claim+.claim{margin-top:56px}html.js .claim+.claim{margin-top:0}
+.claim.in{animation:xin .38s cubic-bezier(.2,.7,.2,1)}
+@keyframes xin{from{opacity:0;transform:translateY(10px)}}
+.xk{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;font-size:15px;color:var(--mute)}
+.xno{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);border:1px solid var(--ink);padding:1px 7px}
+.xn{color:var(--ink);font-size:17px}
+.xt{color:var(--acc-t,var(--mute));font-variant-numeric:tabular-nums}
+.x-confirmed .xt{color:var(--ink)}
+.pick{font-size:12px;color:#fff;background:var(--blue);padding:1px 8px;letter-spacing:.02em}
+.xg{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(20px,3vw,48px);margin-top:14px;
+border-top:1px solid var(--line);padding-top:16px}
+.xg.three{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(150px,.62fr)}
+.said,.truth{font-weight:300;font-size:clamp(32px,3.4vw,58px);line-height:1.02;letter-spacing:-.04em;overflow-wrap:anywhere;margin-top:4px}
+.said{color:var(--ghost)}
+.truth{color:var(--acc-t,var(--blue))}.truth.ok{color:var(--ink)}.truth.nil{color:var(--ghost)}
+.x-confirmed .said{color:var(--ink)}
+.xsrc{margin-top:6px;font-size:14px;color:var(--mute)}
+.xc{border-left:1px solid var(--line);padding-left:clamp(14px,1.6vw,24px);display:flex;flex-direction:column}
+.cfn{font-weight:300;font-size:clamp(44px,4.6vw,76px);line-height:.95;letter-spacing:-.04em;color:var(--acc-t,var(--ink));
+font-variant-numeric:tabular-nums;margin-top:4px}
+.cfn small{font-size:.3em;letter-spacing:0;color:var(--mute);margin-left:4px}
+.cfn.word{font-size:clamp(26px,2.4vw,38px);line-height:1.05}.cfn.ok{color:var(--ink)}.cfn.nil{color:var(--ghost)}
+.meter{display:block;height:4px;background:var(--hair);margin:10px 0 6px;position:relative;overflow:hidden}
+.meter i{position:absolute;left:0;top:0;bottom:0;width:var(--w);background:var(--acc,var(--ink));transform-origin:left}
+.claim.in .meter i{animation:grow .9s cubic-bezier(.2,.7,.2,1) .1s backwards}
+@keyframes grow{from{transform:scaleX(0)}}
+.cfb{font-size:14px;color:var(--mute)}
+.strike{background:linear-gradient(var(--acc,var(--blue)),var(--acc,var(--blue))) no-repeat 0 54%/100% .07em;
+-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.claim.in .strike{animation:strk .8s cubic-bezier(.7,0,.2,1) .15s backwards}
+@keyframes strk{from{background-size:0 .07em}}
+.why{margin-top:16px;font-size:18px;line-height:1.45;max-width:68ch}
+.cwhy{margin-top:4px;font-size:15px;color:var(--mute);max-width:80ch}
+/* the plates */
+.plh{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 20px;margin-top:clamp(24px,3vw,40px);
+padding-bottom:10px;border-bottom:1px solid var(--ink)}
+.plsum{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--mute)}
+.plates{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:clamp(14px,1.6vw,24px);margin-top:16px}
+.plate{min-width:0;scroll-margin-top:90px;transition:box-shadow .3s ease,border-color .3s ease}
+.plate.full{border:1px solid var(--line);display:flex;flex-direction:column;container-type:inline-size;background:var(--bg)}
+.plate.full.t-dec{border-color:var(--ink);box-shadow:inset 0 3px 0 var(--acc,var(--blue))}
+.x-confirmed .plate.full.t-dec{box-shadow:inset 0 3px 0 var(--ink)}
+.plate.hit{border-color:var(--blue)!important;box-shadow:0 0 0 3px var(--blue)!important;animation:hit 1.1s ease 2}
+@keyframes hit{50%{box-shadow:0 0 0 7px rgba(26,75,224,.25)}}
+.plate.dim{opacity:.32}
+.ph{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px 12px;border-bottom:1px solid var(--hair)}
+.psrc{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;min-width:0}
+.psrc b{font-weight:500;font-size:21px;letter-spacing:-.01em}
+.psrc span{font-size:14px;color:var(--mute)}
+.tag{font-size:12px;letter-spacing:.04em;padding:3px 9px;border:1px solid var(--line);white-space:nowrap;color:var(--mute)}
+.tag.t-dec{background:var(--acc,var(--blue));border-color:var(--acc,var(--blue));color:#fff}
+.x-confirmed .tag.t-dec{background:var(--ink);border-color:var(--ink)}
+.tag.t-agr{border-color:var(--ink);color:var(--ink)}
+.tag.t-dif{border-color:var(--blue);color:var(--blue)}
+.pb{display:grid;grid-template-columns:minmax(0,1fr);align-content:start;align-items:start;gap:14px;padding:14px 16px 16px;flex:1}
+.pmain,.pside{display:flex;flex-direction:column;gap:12px;min-width:0}
+@container (min-width:640px){.pb{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);column-gap:28px}}
+.pval{font-weight:300;font-size:clamp(28px,2.4vw,38px);line-height:1.08;letter-spacing:-.03em;margin-top:2px;overflow-wrap:anywhere}
+.t-dec .pval{color:var(--acc-t,var(--blue))}.x-confirmed .t-dec .pval{color:var(--ink)}
+.pcmp{font-size:15px;line-height:1.4}
+.psum{font-size:15px;line-height:1.45;color:var(--mute)}
+.gal{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.gal.n1{grid-template-columns:minmax(0,1fr)}.gal.n2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.gal figure{margin:0;min-width:0;display:flex;flex-direction:column;gap:4px}
+.gal figcaption{font-size:12.5px;line-height:1.3;color:var(--mute);display:-webkit-box;-webkit-line-clamp:2;
+-webkit-box-orient:vertical;overflow:hidden}
+a.pic{display:block;overflow:hidden;background:var(--soft);cursor:zoom-in}
+a.pic img{width:100%;aspect-ratio:4/3;object-fit:cover;transition:transform .6s ease}
+a.pic.plan img{object-fit:contain;background:#fff;padding:4px}
+a.pic.plan{border:1px solid var(--hair)}
+a.pic:hover img{transform:scale(1.04)}
+.gal.n1 a.pic img{aspect-ratio:16/10}
+.kv{margin:0;border-top:1px solid var(--ink)}
+.kv div{display:grid;grid-template-columns:minmax(96px,42%) minmax(0,1fr);gap:12px;padding:6px 0;border-bottom:1px solid var(--hair);
+font-size:14.5px;line-height:1.38}
+.kv dt{color:var(--mute)}.kv dd{margin:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+html.js .kv:not(.open) .x,html.js .plans:not(.open) tr.x{display:none}
+.allbtn{align-self:flex-start;font:inherit;font-size:14px;background:none;border:0;padding:4px 0;min-height:32px;color:var(--ink);
+text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px;cursor:pointer}
+.allbtn:hover{color:var(--blue);text-decoration-color:var(--blue)}
+.ptw{display:flex;flex-direction:column;gap:6px}
+.plans{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums;border-top:1px solid var(--ink)}
+.plans th{text-align:left;font-weight:400;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);
+border-bottom:1px solid var(--line);padding:6px 6px 5px 0}
+.plans td{border-bottom:1px solid var(--hair);padding:5px 6px 5px 0;overflow-wrap:anywhere}
+.plans td+td,.plans th+th{text-align:right}
+.pnote{font-size:13px;color:var(--mute)}
+.pmeta{display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.4}
+.pmeta p{display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px;align-items:baseline}
+.pmeta .k{font-size:11px}
+.tour{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;min-height:40px;font-size:15px;color:#fff;
+background:var(--ink);text-decoration:none;padding:0 16px}
+.tour:hover{background:var(--blue);color:#fff}
+.trace{margin-top:auto;padding:8px 16px 10px;border-top:1px dashed #e2e2e2;background:#fafafa;
+font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ghost);overflow-wrap:anywhere}
+.quiet{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:10px;margin-top:14px}
+.plate.nil{border:1px dashed var(--line);padding:10px 14px;display:flex;flex-direction:column;gap:2px;color:var(--mute)}
+.plate.nil .psrc b{font-size:16px;color:var(--mute);font-weight:500}.plate.nil .psrc span{font-size:13px}
+.pnil{font-size:14px;line-height:1.35}
+.none{color:var(--mute);font-size:15px;margin-top:28px}
+/* footer */
+.foot{padding:clamp(48px,6vw,88px) 0 40px}
+.mark{margin:0;font-weight:300;font-size:clamp(48px,13vw,196px);line-height:.95;letter-spacing:-.05em;white-space:nowrap}
+.foot-end{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;margin-top:40px;font-size:15px;color:#a9a9a9}
+.foot a{color:#fff}
+/* lightbox */
+.lb{position:fixed;inset:0;z-index:90;background:rgba(17,17,17,.94);display:flex;flex-direction:column;align-items:center;
+justify-content:center;gap:12px;padding:64px 16px 24px}
+.lb[hidden]{display:none}
+.lb img{max-width:min(100%,1400px);max-height:80vh;object-fit:contain;background:#fff}
+.lb p{color:#eee;font-size:16px;text-align:center;max-width:70ch}
+.lb .lbx,.lb .lbp,.lb .lbn{position:absolute;background:#fff;color:var(--ink);border:0;font:inherit;font-size:14px;
+min-height:44px;min-width:44px;padding:0 14px;cursor:pointer}
+.lb .lbx{top:12px;right:12px}.lb .lbp{left:12px;top:50%}.lb .lbn{right:12px;top:50%}
+.lb .lbp[hidden],.lb .lbn[hidden]{display:none}
+/* motion */
+.js .rv{opacity:0;transform:translateY(24px);transition:opacity .8s ease var(--d,0ms),transform .8s cubic-bezier(.2,.7,.2,1) var(--d,0ms)}
+.js .rv.in{opacity:1;transform:none}
+@media (max-width:1100px){.srcs{grid-template-columns:repeat(2,minmax(0,1fr))}.xg.three{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.xg.three .xc{grid-column:1/-1;border-left:0;border-top:1px solid var(--hair);padding:12px 0 0;margin-top:14px;display:grid;
+grid-template-columns:auto auto minmax(80px,1fr) auto;align-items:center;column-gap:16px}
+.xg.three .xc .meter{margin:0}}
+@media (max-width:860px){
+.hero{grid-template-columns:minmax(0,1fr)}
+.md{display:block}
+.rail{position:sticky;top:0;z-index:6;max-height:none;overflow-x:auto;overflow-y:hidden;display:flex;gap:8px;border-right:0;
+background:var(--bg);padding:10px 0;margin:0 calc(-1 * var(--gut));padding-left:var(--gut);padding-right:var(--gut);
+border-bottom:1px solid var(--line);scrollbar-width:none;scroll-snap-type:x proximity}
+.rail::-webkit-scrollbar{display:none}
+.rg{display:flex;gap:8px;flex:none}
+.rg-h{flex:none;width:auto;border:0;padding:0 4px 0 0;flex-direction:column;justify-content:center;align-items:flex-start;gap:0;
+font-size:11px;max-width:84px;white-space:normal;line-height:1.2}
+button.rg-h{min-height:0;border:1px dashed var(--line);padding:0 10px}
+button.rg-h::after{margin-left:0}
+.ri{flex:none;width:auto;min-width:150px;max-width:62vw;border:1px solid var(--line);padding:8px 12px 8px 10px;
+grid-template-columns:minmax(0,1fr) auto;scroll-snap-align:start}
+.ri-n,.ri .sq{display:none}
+.ri-t{font-size:16px}.ri-s{grid-column:1;font-size:13px}
+.ri-sc{grid-column:2;font-size:24px}
+.pane{padding-top:16px}
+.plate{scroll-margin-top:110px}.claim{scroll-margin-top:96px}
+}
+@media (max-width:560px){
+body{font-size:17px}
+.top{min-height:68px}
+.srcs{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 12px}
+.src .row{flex-wrap:wrap;gap:0 8px}.src .n{font-size:44px}.src .n small{display:block;margin:2px 0 0}.src .h3{font-size:19px}.src .roles{font-size:13px}
+.xg,.xg.three{grid-template-columns:minmax(0,1fr);row-gap:14px}
+.xg.three .xc{grid-column:auto;margin-top:0;grid-template-columns:auto auto;row-gap:4px}
+.xg.three .xc .meter{grid-column:1/-1}
+.said,.truth{font-size:36px}
+.gal{grid-template-columns:repeat(2,minmax(0,1fr))}.gal.n1{grid-template-columns:minmax(0,1fr)}
+.lb .lbp,.lb .lbn{top:auto;bottom:16px}
+}
+@media (prefers-reduced-motion:reduce){
+.js .rv,.js .rv.in{opacity:1;transform:none;transition:none}
+.claim.in,.claim.in .strike,.claim.in .meter i,.plate.hit{animation:none}
+.ri::before,.src .tile,.src .tile img,a.pic img{transition:none}
+.src:hover .tile,a.pic:hover img,.src:hover .tile img{transform:none}
+}
 """
 
 SCRIPT = r"""
 (function(){
-var st={src:'all',ver:'all'};
-var chips=[].slice.call(document.querySelectorAll('.chip'));
-var cant=document.getElementById('g-cant');
-function apply(){
-  chips.forEach(function(b){var f=b.dataset.f.split(':');b.setAttribute('aria-pressed',String(st[f[0]]===f[1]));});
-  [].forEach.call(document.querySelectorAll('.card'),function(c){
-    c.classList.toggle('hid',st.src!=='all'&&c.dataset.src!==st.src);});
-  [].forEach.call(document.querySelectorAll('.claim'),function(s){
-    var ok=(st.ver==='all'||s.dataset.verdict===st.ver)&&s.querySelector('.card:not(.hid)');
-    s.classList.toggle('hid',!ok);});
-  [].forEach.call(document.querySelectorAll('.grp'),function(g){
-    g.classList.toggle('hid',!g.querySelector('.claim:not(.hid)'));});
-  if(cant&&st.ver==='cant_check')cant.open=true;
-}
-chips.forEach(function(b){b.addEventListener('click',function(){
-  var f=b.dataset.f.split(':');st[f[0]]=f[1];apply();});});
-function go(){
-  var id=decodeURIComponent(location.hash.slice(1));
-  if(!/^(a|c)-/.test(id))return;
-  var el=document.getElementById(id);if(!el)return;
-  if(el.classList.contains('hid')||(el.closest('.claim')||el).classList.contains('hid')){st.src='all';st.ver='all';apply();}
-  var d=el.closest('details');if(d)d.open=true;
-  requestAnimationFrame(function(){el.scrollIntoView({block:'center',behavior:'instant'});
-    if(el.classList.contains('card')){el.classList.add('hit');setTimeout(function(){el.classList.remove('hit');},2600);}});
-}
-apply();go();window.addEventListener('hashchange',go);
+var d=document.documentElement;d.classList.add('js');
+var still=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* fade-ins and count-ups */
+var rv=[].slice.call(document.querySelectorAll('.rv'));
+function count(el){var n=+el.getAttribute('data-n');if(still||!n){el.firstChild.nodeValue=n;return;}var t0=null;
+function f(t){if(!t0)t0=t;var p=Math.min(1,(t-t0)/900);el.firstChild.nodeValue=Math.round(n*(1-Math.pow(1-p,3)));if(p<1)requestAnimationFrame(f);}
+requestAnimationFrame(f);}
+function show(el){el.classList.add('in');[].forEach.call(el.querySelectorAll('[data-n]'),count);}
+if(still||!('IntersectionObserver' in window)){rv.forEach(show);}
+else{var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){show(e.target);io.unobserve(e.target);}});},
+{rootMargin:'0px 0px -6% 0px',threshold:0.05});rv.forEach(function(el){io.observe(el);});}
+/* a picture whose file is gone: hide its slot */
+document.addEventListener('error',function(e){var t=e.target;if(!t||t.tagName!=='IMG'||!t.closest||t.closest('.lb'))return;
+var f=t.closest('figure.g')||t.closest('.tile')&&t;if(f)f.classList.add('hid');
+var g=t.closest('.gal');if(g&&!g.querySelector('figure.g:not(.hid)'))g.classList.add('hid');},true);
+
+var rail=document.getElementById('rail');
+var tabs=rail?[].slice.call(rail.querySelectorAll('[role=tab]')):[];
+var cant=document.getElementById('g-cant'),cantB=cant&&cant.querySelector('button.rg-h');
+var st={src:'all'};
+function sec(t){return document.getElementById(t.getAttribute('aria-controls'));}
+function tabOf(s){return document.getElementById('t-'+s.id.slice(2));}
+function vis(t){return !t.classList.contains('hid')&&!(t.closest('.rg.shut'));}
+function keep(t){var L=rail;if(!L)return;
+if(L.scrollHeight>L.clientHeight+2){var top=t.offsetTop-L.offsetTop;if(top<L.scrollTop+40)L.scrollTop=Math.max(0,top-40);
+else if(top+t.offsetHeight>L.scrollTop+L.clientHeight)L.scrollTop=top+t.offsetHeight-L.clientHeight+8;}
+if(L.scrollWidth>L.clientWidth+2){var lf=t.offsetLeft-L.offsetLeft;if(lf<L.scrollLeft+16)L.scrollLeft=Math.max(0,lf-16);
+else if(lf+t.offsetWidth>L.scrollLeft+L.clientWidth)L.scrollLeft=lf+t.offsetWidth-L.clientWidth+16;}}
+function openCant(o){if(!cant)return;cant.classList.toggle('shut',!o);if(cantB)cantB.setAttribute('aria-expanded',o?'true':'false');}
+function select(t,o){if(!t)return;o=o||{};var s=sec(t);
+tabs.forEach(function(x){var on=x===t,p=sec(x);x.setAttribute('aria-selected',on?'true':'false');x.tabIndex=on?0:-1;
+if(p){if(on&&!p.classList.contains('on')){p.classList.remove('in');p.classList.add('on');void p.offsetWidth;if(!still)p.classList.add('in');}
+else if(!on)p.classList.remove('on','in');}});
+if(s)[].forEach.call(s.querySelectorAll('img[loading=lazy]'),function(i){i.loading='eager';});
+if(o.focus)t.focus({preventScroll:true});keep(t);dim();
+if(o.scroll&&s){var r=s.getBoundingClientRect();if(r.top<0||r.top>innerHeight*0.6)s.scrollIntoView({block:'start'});}
+if(o.hash&&s&&history.replaceState)history.replaceState(null,'','#'+s.id);}
+function dim(){[].forEach.call(document.querySelectorAll('.plate'),function(p){
+p.classList.toggle('dim',st.src!=='all'&&p.getAttribute('data-src')!==st.src);});}
+var chips=[].slice.call(document.querySelectorAll('[data-f]'));
+function apply(){chips.forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-f')==='src:'+st.src));});
+tabs.forEach(function(t){var ok=st.src==='all'||(' '+t.getAttribute('data-srcs')+' ').indexOf(' '+st.src+' ')>=0;t.classList.toggle('hid',!ok);});
+[].forEach.call(document.querySelectorAll('.rg'),function(g){g.classList.toggle('hid',!g.querySelector('.ri:not(.hid)'));});
+var cur=tabs.filter(function(t){return t.getAttribute('aria-selected')==='true';})[0];
+if(!cur||cur.classList.contains('hid')){var f=tabs.filter(function(t){return !t.classList.contains('hid');})[0];if(f){
+if(cant&&cant.contains(f))openCant(true);select(f,{});}}
+dim();}
+chips.forEach(function(b){b.addEventListener('click',function(){if(b.classList.contains('off'))return;
+var v=b.getAttribute('data-f').split(':')[1];st.src=(st.src===v&&b.classList.contains('src'))?'all':v;apply();
+if(b.classList.contains('src')){var l=document.getElementById('lib');if(l)l.scrollIntoView({behavior:still?'auto':'smooth',block:'start'});}});});
+if(rail){rail.addEventListener('click',function(e){var t=e.target.closest('[role=tab]');if(t){select(t,{focus:true,scroll:true,hash:true});return;}
+var h=e.target.closest('button.rg-h');if(h)openCant(h.getAttribute('aria-expanded')!=='true');});
+rail.addEventListener('keydown',function(e){var t=e.target.closest('[role=tab]');if(!t)return;var v=tabs.filter(vis),i=v.indexOf(t),j=null;
+if(e.key==='ArrowDown'||e.key==='ArrowRight')j=Math.min(v.length-1,i+1);
+else if(e.key==='ArrowUp'||e.key==='ArrowLeft')j=Math.max(0,i-1);
+else if(e.key==='Home')j=0;else if(e.key==='End')j=v.length-1;
+if(j===null||j<0)return;e.preventDefault();select(v[j],{focus:true,hash:true});});}
+/* "Show all N" */
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('button.allbtn');if(!b)return;
+var w=document.getElementById(b.getAttribute('aria-controls'));if(!w)return;var o=w.classList.toggle('open');
+b.setAttribute('aria-expanded',o?'true':'false');b.textContent=o?b.getAttribute('data-less'):b.getAttribute('data-more');});
+/* deep links: #a-<claim>-<source> selects the claim, opens its group, shows and marks that source's plate */
+function go(){var id='';try{id=decodeURIComponent(location.hash.slice(1));}catch(e){return;}
+if(!/^(a|c)-/.test(id))return;var el=document.getElementById(id);if(!el)return;
+var s=el.closest('.claim');if(!s)return;var t=tabOf(s);if(!t)return;
+if(t.classList.contains('hid')){st.src='all';apply();}
+if(cant&&cant.contains(t))openCant(true);select(t,{});
+requestAnimationFrame(function(){requestAnimationFrame(function(){
+el.scrollIntoView({block:el.classList.contains('plate')?'center':'start'});
+if(el.classList.contains('plate')){el.classList.remove('hit');void el.offsetWidth;el.classList.add('hit');
+clearTimeout(el._h);el._h=setTimeout(function(){el.classList.remove('hit');},3200);}});});}
+if(tabs.length){var first=tabs.filter(function(t){return t.getAttribute('data-first');})[0]||tabs[0];
+if(!/^#(a|c)-/.test(location.hash))select(first,{});go();window.addEventListener('hashchange',go);}
+/* lightbox: one plate's pictures, arrows to move, Esc to close */
+var lb=document.getElementById('lb');if(!lb)return;var li=lb.querySelector('img'),lc=lb.querySelector('p'),set=[],at=0,from=null;
+var bp=lb.querySelector('.lbp'),bn=lb.querySelector('.lbn');
+function paint(){var a=set[at];li.src=a.getAttribute('href');var c=a.getAttribute('data-cap')||'';li.alt=c;
+lc.textContent=c+(set.length>1?'  ·  '+(at+1)+' of '+set.length:'');bp.hidden=bn.hidden=set.length<2;}
+function shut(){lb.hidden=true;li.removeAttribute('src');if(from)from.focus({preventScroll:true});}
+function step(k){at=(at+k+set.length)%set.length;paint();}
+document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a.pic');if(!a)return;e.preventDefault();
+var g=a.closest('.gal');set=[].slice.call((g||a.parentNode).querySelectorAll('a.pic')).filter(function(x){return !x.closest('.hid');});
+at=Math.max(0,set.indexOf(a));from=a;paint();lb.hidden=false;lb.querySelector('.lbx').focus();});
+lb.addEventListener('click',function(e){if(e.target===bp){step(-1);return;}if(e.target===bn){step(1);return;}if(e.target!==li)shut();});
+document.addEventListener('keydown',function(e){if(lb.hidden)return;if(e.key==='Escape')shut();
+else if(e.key==='ArrowRight'&&set.length>1){e.preventDefault();step(1);}else if(e.key==='ArrowLeft'&&set.length>1){e.preventDefault();step(-1);}});
 })();
 """
 
@@ -838,7 +1276,48 @@ def _page(title: str, body: str) -> str:
 def not_found_page() -> str:
     return _page("Artifact library: not found",
                  "<div class=wrap><header class=top><span class=brand>Realty Check</span></header>"
-                 "<h1>Not found.</h1><p class=lede>No such check.</p></div>")
+                 "<h1>Not found.</h1><p class=meta>No such check.</p></div>")
+
+
+def _plural(n: int, one: str, many: str | None = None) -> str:
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def _src_strip(run, raw: dict, held: dict, decided: dict, agrees: dict, differs: dict) -> str:
+    """The dark band: one tile per source, in source order, with what it holds for this check; a tile is also the
+    source filter."""
+    images = raw.get("images") or {}
+    tiles = []
+    for i, k in enumerate(SRC_ORDER):
+        pic = ""
+        if k in ("scan", "aerial"):
+            for ev in run.evidence:
+                if ev.get("source") != k or ev.get("status") != "ok":
+                    continue
+                for im in ev.get("images") or []:
+                    u = _img_url(im.get("path") if isinstance(im, dict) else None, images)
+                    cap = str((im or {}).get("caption") or "") if isinstance(im, dict) else ""
+                    if u and not re.search(r"(?i)floor ?plan|schematic", cap):
+                        pic = u
+                        break
+                if pic:
+                    break
+        n = held.get(k, 0)
+        off = "" if n else " off"
+        tile = ("<span class=tile>" + (f"<img src='{_e(pic)}' alt='' loading=lazy>" if pic else SRC_GLYPH[k])
+                + f"<span class=what>{_e(SRC_WHAT[k])}</span></span>")
+        roles = (f"<span class=roles><span class=dec>decided <b>{decided.get(k, 0)}</b></span>"
+                 f"<span>agrees <b>{agrees.get(k, 0)}</b></span><span>differs <b>{differs.get(k, 0)}</b></span></span>"
+                 if n else "<span class=roles>Nothing held for this check</span>")
+        tiles.append(f"<button type=button class='src{off}' data-f='src:{k}' aria-pressed=false style='--d:{i * 90}ms'"
+                     + (" disabled" if not n else "") + f">{tile}<span class=row><span class=h3>{SRC_NAME[k]}</span>"
+                     f"<span class=n data-n={n}>{n}<small>{'artifact' if n == 1 else 'artifacts'}</small></span></span>"
+                     f"{roles}" + (f"<span class=go>Show only {SRC_NAME[k]} →</span>" if n else "") + "</button>")
+    return ("<section class='dark band' aria-label='The four sources'><div class=wrap>"
+            "<h2 class=rv><span>Four sources.</span><span class=l2>Every artifact.</span></h2>"
+            "<p class='lede rv'>What each source holds for this address, and how often its evidence decided a claim. "
+            "Pick one to see only its artifacts.</p>"
+            f"<div class='srcs rv'>{''.join(tiles)}</div></div></section>")
 
 
 def build_artifacts(run_dict: dict) -> str:
@@ -857,69 +1336,101 @@ def build_artifacts(run_dict: dict) -> str:
     except Exception:  # noqa: BLE001
         off = [v for v in run.verdicts if v.get("verdict") in ("contradicted", "close")]
     top_id = off[0].get("claim_id") if off and off[0].get("verdict") == "contradicted" else None
+
+    def strength(v):
+        try:
+            return float(R._strength(v))
+        except Exception:  # noqa: BLE001
+            s = (v.get("confidence") or {}).get("score") if isinstance(v.get("confidence"), dict) else None
+            return float(s) if isinstance(s, (int, float)) else 0.0
+    off = sorted(off, key=lambda v: -strength(v))  # the most certain first (stable: the report's order on ties)
     ok = [v for v in run.verdicts if v.get("verdict") == "confirmed"]
     cant = [v for v in run.verdicts if v.get("verdict") not in ("contradicted", "close", "confirmed")]
-    hard = [v for v in off if v.get("verdict") == "contradicted"]
-    close = [v for v in off if v.get("verdict") == "close"]
 
-    total, used_all, empty = 0, set(), 0
-    vcount = {}
-    groups = []
-    for gid, title, vs, collapsed in (("g-off", "Doesn't match", hard, False), ("g-close", "Close", close, False),
-                                      ("g-ok", "Matches", ok, False), ("g-cant", "Couldn't check", cant, True)):
-        blocks = []
+    held = {k: 0 for k in SRC_ORDER}
+    decided = {k: 0 for k in SRC_ORDER}
+    agrees = {k: 0 for k in SRC_ORDER}
+    differs = {k: 0 for k in SRC_ORDER}
+    groups, sections, empty, no, n_claims = [], [], 0, 0, {"off": 0, "ok": 0, "cant": 0}
+    first_tab = None
+    for gid, title, vs in (("off", "Doesn't match", off), ("ok", "Matches", ok), ("cant", "Couldn't check", cant)):
+        tabs = []
         for v in vs:
             try:
-                html, n, used = _claim_block(R, run, raw, v, cells_by.get(v.get("claim_id")) or {}, info, steps, top_id)
+                x = _exhibit(R, run, raw, v, cells_by.get(v.get("claim_id")) or {}, info, steps, top_id, no + 1)
             except Exception:  # noqa: BLE001  one odd claim never breaks the page
-                html, n, used = "", 0, set()
-            if not n:
+                x = None
+            if not x:
                 empty += 1
                 continue
-            blocks.append(html)
-            total += n
-            used_all |= used
-            vk = v.get("verdict") if v.get("verdict") in VERDICT_WORD else "cant_check"
-            vcount[vk] = vcount.get(vk, 0) + 1
-        if not blocks:
+            no += 1
+            tab = x["tab"]
+            if first_tab is None:
+                tab = tab.replace("aria-selected=false tabindex=-1", "aria-selected=true tabindex=0 data-first=1", 1)
+                x["section"] = x["section"].replace("<section class='claim", "<section class='on claim", 1)
+                first_tab = tab
+            tabs.append(tab)
+            sections.append(x["section"])
+            for k in x["spoke"]:
+                held[k] += 1
+            for k, tg in x["tags"].items():
+                decided[k] += tg == "Decided this"
+                agrees[k] += tg == "Agrees"
+                differs[k] += tg == "Differs"
+            n_claims[gid] += 1
+        if not tabs:
             continue
-        head = f"<h2 class=gh>{_e(title)} <span class=mute style='font-size:.5em;color:var(--mute)'>{len(blocks)}</span></h2>"
-        if collapsed:
-            groups.append(f"<details class=grp id={gid}><summary>{head}</summary>{''.join(blocks)}</details>")
+        if gid == "cant":
+            head = (f"<button type=button class=rg-h aria-expanded=false aria-controls=g-cant>{_e(title)}"
+                    f"<b>{len(tabs)}</b></button>")
+            groups.append(f"<div class='rg shut' id=g-cant>{head}{''.join(tabs)}</div>")
         else:
-            groups.append(f"<section class=grp id={gid}>{head}{''.join(blocks)}</section>")
+            groups.append(f"<div class=rg id=g-{gid}><p class=rg-h>{_e(title)}<b>{len(tabs)}</b></p>{''.join(tabs)}</div>")
+    if first_tab and "id=g-cant" in "".join(groups) and n_claims["off"] + n_claims["ok"] == 0:
+        groups = [g.replace("class='rg shut' id=g-cant", "class=rg id=g-cant").replace("aria-expanded=false", "aria-expanded=true", 1)
+                  if "id=g-cant" in g else g for g in groups]
 
-    src_n = len(used_all)
-    lede = (f"{total} artifact{'s' if total != 1 else ''} from {src_n} source{'s' if src_n != 1 else ''}"
-            if total else "No source gave us anything to show for this check.")
-    card_counts = {}
-    for k in SRC_ORDER:
-        card_counts[k] = 0
-    for g in groups:
-        for k in SRC_ORDER:
-            card_counts[k] += g.count(f"data-src={k}>")
-    chips_src = "".join(f"<button type=button class=chip data-f='src:{k}' aria-pressed=false>{SRC_NAME[k]}"
-                        f"<b>{card_counts[k]}</b></button>" for k in SRC_ORDER if card_counts[k])
-    chips_ver = "".join(f"<button type=button class=chip data-f='ver:{k}' aria-pressed=false>{VERDICT_WORD[k]}"
-                        f"<b>{vcount[k]}</b></button>" for k in ("contradicted", "close", "confirmed", "cant_check")
-                        if vcount.get(k))
-    filters = ("<nav class=filters aria-label='Filter artifacts'>"
-               f"<div class=fr><span>Source</span><button type=button class=chip data-f='src:all' aria-pressed=true>"
-               f"All</button>{chips_src}</div>"
-               f"<div class=fr><span>Result</span><button type=button class=chip data-f='ver:all' aria-pressed=true>"
-               f"All</button>{chips_ver}</div></nav>") if total else ""
+    total = sum(held.values())
+    src_n = sum(1 for k in SRC_ORDER if held[k])
+    n_ex = no
     back = f"/report/{rid}" if RUN_ID_RE.match(rid) else "/"
-    none = (f"<p class=none>{empty} claim{'s' if empty != 1 else ''} had nothing from any source; "
+    if total:
+        summary = (f"{_plural(total, 'artifact')} from {_plural(src_n, 'source')}, behind {_plural(n_ex, 'claim')}"
+                   + (f"; {n_claims['off']} {'doesn’t' if n_claims['off'] == 1 else 'don’t'} match the listing."
+                      if n_claims["off"] else "; everything checked matches the listing."))
+    else:
+        summary = "No source gave us anything to show for this check."
+    hero = ("<section class=hero><h1 class=rv><span>Artifact</span><span class=l2>library.</span></h1>"
+            f"<div class='hero-r rv' style='--d:120ms'><p class=where>{_e(address)}</p><p class=sum>{_e(summary)}</p>"
+            "<p class=meta>Each exhibit is one claim from the listing, with what every source gave us for it.</p>"
+            + ("<a class=btn href='#lib'>Open the exhibits <span aria-hidden=true>↓</span></a>" if total else "")
+            + "</div></section>")
+    strip = _src_strip(run, raw, held, decided, agrees, differs) if total else ""
+    chips = "".join(f"<button type=button class=chip data-f='src:{k}' aria-pressed=false>{SRC_NAME[k]}<b>{held[k]}</b>"
+                    "</button>" for k in SRC_ORDER if held[k])
+    none = (f"<p class=none>{_plural(empty, 'claim')} had nothing from any source; "
             f"<a href='{_e(back)}#checked'>see the report</a>.</p>") if empty else ""
+    lib = ""
+    if sections:
+        sub = (f"{_plural(n_ex, 'exhibit')}. Mismatches first, the most certain on top.")
+        lib = ("<section class='wrap lib' id=lib aria-labelledby=lib-h>"
+               f"<div class=lib-top><div><h2 class=sh id=lib-h>The exhibits</h2><p class=lib-n>{_e(sub)}</p></div>"
+               "<div class=fl role=group aria-label='Filter by source'><span>Source</span>"
+               f"<button type=button class=chip data-f='src:all' aria-pressed=true>All</button>{chips}</div></div>"
+               f"<div class=md><nav class=rail id=rail role=tablist aria-orientation=vertical aria-label=Claims>"
+               f"{''.join(groups)}</nav><div class=pane id=pane>{''.join(sections)}</div></div>{none}</section>")
+    elif none:
+        lib = f"<section class='wrap lib' id=lib>{none}</section>"
     body = ("<div class=wrap>"
             f"<header class=top><a class=brand href='{_e(back)}'>Realty Check</a>"
-            f"<a class=back href='{_e(back)}'>← Back to the report</a></header>"
-            "<h1>Artifact library</h1>"
-            f"<p class=where>{_e(address)}</p><p class=lede>{_e(lede)}. Each card is what one source gave us for one "
-            "claim; the source that decided it is marked.</p>"
-            f"{filters}{''.join(groups)}{none}"
-            f"<footer class=foot><span>Check {_e(rid)}</span><a href='{_e(back)}'>Back to the report</a></footer>"
-            f"</div><script>{SCRIPT}</script>")
+            f"<a class=back href='{_e(back)}'><span aria-hidden=true>←</span> Back to the report</a></header>"
+            f"{hero}</div>{strip}{lib}"
+            "<footer class='dark foot'><div class=wrap><p class=mark>Realty Check</p>"
+            f"<div class=foot-end><span>Check {_e(rid)}</span><a href='{_e(back)}'>Back to the report</a></div></div></footer>"
+            "<div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"
+            "<button type=button class=lbx>Close</button><button type=button class=lbp aria-label='Previous picture'>←</button>"
+            "<img alt=''><p></p><button type=button class=lbn aria-label='Next picture'>→</button></div>"
+            f"<script>{SCRIPT}</script>")
     return _page(f"Artifact library: {address}", body)
 
 

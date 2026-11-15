@@ -455,7 +455,7 @@ def claim_field(run: dict) -> dict:
     per = source_counts({"claims": out_claims})
     sources = [{"key": k, "name": n, "count": per[k]["total"], "settled": per[k]["settled"],
                 "weighed": per[k]["weighed"]} for k, n in SOURCES]
-    return {"sources": sources, "claims": out_claims, "counts": counts, "source_rows": source_rows(evidence)}
+    return {"sources": sources, "claims": out_claims, "counts": counts}
 
 
 def source_counts(field: dict) -> dict:
@@ -539,60 +539,6 @@ def _agree_with_verdict(cells: dict, verdict: str, source, found, conf=None) -> 
             cell["state"] = "data"
 
 
-def _count_of(v) -> int | None:
-    if isinstance(v, bool):
-        return None
-    if isinstance(v, (int, float)):
-        return int(v)
-    if isinstance(v, (list, dict)):
-        return len(v)
-    return None
-
-
-def source_rows(evidence: list) -> dict:
-    """What aerial imagery and county records saw in this run, as a few plain (label, value) chips under the grid:
-    {"aerial": [[label, value]], "county": [[label, value]]}; a source with nothing is left out.
-    Only the few readings a renter can use: aerial roof height, floors measured from above and the photo date (never
-    a photo floor count); county year built, homes, and 311 requests as a count only (never their text, never 0).
-    Never the owner, land use, publisher or anything already shown as a cell."""
-    rows: dict = {"aerial": {}, "county": {}}
-
-    def put(src, key, label, value):
-        if value not in (None, "") and key not in rows[src]:
-            rows[src][key] = [label, str(value)]
-
-    for e in evidence or []:
-        if not isinstance(e, dict) or e.get("status") != "ok" or e.get("source") not in rows:
-            continue
-        src, obs = e["source"], e.get("observed") or {}
-        if not isinstance(obs, dict):
-            continue
-        if src == "aerial":
-            if obs.get("feature_check") or obs.get("illustrative"):
-                continue  # picture checks are cells already; a photo floor count never decides floors
-            if _num(obs.get("height_m")):
-                put(src, "height", "Roof height", _n_words(obs["height_m"], "m"))
-            if _num(obs.get("stories")):
-                rng = obs.get("stories_range")
-                extra = ""
-                if isinstance(rng, list) and len(rng) == 2 and rng[0] != rng[1]:
-                    extra = f" (between {_n_words(rng[0])} and {_n_words(rng[1])})"
-                put(src, "stories", "Floors, measured from above", f"About {_n_words(obs['stories'])}{extra}")
-            if obs.get("capture_date"):
-                put(src, "date", "Photos taken", _clean_str(obs["capture_date"]))
-        else:
-            if _num(obs.get("year_built")):
-                put(src, "year", "Year built", str(int(_num(obs["year_built"]))))
-            if _num(obs.get("unit_count")):
-                put(src, "units", "Homes", _n_words(obs["unit_count"]))
-            for k, v in obs.items():
-                if "311" in str(k):
-                    n = _count_of(v)
-                    if n is not None and n > 0:  # 0 is left out like any blank value
-                        put(src, "311", "311 requests", f"{n:,}")
-    return {k: list(v.values()) for k, v in rows.items() if v}
-
-
 def _tour_links(run: dict, field: dict) -> None:
     """Give a Matterport cell its 3D view when the claim has one: `tour` = the inline viewer's embed URL
     (/tour/...&embed=1, shown inside the panel or at the finding's own viewer), `tour_page` = the standalone page
@@ -663,11 +609,18 @@ transition:color .15s}
 .cf-mark.cf-near{color:#5f78c9}.cf-mark.cf-near::before{background:var(--cf-b3)}
 .cf-mark.cf-q{color:var(--cf-muted)}.cf-mark.cf-q::before{background:#c4c4c4}
 .cf-nojs .cf-mark{position:static;display:inline-flex;margin-right:16px}
-.cf-legend{display:flex;flex-wrap:wrap;gap:8px 28px;font-size:15px;color:var(--cf-muted);margin:14px 0 0}
-.cf-legend span{display:inline-flex;align-items:center;gap:8px}
-.cf-legend i{width:12px;height:12px;background:var(--cf-grey);flex:none}
-.cf-legend i.cf-k{background:var(--cf-ink)}
-.cf-legend i.cf-b{width:36px;background:linear-gradient(to right,var(--cf-b3) 0 33.3%,var(--cf-b2) 0 66.6%,var(--cf-blue) 0)}
+.cf-key{display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px 44px;margin:0 0 22px;padding:0 0 20px;
+border-bottom:1px solid var(--cf-line);font-size:18px;line-height:1.2;color:var(--cf-ink)}
+.cf-key>span{display:inline-flex;align-items:center;gap:12px}
+.cf-key i{display:block;width:28px;height:28px;background:var(--cf-grey);flex:none}
+.cf-key i.cf-k{background:var(--cf-ink)}
+.cf-key .cf-ramp{display:inline-grid;grid-template-columns:repeat(3,28px);gap:3px 3px}
+.cf-key .cf-ramp i:nth-child(1){background:var(--cf-b3)}.cf-key .cf-ramp i:nth-child(2){background:var(--cf-b2)}
+.cf-key .cf-ramp i:nth-child(3){background:var(--cf-blue)}
+.cf-key .cf-ends{grid-column:1/-1;display:flex;justify-content:space-between;gap:10px;font-size:14px;color:var(--cf-ink);
+white-space:nowrap;margin-top:3px}
+.cf-key .cf-no{align-items:flex-start}.cf-key .cf-no>b{font-weight:400;padding-top:4px}
+.cf-key .cf-cap{flex-basis:100%;font-size:16px;color:var(--cf-muted);margin:-4px 0 0}
 .cf-tip{position:fixed;z-index:60;width:260px;height:250px;overflow:hidden;background:#fff;color:var(--cf-ink);
 border:1px solid var(--cf-line);box-shadow:0 14px 36px rgba(17,17,17,.14);padding:12px 14px;pointer-events:none;
 font-family:Newsreader,Georgia,serif;opacity:0;transform:translateY(4px);
@@ -708,14 +661,6 @@ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
 border:1px solid var(--cf-line)}
 .cf-pics.cf-one img{aspect-ratio:16/10}
 .cf-pics figure{margin:0}.cf-pics figcaption{font-size:13px;color:var(--cf-muted);margin-top:3px;line-height:1.3}
-.cf-saw{display:grid;gap:10px;margin:22px 0 0;padding-top:16px;border-top:1px solid var(--cf-line)}
-.cf-saw-row{display:flex;align-items:baseline;gap:6px 8px;font-size:15px;line-height:1.3}
-.cf-chips{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:6px 8px}
-.cf-saw-row>b{font-weight:400;flex:none;width:clamp(104px,13%,150px);font-size:17px}
-.cf-chip{display:inline-block;max-width:100%;background:#f4f4f2;padding:5px 10px;
-animation:cf-in .5s var(--cf-ease) both;animation-delay:calc(var(--cf-i) * 40ms + 200ms)}
-.cf-chip i{font-style:normal;color:var(--cf-muted);margin-right:6px}
-.cf-saw .cf-credit{font-size:13px;color:var(--cf-muted);margin:2px 0 0}
 .cf-kv{display:grid;grid-template-columns:minmax(110px,auto) 1fr;gap:0;margin:0;font-size:15px}
 .cf-kv dt,.cf-kv dd{margin:0;padding:6px 0;border-bottom:1px solid var(--cf-line)}
 .cf-kv dt{color:var(--cf-muted);padding-right:16px}.cf-kv dd{overflow-wrap:anywhere}
@@ -728,7 +673,7 @@ text-decoration:none;font-size:15px}
 .cf-body button.cf-go{border:0;font:inherit;cursor:pointer}.cf-3dhost .see3d-box{margin-top:12px}
 @media(max-width:640px){.cf-field{--cf-h:44px;--cf-min:8px;--cf-gap:2px}
 .cf-wrap{gap:10px}.cf-rows{width:84px;font-size:14px}.cf-rows span{gap:4px}.cf-mt{max-width:150px}
-.cf-marks{font-size:14px}.cf-saw-row{flex-wrap:wrap}.cf-saw-row>b{width:100%;font-size:16px}.cf-legend{font-size:14px;gap:6px 18px}.cf-body{padding:18px 16px 32px}
+.cf-marks{font-size:14px}.cf-key{font-size:17px;gap:14px 28px}.cf-key .cf-cap{font-size:15px}.cf-body{padding:18px 16px 32px}
 .cf-body h3{font-size:26px}}
 @media(prefers-reduced-motion:reduce){.cf-field *,.cf-tip,.cf-panel,.cf-back{animation:none!important;transition:none!important}
 .cf-cell:not(.cf-none):hover,.cf-cell:not(.cf-none):focus-visible{transform:none}}
@@ -857,27 +802,18 @@ document.addEventListener('keydown',function(e){if(panel.hidden)return;
 """
 
 
-def _saw_html(rows: dict) -> str:
-    """'What aerial and county records saw': one line of short facts per source that has any, plus the plain-text
-    source credit."""
-    lines = []
-    for key, name in SOURCES:
-        items = rows.get(key) or []
-        if not items:
-            continue
-        chips = "".join(f"<span class=cf-chip style='--cf-i:{i}'><i>{escape(lab)}</i>{escape(val)}</span>"
-                        for i, (lab, val) in enumerate(items[:8]))
-        lines.append(f"<div class=cf-saw-row><b>{escape(name)}</b><span class=cf-chips>{chips}</span></div>")
-    credit = ("<p class=cf-credit>Rows: CoStar building record, Matterport 3D scans, Vexcel aerial imagery, county public "
-              "records.</p>")
-    if not lines:
-        return f"<div class=cf-saw>{credit}</div>"
-    return "<div class=cf-saw aria-label='What Vexcel aerial imagery and county records saw'>" + "".join(lines) + credit + "</div>"
-
-
 def _json_script(obj) -> str:
     s = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
     return s.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+KEY = ("<div class=cf-key role=list aria-label='Colour key'>"
+       "<span role=listitem><i class=cf-k></i>Matches the listing</span>"
+       "<span role=listitem class=cf-no><b>Doesn't match</b><span class=cf-ramp aria-label='Light blue is less sure, "
+       "dark blue is more sure'><i></i><i></i><i></i><span class=cf-ends aria-hidden=true><span>less sure</span>"
+       "<span>more sure</span></span></span></span>"
+       "<span role=listitem><i></i>Nothing to say</span>"
+       "<p class=cf-cap>One column per claim.</p></div>")
 
 
 def claim_field_section(run: dict, tours: bool = True) -> str:
@@ -891,6 +827,7 @@ def claim_field_section(run: dict, tours: bool = True) -> str:
     n = max(1, len(claims))
     h = [f"<style>{CSS}</style>",
          f"<section id=cf-field class='cf-field cf-nojs' style='--cf-n:{n}' aria-label='Claims and sources'>",
+         KEY,
          "<div class=cf-wrap><div class=cf-rows aria-hidden=true>"]
     for s in sources:
         h.append(f"<span><b>{escape(s['name'])}</b><i>{s['count']}</i></span>")
@@ -917,10 +854,6 @@ def claim_field_section(run: dict, tours: bool = True) -> str:
             h.append(f"<span class='cf-mark cf-q' data-c={ci} title='{escape(c['quote'], True)}'>?</span>")
     h.append("</div></div></div></div>")
     h.append("<p class=cf-more aria-hidden=true>Scroll sideways to see every claim →</p>")
-    h.append("<p class=cf-legend><span><i class=cf-k></i>matches the listing</span>"
-             "<span><i class=cf-b></i>doesn't match (darker = more sure)</span><span><i></i>nothing to say</span>"
-             "<span>One column per claim.</span></p>")
-    h.append(_saw_html(field.get("source_rows") or {}))
     h.append("<div class=cf-tip id=cf-tip hidden aria-hidden=true></div>"
              "<div class=cf-back id=cf-back hidden></div>"
              "<aside class=cf-panel id=cf-panel hidden role=dialog aria-modal=true aria-label='Evidence'>"

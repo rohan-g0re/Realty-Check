@@ -878,7 +878,7 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
             else:
                 how = f"{_cap(SOURCE_NAME[src])} measures {found_txt}{diff}."
         if kit_plan:
-            how = f"According to the building record, its plan {kit_plan} has {found_txt}{diff}."
+            how = f"According to the building record, its {_plan_words(kit_plan)} has {found_txt}{diff}."
     else:
         gap = abs(found - claimed)
         if round(found) == round(claimed):
@@ -897,7 +897,7 @@ def judge(claim: dict, evidences: list[dict], single_unit: bool = False) -> dict
         if obs.get("count_from_title"):
             how = f"The 3D scan is titled '{str(obs.get('model_name') or '').strip()}', which gives {found_txt}."
         if kit_plan:
-            how = f"According to the building record, its plan {kit_plan} has {found_txt}."
+            how = f"According to the building record, its {_plan_words(kit_plan)} has {found_txt}."
         if obs.get("label_note"):
             how += " " + str(obs["label_note"])
         for note in label_notes:
@@ -1094,3 +1094,9 @@ def _estimate_alone(kind: str, winner: dict, found: float, usable: list[dict]) -
     return not any(e is not winner and not (e.get("observed") or {}).get("units_estimated")
                    and _num(e["observed"].get(kind)) is not None and _alike(kind, _num(e["observed"][kind]), found)
                    for e in usable)
+
+
+def _plan_words(name) -> str:
+    """'plan B2', but a name that already says 'Plan F 2 Bedroom' is not doubled."""
+    name = str(name).strip()
+    return name if name.lower().startswith("plan ") else f"plan {name}"

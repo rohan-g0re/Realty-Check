@@ -532,12 +532,12 @@
     return keys.length ? keys : SRC[v.source] ? [v.source] : [];
   }
   // The other sources that spoke to this claim (the judge's list, else any cell with something to say), for the
-  // small grey "also checked" note: never credited with the found value.
-  function alsoKeys(r, c, v, dec) {
+  // "also checked" citations: never credited with the found value (server/report_a.py's _also_keys).
+  function alsoKeys(r, c, v, keys) {
     const conf = v && v.confidence && typeof v.confidence === "object" ? v.confidence : {};
     const spoke = new Set((Array.isArray(conf.sources) ? conf.sources : []).map((x) => x && x.source).filter((k) => SRC[k]));
     for (const k of SOURCES) if (["agree", "contra", "close", "data"].includes(cellState(r, c, k))) spoke.add(k);
-    return SOURCES.filter((k) => spoke.has(k) && k !== dec);
+    return SOURCES.filter((k) => spoke.has(k) && !keys.includes(k));
   }
   // server/report_a.py's _credit/_supports: the decider (else the verdict's source), then each other source in the
   // confidence block whose own `says` is the found value (same first number, else the same words).
@@ -584,9 +584,17 @@
     return v && v.verdict === "contradicted" ? "high" : "low";
   }
   function strengthOf(v) { const s = scoreOf(v); return s != null ? s : SHADE_SCORE[shadeOf(v)]; }
-  function tagOf(v) {
-    const conf = [scoreOf(v), bandOf(v)].filter((x) => x != null && x !== "").join(" ");
-    return "Doesn't match" + (conf ? " · " + conf : "");
+  // server/report_a.py's _score_html: the score as a serif numeral with a small "/ 100 · high"; no score: the level
+  // word alone at that size (never a made-up number); neither: nothing.
+  function scoreTag(v) {
+    const s = scoreOf(v), b = bandOf(v);
+    if (s != null) return { n: String(s), u: "/ 100" + (b ? " · " + b : ""), label: `Confidence ${s} of 100${b ? ", " + b : ""}` };
+    return b ? { w: cap(b), label: `${cap(b)} confidence` } : null;
+  }
+  function scoreHTML(t) {
+    if (!t) return "";
+    return `<span class="ftag" role="img" aria-label="${esc(t.label)}">` +
+      (t.n ? `<span class="scn">${esc(t.n)}</span><span class="scu">${esc(t.u)}</span>` : `<span class="scw">${esc(t.w)}</span>`) + `</span>`;
   }
   function confOf(v) {
     const c = v && BAD.has(v.verdict) && v.confidence;
@@ -608,9 +616,8 @@
     const bars = `<span class="bars" aria-hidden="true">${[1, 2, 3].map((n) => `<i${n <= lit ? ` class="on"` : ""}></i>`).join("")}</span>`;
     const label = `${word}${c.score != null ? `, ${c.score} of 100` : ""}`;
     // the judge's 0-100 score next to the word ("82 · high confidence"); no score sent: the word only, never a guess
-    const inner = c.score != null
-      ? `${bars}<span class="cfs">${c.score}</span> <span class="cfdot" aria-hidden="true">·</span> <span class="cft">${word.toLowerCase()}</span>`
-      : `${bars}<span class="cft">${word}</span>`;
+    // the score itself stands at the row's right (scoreHTML); this only opens why
+    const inner = `${bars}<span class="cft">${c.score != null ? "Why this score" : word}</span>`;
     if (!more) return `<div class="cf" data-band="${c.band}"><span class="cfb" role="img" aria-label="${esc(label)}">${inner}</span></div>`;
     return `<div class="cf" data-band="${c.band}"><button class="cfb" aria-expanded="false" aria-controls="cfx${i}" aria-label="${esc(label + ". Why")}"${c.score != null ? ` title="Score ${c.score} of 100"` : ""}>${inner}<span class="go">${CHEV}</span></button>
       <div class="cfx" id="cfx${i}" hidden>${c.why ? `<p class="cfw">${esc(c.why)}</p>` : ""}${by}${rows ? `<ul class="cfl">${rows}</ul>` : ""}</div></div>`;
@@ -629,7 +636,8 @@
     return !t || t.length > (max || 160) || UNKIND_RE.test(t) || t.includes("<") ? "" : t;
   }
   function firstSentence(t) {
-    const parts = String(t || "").trim().split(/(?<=[.!?])\s+(?=[A-Z])/).map((x) => x.trim()).filter(Boolean);
+    // "its plan Plan F 2 Bedroom" -> "its Plan F 2 Bedroom" (server/report_a.py's _tidy)
+    const parts = String(t || "").trim().replace(/\b[Pp]lan\s+(?=Plan\b)/g, "").split(/(?<=[.!?])\s+(?=[A-Z])/).map((x) => x.trim()).filter(Boolean);
     if (parts.length > 1 && /^listing says/i.test(parts[0])) parts.shift();
     return parts[0] || "";
   }
@@ -646,23 +654,22 @@
     const t = topOf(r);
     const order = rep ? rep.rows.map((x) => x && x.id) : (t && Array.isArray(t.order) ? t.order : []);
     const rank = new Map(order.map((id, i) => [id, i]));
-    const pk = r.done && r.done.harness && r.done.harness.top_mismatch;
-    const pick = pk && typeof pk === "object" ? pk.claim_id : null;
     const at = (c) => (rank.has(c.id) ? rank.get(c.id) : 1e6);
+    // server/report_a.py's _ranked_off: strictly by score, highest first; no score after, a contradicted one before
+    // a close one, then the server's (else the page's) order; an older run's saved order never overrides the score.
+    // The run's own pick never moves a row.
+    const sc = (v) => { const x = scoreOf(v); return x == null ? -1 : x; };
     const bad = r.claims.map((c, i) => [c, r.verdicts[c.id], i]).filter(([, v]) => v && BAD.has(v.verdict))
-      .sort((a, b) => at(a[0]) - at(b[0]) || strengthOf(b[1]) - strengthOf(a[1]) || ORDER[a[1].verdict] - ORDER[b[1].verdict] || a[2] - b[2]);
-    if (!rank.size && pick != null) { // no order sent: the pick leads
-      const k = bad.findIndex(([c]) => c.id === pick);
-      if (k > 0) bad.unshift(bad.splice(k, 1)[0]);
-    }
+      .sort((a, b) => sc(b[1]) - sc(a[1]) || ORDER[a[1].verdict] - ORDER[b[1].verdict] || at(a[0]) - at(b[0]) || a[2] - b[2]);
     return bad.map(([c, v]) => {
       const s = srv.get(String(c.id));
       const hard = v.verdict === "contradicted";
       const sent = s && Array.isArray(s.credit) ? s.credit.filter((k) => SRC[k]) : [];
-      const dec = (sent.length ? sent : creditKeys(r, c, v))[0] || "";
-      const src = { dec, also: alsoKeys(r, c, v, dec) };
+      const keys = sent.length ? sent : creditKeys(r, c, v);
+      const also = s && Array.isArray(s.also) ? s.also.filter((k) => SRC[k] && !keys.includes(k)) : alsoKeys(r, c, v, keys);
+      const src = { keys, also };
       const shade = s && SHADES.has(s.shade) ? s.shade : shadeOf(v);
-      const tag = s && typeof s.tag === "string" && /^Doesn't match( · [\w ]{1,16})?$/.test(s.tag) ? s.tag : tagOf(v);
+      const tag = scoreTag(v);
       if (s) {
         return { c, v, id: c.id, label: String(s.label || kindLabel(c)), said: s.quoted ? `“${s.said}”` : String(s.said || ""),
           strike: !!s.strike, found: String(s.found || v.found || ""), why: kindText(s.why), src, shade, tag,
@@ -681,25 +688,36 @@
       (row.walk ? `<button class="lnk l3d" data-walk="${esc(row.walk)}">See it in 3D</button>` : "") + `</span>` : "";
     return `<li class="fr${fresh ? " in" : ""}" data-id="${esc(row.id)}" data-verdict="${esc(v.verdict)}" data-shade="${esc(row.shade)}" style="--i:${i}">` +
       `<button class="find" data-id="${esc(row.id)}" data-verdict="${esc(v.verdict)}" aria-label="${esc(`${row.label}. Listing says ${row.said}. Found ${row.found}. Show it`)}">` +
-      `<span class="fkr"><span class="fk">${esc(row.label)}</span><span class="ftag">${esc(row.tag)}</span></span>${was}<span class="is${sizeClass(row.found)}">${esc(row.found)}</span></button>` +
+      `<span class="fkr"><span class="fk">${esc(row.label)}</span>${scoreHTML(row.tag)}</span>${was}<span class="is${sizeClass(row.found)}">${esc(row.found)}</span></button>` +
       (row.why ? `<p class="fy">${esc(row.why)}</p>` : "") +
-      (row.src.dec || lk ? `<p class="by"><span class="byw">${srcHTML(row, links)}</span>${lk}</p>` : "") + confHTML(v, i) + `</li>`;
+      (row.src.keys.length ? `<p class="by">${srcHTML(row, links)}</p>` : "") + (lk ? `<p class="by bl">${lk}</p>` : "") + confHTML(v, i) + `</li>`;
   }
-  // "Source: County" (the deciding source) and, small and grey, "also checked: CoStar". With a checker run the
-  // source name links to its evidence page (<server>/artifacts/<run_id>#a-<claim>-<source>); a sample stays text.
+  // Citations, as the report shows them: "Source" then each source that backs the found value (the deciding one
+  // first, emphasised), then "also checked" and the ones that spoke but differ. With a checker run each one links to
+  // its evidence in the artifact library (<server>/artifacts/<run_id>#a-<claim>-<source>), in a new tab; a sample
+  // stays text.
   const SLUG = { record: "costar", scan: "matterport", aerial: "vexcel", county: "county" };
   function artifactPath(id, key) {
     const rid = run && run.mode === "server" && run.done && run.done.run_id;
     if (!rid || !/^[A-Za-z0-9_-]{1,80}$/.test(String(rid))) return "";
     return `/artifacts/${encodeURIComponent(rid)}#a-${encodeURIComponent(id)}-${SLUG[key]}`;
   }
+  function absUrl(path) {
+    try { if (run && run.done && /^https?:/.test(run.done.report_url || "")) return new URL(path, run.done.report_url).href; } catch (err) { /* keep the path */ }
+    return path;
+  }
+  function citeHTML(row, k, lead, links) {
+    const href = links ? artifactPath(row.id, k) : "";
+    const cls = `cite${lead ? " dec" : ""}`;
+    return href
+      ? `<a class="${cls} srcl" href="${esc(absUrl(href))}" data-href="${esc(href)}" target="_blank" rel="noopener">${esc(SRC[k])}<i aria-hidden="true">↗</i></a>`
+      : `<span class="${cls}">${esc(SRC[k])}</span>`;
+  }
   function srcHTML(row, links) {
-    const { dec, also } = row.src;
-    if (!dec) return "";
-    const href = links ? artifactPath(row.id, dec) : "";
-    const name = href ? `<button class="lnk srcl" data-href="${esc(href)}">${esc(SRC[dec])}</button>` : `<span class="srcn">${esc(SRC[dec])}</span>`;
-    return `<span class="bys">Source: ${name}</span>` +
-      (also.length ? `<span class="bya">also checked: ${esc(also.map((k) => SRC[k]).join(", "))}</span>` : "");
+    const { keys, also } = row.src;
+    if (!keys.length) return "";
+    return `<span class="citl">${keys.length > 1 ? "Sources" : "Source"}</span>` + keys.map((k, i) => citeHTML(row, k, i === 0, links)).join("") +
+      (also.length ? `<span class="citl">also checked</span>` + also.map((k) => citeHTML(row, k, false, links)).join("") : "");
   }
   // "Not in the listing": the report's top five (done.report.facts, else done.harness.top_facts, else the fill_in
   // list in renter order), text only; never a manager, owner, parcel, class or lot size, and no "; managed by" clause.
@@ -955,6 +973,7 @@
       return;
     }
     const sl = e.target.closest(".srcl");
+    if (sl) e.preventDefault(); // opened in a new tab by the service worker (the page's own CSP never sees it)
     if (sl && run && run.done && run.mode === "server") {
       let u = sl.dataset.href;
       try { if (/^https?:/.test(run.done.report_url || "")) u = new URL(u, run.done.report_url).href; } catch (err) { /* a path: the service worker adds the server */ }
@@ -1070,11 +1089,11 @@
   .col.ping{animation:rc-ping 1.2s ease-out}
   .cell{display:block;background:#f4f4f4;transition:background-color .45s ease,box-shadow .45s ease;transition-delay:calc(var(--r,0) * 80ms)}
   .cell[data-s="none"]{background:#ebebeb}
-  .cell[data-s="data"]{background:#fff;box-shadow:inset 0 0 0 var(--hb,1.5px) var(--ink)}
+  .cell[data-s="data"]{background:#ebebeb}
   .cell[data-s="agree"]{background:var(--ink)}
   .cell[data-s="contra"],.cell[data-s="close"]{background:var(--blue)}
-  .cell[data-s="close"]:not([data-sh]),.cell[data-sh="low"]{opacity:.32}
-  .cell[data-sh="medium"]{opacity:.6}
+  .cell[data-s="close"]:not([data-sh]),.cell[data-sh="low"]{background:#bccbf7}
+  .cell[data-sh="medium"]{background:#6a8bee}
   .field.final .cell{animation:rc-cell .5s var(--ease) calc(var(--d) + var(--r) * 45ms + 260ms) backwards}
   @keyframes rc-col{from{transform:scaleY(.2);opacity:0}}
   @keyframes rc-cell{from{background:#f4f4f4;box-shadow:none}}
@@ -1142,7 +1161,10 @@
   .find{box-shadow:inset 3px 0 0 var(--acc)}
   .fkr{display:flex;align-items:baseline;justify-content:space-between;gap:10px;width:100%}
   .fk{font-size:11px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
-  .ftag{flex:none;font-size:12px;line-height:1.3;color:var(--acc-t);font-variant-numeric:tabular-nums}
+  .ftag{flex:none;display:inline-flex;align-items:baseline;gap:5px;color:var(--acc-t);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .scn{font-size:30px;font-weight:300;line-height:1;letter-spacing:-.03em}
+  .scw{font-size:22px;font-weight:300;line-height:1.1}
+  .scu{font-size:12px;letter-spacing:.02em}
   .was{display:block;max-width:100%;font-size:17px;line-height:1.3;color:#858585;overflow-wrap:anywhere}
   .wt{text-decoration:none}
   s.wt{text-decoration-line:line-through;text-decoration-color:var(--acc,var(--blue));text-decoration-thickness:2px}
@@ -1150,11 +1172,14 @@
   .is.m{font-size:22px}
   .is.s{font-size:19px;line-height:1.2}
   .fy{padding:3px 12px 0;font-size:14px;line-height:1.4;color:var(--ink)}
-  .by{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:2px 12px 0;font-size:13px;color:var(--mute)}
-  .byw{min-width:0;display:flex;flex-wrap:wrap;column-gap:8px;align-items:baseline}
-  .bys{color:var(--ink)}
-  .srcl{color:var(--ink);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bbb}
-  .bya{font-size:12px;color:#9a9a9a}
+  .by{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 12px 0;font-size:13px;color:var(--mute)}
+  .by.bl{padding-top:2px}
+  .citl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+  .cite+.citl{margin-left:6px}
+  .cite{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:2px 8px;border:1px solid var(--line);font-size:14px;line-height:1.2;color:var(--ink);text-decoration:none;background:#fff}
+  .cite.dec{border-color:var(--ink)}
+  .cite i{font-style:normal;font-size:12px;color:var(--blue)}
+  a.cite:hover,a.cite:focus-visible{border-color:var(--blue);color:var(--blue)}
   .fln{flex:none;display:flex;gap:14px}
   .fln .lnk{min-height:28px;color:var(--ink);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bbb}
   /* which home was checked */

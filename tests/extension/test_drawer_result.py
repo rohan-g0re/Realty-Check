@@ -98,7 +98,8 @@ def test_many_findings_every_row(run):
     # one blue, fainter when less sure: the close one faint, the tag the same words for both
     assert r.R('.fr[data-id="c3"]').get_attribute("data-shade") == "low"
     assert r.R('.fr[data-id="c1"]').get_attribute("data-shade") == "high"
-    assert r.R('.fr[data-id="c3"] .ftag').inner_text() == r.R('.fr[data-id="c1"] .ftag').inner_text() == "Doesn't match"
+    # no confidence sent: no score and no class word on the right, never a made-up number
+    assert r.R(".fr .ftag").count() == 0 and "Doesn't match" not in r.R("#finds").inner_text()
     blue = lambda sel: r.R(sel).evaluate("e => getComputedStyle(e).color")  # noqa: E731
     assert blue('.fr[data-id="c1"] .is') == "rgb(26, 75, 224)" and blue('.fr[data-id="c3"] .is') != "rgb(26, 75, 224)"
     assert "Close" not in r.R('.fr[data-id="c3"]').inner_text()
@@ -125,7 +126,7 @@ def test_one_finding(run):
     f = r.R(".find").first
     assert f.locator(".wt").inner_text() == "“5-story building”"
     assert f.locator(".is").inner_text() == "6 floors"
-    assert r.R(".fr .bys").first.inner_text() == "Source: Vexcel"  # CoStar and County say 5 stories: they back the listing
+    assert r.R(".fr .cite.dec").first.evaluate("e => e.firstChild.textContent") == "Vexcel"  # CoStar and County say 5 stories: they back the listing
     # the headline stays on two lines whatever the font
     box = r.R("#headline").bounding_box()
     size = float(r.R("#headline").evaluate("e => parseFloat(getComputedStyle(e).fontSize)"))
@@ -175,7 +176,10 @@ def test_field_cells_before_and_after_verdicts(run):
     assert [r.cell("c1", s) for s in ("record", "scan", "aerial", "county")] == ["data", "contra", "none", "none"]
     # couldn't check, though the aerial photo was looked at for it: hollow, never a match
     assert [r.cell("c7", s) for s in ("record", "scan", "aerial", "county")] == ["none", "none", "data", "none"]
-    assert r.R(".fr .bys").first.inner_text() == "Source: Matterport"
+    assert r.R(".fr .cite.dec").first.evaluate("e => e.firstChild.textContent") == "Matterport"
+    # a cell with data that settles nothing is light grey like the report's, never hollow
+    assert r.R('.cell[data-s="data"]').first.evaluate(
+        "e => [getComputedStyle(e).backgroundColor === 'rgb(255, 255, 255)', getComputedStyle(e).boxShadow]") == [False, "none"]
     assert not r.errors, r.errors
 
 

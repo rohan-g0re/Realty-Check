@@ -116,16 +116,21 @@ def test_rows_say_what_the_report_says(env, make):
     assert row.locator("s.wt").inner_text() == "“2 Beds”"
     assert row.locator(".is").inner_text() == "1 bedroom and a den"
     assert row.locator(".fy").inner_text() == "The 3D scan of the same plan shows one bedroom."
-    # the deciding source, then the others that spoke, never credited
-    assert row.locator(".bys").inner_text() == "Source: Matterport"
-    assert row.locator(".bya").inner_text() == "also checked: CoStar"
-    # the judge's 0-100 score next to the word; no number sent: the word only
-    assert " ".join(row.locator(".cfb").inner_text().split()) == "82 · high confidence"
-    c2 = p.R('.fr[data-id="c2"] .cfb')
-    assert " ".join(c2.inner_text().split()) == "Medium confidence" and c2.locator(".cfs").count() == 0
+    # citations as the report shows them: "Source", the deciding one emphasised, then "also checked" ones, all links
+    names = lambda sel: row.locator(sel).evaluate_all("els => els.map(e => e.firstChild.textContent)")  # noqa: E731
+    assert row.locator(".citl").evaluate_all("els => els.map(e => e.textContent)") == ["Source", "also checked"]
+    assert names(".cite.dec") == ["Matterport"] and names(".cite:not(.dec)") == ["CoStar"]
+    assert row.locator("a.cite").evaluate_all("els => els.map(e => [e.target, e.rel])") == [["_blank", "noopener"]] * 2
+    # the score is the row's right-hand element, a big serif numeral; no number sent: the level word only
+    assert row.locator(".ftag .scn").inner_text() == "82" and row.locator(".ftag .scu").inner_text() == "/ 100 · high"
+    assert float(row.locator(".scn").evaluate("e => parseFloat(getComputedStyle(e).fontSize)")) >= 26
+    assert "Doesn't match" not in row.inner_text()
+    c2 = p.R('.fr[data-id="c2"]')
+    assert c2.locator(".ftag").inner_text() == "Medium" and c2.locator(".scn").count() == 0
+    assert " ".join(row.locator(".cfb").inner_text().split()) == "Why this score"
     # links only: proof in the report, the source's evidence page, the 3D walk where there is one
     assert p.R('.fr[data-id="c2"] .l3d').count() == 0
-    for sel, want in ((".lproof", "/report/r1#claim-c1"), (".srcl", "/artifacts/r1#a-c1-matterport"),
+    for sel, want in ((".lproof", "/report/r1#claim-c1"), (".cite.dec", "/artifacts/r1#a-c1-matterport"),
                       (".l3d", "/tour/r1?claim=c1")):
         with env["ctx"].expect_page() as newp:
             row.locator(sel).click()

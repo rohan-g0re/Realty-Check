@@ -158,9 +158,13 @@ def test_cells_are_the_servers(make):
             assert got_sh == exp, (w["id"], s, st, got_sh)
     look = lambda sel: p.R(sel).first.evaluate(  # noqa: E731
         "e => [getComputedStyle(e).backgroundColor, getComputedStyle(e).opacity]")
-    assert look('.cell[data-s="close"][data-sh="low"]') == ["rgb(26, 75, 224)", "0.32"]
+    # the report's own shades (server/claim_field.py: --cf-blue, --cf-b2, --cf-b3), solid
+    assert look('.cell[data-s="close"][data-sh="low"]') == ["rgb(188, 203, 247)", "1"]
     assert look('.cell[data-s="contra"][data-sh="high"]') == ["rgb(26, 75, 224)", "1"]
-    assert look('.cell[data-sh="medium"]') == ["rgb(26, 75, 224)", "0.6"]
+    assert look('.cell[data-sh="medium"]') == ["rgb(106, 139, 238)", "1"]
+    # only black, blue by shade or light grey: never a hollow outlined cell
+    assert p.R("#cols .cell").evaluate_all(
+        "els => els.filter(e => getComputedStyle(e).boxShadow !== 'none' || getComputedStyle(e).backgroundColor === 'rgb(255, 255, 255)').length") == 0
     assert p.R('.cell[data-s="differ"]').count() == 0
 
 

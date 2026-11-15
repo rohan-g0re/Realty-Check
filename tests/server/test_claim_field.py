@@ -135,8 +135,8 @@ def test_section_renders_grid_and_is_self_contained():
     assert html.count("class='cf-cell ") == 5 * 4
     assert "cf-cell cf-match" in html and "cf-cell cf-contra" in html and "cf-cell cf-close" in html
     assert "cf-cell cf-data" in html and "cf-cell cf-none" in html
-    for word in ("CoStar", "Matterport", "Vexcel", "County", "matches the listing", "doesn't match",
-                 "nothing to say", "One column per claim."):
+    for word in ("CoStar", "Matterport", "Vexcel", "County", "Matches the listing", "Doesn't match",
+                 "Nothing to say", "One column per claim."):
         assert word in html
     assert "\u201c5-story building\u201d" in html and "\u201cBuilt in 2001\u201d" in html  # highlighted columns
     assert html.count("cf-mark cf-q") == 2  # c3 and c5 could not be checked
@@ -177,24 +177,16 @@ def test_panel_facts_are_plain_words_never_raw_keys():
     assert "Raw data" not in html and "JSON.stringify(cell.raw" not in html
 
 
-def test_source_rows_aerial_and_county_only_what_the_run_has():
+def test_no_source_chips_or_rows_footnote_under_the_grid():
     run = run_of([claim("c1", "stories", 5, "5 floors")],
-                 [ev("aerial", {"height_m": 23.1, "stories": 6, "stories_range": [6, 7], "footprint_m2": 1000}),
-                  ev("aerial", {"photo_floor_count": 9, "illustrative": True}),
-                  ev("aerial", {"feature_check": True, "claim_ids": [], "feature": "pool", "presence": "seen"}),
-                  ev("aerial", {"feature_check": True, "claim_ids": [], "feature": "parking", "presence": "unclear"}),
-                  ev("county", {"year_built": 2001, "land_use": "APARTMENTS", "owner_name": "Pat Example",
-                                "complaints_311": [{"text": "Sam called"}, {"text": "x"}]})],
+                 [ev("aerial", {"height_m": 23.1, "stories": 6, "capture_date": "2025-03-01"}),
+                  ev("county", {"year_built": 2001, "unit_count": 40, "complaints_311": [{"text": "x"}]})],
                  [verdict("c1", "contradicted", "5 floors", "6 floors", "aerial")])
-    rows = claim_field(run)["source_rows"]
-    aerial, county = dict(rows["aerial"]), dict(rows["county"])
-    assert aerial["Roof height"] == "23.1 m" and aerial["Floors, measured from above"].startswith("About 6")
-    assert "Pool" not in aerial and "Parking" not in aerial and "9" not in json.dumps(aerial)  # cells, not chips
-    assert county == {"Year built": "2001", "311 requests": "2"}
-    blob = json.dumps(rows)
-    assert "Pat" not in blob and "Sam" not in blob
-    assert "record" not in rows and "scan" not in rows
-    assert claim_field(run_of([], [], []))["source_rows"] == {}
+    field = claim_field(run)
+    assert set(field) == {"sources", "claims", "counts"}
+    html = claim_field_section(run)
+    for gone in ("cf-saw", "cf-chip", "cf-credit", "Rows: CoStar", "Roof height</i>", "Photos taken", "311 requests"):
+        assert gone not in html, gone
 
 
 def test_dead_pictures_are_left_out(tmp_path):
@@ -208,12 +200,6 @@ def test_dead_pictures_are_left_out(tmp_path):
     run["images"] = {dead_tok: str(tmp_path / "gone.jpg"), live_tok: str(live)}
     cell = claim_field(run)["claims"][0]["cells"]["aerial"]
     assert [i["url"] for i in cell["images"]] == ["/img/" + live_tok]
-
-
-def test_source_rows_311_zero_is_left_out():
-    run = run_of([], [ev("county", {"year_built": 2001, "houston_311_count": 0, "complaints": []})], [])
-    county = dict(claim_field(run)["source_rows"]["county"])
-    assert "311 requests" not in county and "Complaints on record" not in county and county["Year built"] == "2001"
 
 
 def _one_home_run(done_harness=None):
@@ -549,23 +535,28 @@ def test_a_photo_that_did_not_show_it_is_never_blue():
     assert (cells["record"]["state"], cells["record"]["shade"]) == ("contra", "high")
 
 
-def test_legend_is_three_entries():
+def test_colour_key_sits_above_the_grid_and_is_big():
     html = claim_field_section(_floors_run("contradicted", "county", "6 floors"))
-    legend = re.search(r"<p class=cf-legend>(.*?)</p>", html).group(1)
-    assert re.findall(r"</i>([^<]+)</span>", legend) == ["matches the listing", "doesn't match (darker = more sure)",
-                                                         "nothing to say"]
+    assert "cf-legend" not in html
+    k, g = html.index("<div class=cf-key"), html.index("<div class=cf-grid")
+    assert k < g  # read before the grid
+    key = html[k:html.index("</div>", k)]
+    assert re.findall(r"</i>([^<]+)</span>", key) == ["Matches the listing", "Nothing to say"]
+    assert "<b>Doesn't match</b>" in key and key.count("<i></i><i></i><i></i>") == 1
+    assert "<span>less sure</span><span>more sure</span>" in key and "One column per claim." in key
+    css = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+    assert ".cf-key i{display:block;width:28px;height:28px" in css
+    assert "font-size:18px" in css[css.index(".cf-key{"):css.index(".cf-key>span")]
+    for c in ("var(--cf-b3)", "var(--cf-b2)", "var(--cf-blue)"):
+        assert c in css[css.index(".cf-key .cf-ramp i"):]
 
 
-def test_source_rows_never_owner_land_use_or_publisher():
+def test_never_owner_land_use_or_publisher():
     run = run_of([], [ev("county", {"parcel_id": "900003", "year_built": 2001, "unit_count": 40, "stories": 5,
                                     "land_use": "APARTMENTS", "owner_type": "company", "building_sf": 50000,
                                     "source_name": "Example County Appraisal District", "city_311_count": 7}),
                       ev("aerial", {"height_m": 14.0, "stories": 4, "capture_date": "2025-03-01",
                                     "footprint_m2": 900})], [])
-    rows = claim_field(run)["source_rows"]
-    assert dict(rows["county"]) == {"Year built": "2001", "Homes": "40", "311 requests": "7"}
-    assert dict(rows["aerial"]) == {"Roof height": "14 m", "Floors, measured from above": "About 4",
-                                    "Photos taken": "2025-03-01"}
     html = claim_field_section(run)
     for bad in ("Owner", "Land use", "Published by", "A company", "Appraisal"):
         assert bad not in html

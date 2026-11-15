@@ -217,7 +217,9 @@ def test_none_keeps_start_view_and_says_so(client, tmp_path, monkeypatch):
     html = _warm(client, f"/tour/{RUN_ID}?claim=c1")
     spot = _cfg(html)["spot"]
     assert spot["status"] == "none" and spot["sweep"] is None and spot["sweeps"] == []
-    assert "none clearly shows a den" in html and "start position" in html
+    # the verdict says the scan shows a den, so the card never says no spot shows one
+    card = html[html.index("<aside class=card"):html.index("</aside>")]
+    assert "none clearly shows" not in card and "No single spot was picked" in card and "start position" in card
 
 
 def test_low_confidence_or_bad_spot_is_none(client, tmp_path, monkeypatch):
@@ -510,3 +512,39 @@ def test_still_picture_covers_standalone_page_only(client, monkeypatch):
     html = client.get(f"/tour/{RUN_ID}?claim=c1").text
     assert "class=still id=still style='background-image:url(/img/0123456789abcdef)'" in html
     assert "class=still" not in client.get(f"/tour/{RUN_ID}?claim=c1&embed=1").text  # the report covers its frame
+
+
+def test_studio_listing_keeps_its_own_word_and_note_never_contradicts(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    _add_claim({"id": "c9", "kind": "bedrooms", "value": 0, "unit": None, "scope": "unit", "label": "Plan Z",
+                "quote": "Studio · 1 Bath · 400 sq ft", "checkable": True},
+               {"claim_id": "c9", "verdict": "contradicted", "claimed": "0 bedrooms", "found": "1 bedroom",
+                "source": "scan", "reason": "x", "image": None})
+    t = tour.tour_target(srv.load_run(RUN_ID), "c9")
+    none = {"status": "none", "how": "picture", "looked_at": 10,
+            "why": "We looked at 10 spots in the scan and none clearly shows a bedroom."}
+    html = tour.render_tour(srv.load_run(RUN_ID), t, FAKE_KEY, spot=none, embed=True)
+    card = html[html.index("<aside class=card"):html.index("</aside>")]
+    assert "Listing says <span class=strike>Studio</span>" in card and "0 bedrooms" not in card
+    assert "The 3D scan shows 1 bedroom" in card and "none clearly shows" not in card
+    assert _cfg(html)["tag"]["label"] == "Studio" and "none clearly shows" not in _cfg(html)["note"]
+    # a note that agrees with the verdict stays
+    v0 = dict(t["verdict"], found="0 bedrooms (studio)")
+    assert "none clearly shows a bedroom" in tour._spot_note(none, False, v0)
+    # a number the listing really said is kept as is
+    assert tour._claimed_text({"kind": "bedrooms", "value": 2, "quote": "2 Beds"}, {"claimed": "2 bedrooms"}) == "2 bedrooms"
+
+
+def test_overlays_fit_small_frames(client, monkeypatch):
+    monkeypatch.setenv("MATTERPORT_SDK_KEY", FAKE_KEY)
+    html = client.get(f"/tour/{RUN_ID}?claim=c1&embed=1").text
+    style = html[html.index("<style>"):html.index("</style>")]
+    # small frame: the card is one line with a More toggle; the callout flips left / shrinks / hides its words
+    assert "@media (max-width:480px),(max-height:300px)" in style and ".embed .card:not(.open) .note{display:none}" in style
+    assert "<span class=more aria-hidden=true>More</span>" in html and "aria-expanded=false" in html
+    assert ".call.flip div{" in style and ".call.dot div{display:none}" in style
+    assert "keepOut" in html and "sz.w - 168" in html  # clear of the report's Full screen button
+    assert ".card,.call{opacity:1;transition:none}" in style  # no half-faded caption
+    # standalone: Back sits top right, clear of Matterport's logo (top left)
+    style = client.get(f"/tour/{RUN_ID}?claim=c1").text
+    assert ".back{position:fixed;top:16px;right:16px;" in style

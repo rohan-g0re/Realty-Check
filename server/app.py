@@ -266,7 +266,8 @@ DRAWER_FACTS = 5
 
 def _drawer_rows(R, run, off: list) -> list:
     """Every mismatch (contradicted or close) in the report's order (server.report_a: its words, credit, score, the
-    blue's strength `shade` high | medium | low and the tag 'Doesn't match · 40 low'), as text only."""
+    blue's strength `shade` high | medium | low, the tag '82 / 100 · high' and `also`: the sources that spoke but
+    do not back the found value, the report's "also checked"), as text only."""
     rows = []
     rid = str(run.raw.get("run_id") or "")
     for v in off:
@@ -276,7 +277,8 @@ def _drawer_rows(R, run, off: list) -> list:
         soft = not hard and kind in R.SOFT_KINDS
         said, is_q = R._strike_text(run, v, c)
         what = R.KIND_LABEL.get(kind) or R._cap(str(kind or "").replace("_", " ")) or "Claim"
-        why = R._kind_text(R._pick_why(run, v) or R._first_sentence(v.get("reason") or ""))
+        why = R._kind_text(R._tidy(R._pick_why(run, v) or R._first_sentence(v.get("reason") or "")))
+        credit = list(R._credit(v)[0])
         score, band, _cwhy = R._conf(v)
         cid = str(v.get("claim_id") or "")
         walk = None
@@ -289,7 +291,8 @@ def _drawer_rows(R, run, off: list) -> list:
                      "label": " · ".join(x for x in (what, c.get("label")) if x),
                      "said": said if is_q else R._cap(said), "quoted": bool(is_q), "strike": hard,
                      "found": "Not seen in the photos" if soft else R._truth_text(v).rstrip("."),
-                     "why": why, "credit": list(R._credit(v)[0]), "score": score, "band": band or None,
+                     "why": why, "credit": credit, "also": R._also_keys(run, v, credit), "score": score,
+                     "band": band or None,
                      "shade": R._shade(v), "tag": R._tag(v),
                      "proof": f"/report/{rid}#claim-{cid}" if rid and cid else None, "walk": walk})
     return rows
@@ -331,7 +334,7 @@ def _drawer_checked(R, run, vs: list, cant: bool) -> list:
 def drawer_report(run: dict) -> dict | None:
     """Everything the report says, as text for the drawer (docs/CONTRACT.md 7, done.report), built read-only with
     server/report_a.py's own helpers so the two never disagree:
-    {"rows": [{id, verdict, kind, label, said, quoted, strike, found, why, credit, score, band, shade, tag, proof,
+    {"rows": [{id, verdict, kind, label, said, quoted, strike, found, why, credit, also, score, band, shade, tag, proof,
                walk}],
      "facts": [{label, value, why, sources}] (at most five), "questions": [str], "ok": [{id, label, text}],
      "cant": [{id, label, text, why}]}. No pictures, drawings or viewers. None when it cannot be built."""

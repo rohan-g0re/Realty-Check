@@ -243,8 +243,9 @@ def prewarm(run: dict) -> int:
 _WARMERS: list[threading.Thread] = []
 
 
-def _spot_note(spot: dict, cant: bool = False) -> str:
-    """The card's plain line: what is visible at this spot, or why the tour stays at the start view."""
+def _spot_note(spot: dict, cant: bool = False, verdict: dict | None = None) -> str:
+    """The card's plain line: what is visible at this spot, or why the tour stays at the start view. Never says
+    no spot shows a room the verdict says the scan shows (the pick only looked at some panoramas)."""
     st = spot.get("status")
     if st == "found" and spot.get("how") == "picture" and spot.get("seen"):
         return f"At this spot: {spot['seen']}."
@@ -255,6 +256,8 @@ def _spot_note(spot: dict, cant: bool = False) -> str:
         why = why.replace(" spots in the scan and ", " spots and ")
     if st == "pending":
         why = ""
+    if why and verdict and _contradicts(why, verdict):
+        return "No single spot was picked for this, so the scan opens at its start position."
     if cant and why:
         return why
     return (why + " " if why else "") + "Showing the scan from its start position."
@@ -274,7 +277,7 @@ CSS = """
 font:17px/1.45 Newsreader,Georgia,'Times New Roman',serif;-webkit-font-smoothing:antialiased}
 #mp{position:fixed;inset:0;width:100%;height:100%;border:0;background:#ededeb}
 .meta{margin:0;font-size:12px;line-height:1.3;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
-.back{position:fixed;top:16px;left:16px;z-index:6;display:inline-flex;align-items:center;gap:6px;min-height:40px;
+.back{position:fixed;top:16px;right:16px;z-index:6;display:inline-flex;align-items:center;gap:6px;min-height:40px;
 padding:0 14px;background:#fff;color:var(--ink);text-decoration:none;font-size:15px}
 .back:hover{color:var(--blue)}.back:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
 .still{position:fixed;inset:0;z-index:3;background-color:#ededeb;background-repeat:no-repeat;
@@ -282,7 +285,7 @@ background-size:max(200vw,200vh);background-position:calc(50vw - max(50vw,50vh))
 transition:opacity .6s ease,visibility 0s linear 0s}
 .still::before{content:'';position:absolute;inset:0;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
 background:rgba(255,255,255,.18)}
-.still .meta{position:absolute;right:16px;top:16px;background:#fff;padding:9px 12px;color:var(--ink);
+.still .meta{position:absolute;right:16px;top:72px;background:#fff;padding:9px 12px;color:var(--ink);
 display:flex;align-items:center;gap:10px}
 .still .meta i{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--blue);border-radius:50%;
 animation:spin 1s linear infinite}
@@ -297,13 +300,16 @@ display:flex;flex-direction:column;gap:6px}
 .card .note{font-size:15px;line-height:1.35;color:var(--mute);border-top:1px solid var(--line);padding-top:10px;margin-top:6px}
 .strike{background:linear-gradient(var(--blue),var(--blue)) no-repeat 0 58%/100% .075em;
 -webkit-box-decoration-break:clone;box-decoration-break:clone;padding:0 .03em}
+.card,.call{opacity:1;transition:none}
 .call{position:fixed;left:0;top:0;z-index:4;pointer-events:none;will-change:transform}
 .call[hidden]{display:none}
 .call::before{content:'';position:absolute;left:16px;top:0;width:18px;height:1px;background:#fff}
+.call.flip::before{left:-34px}.call.dot::before,.call.dot div{display:none}
 .call i{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:var(--blue);
 box-shadow:0 0 0 3px #fff}
 .call div{position:absolute;left:34px;top:0;transform:translateY(-50%);background:#fff;border-left:2px solid var(--blue);
-padding:8px 12px;width:max-content;max-width:min(280px,60vw);font-size:15px;line-height:1.3}
+padding:8px 12px;width:max-content;max-width:min(280px,calc(100vw - 32px));font-size:15px;line-height:1.3;overflow-wrap:anywhere}
+.call.flip div{left:auto;right:34px;border-left:0;border-right:2px solid var(--blue)}
 .call div .meta{margin-bottom:2px}
 .msg{max-width:560px;margin:18vh auto 0;padding:0 24px}
 .msg h1{font-weight:300;font-size:40px;line-height:1.02;letter-spacing:-.03em;margin:0 0 10px}
@@ -311,7 +317,27 @@ padding:8px 12px;width:max-content;max-width:min(280px,60vw);font-size:15px;line
 body.embed{overflow:hidden}.embed .card{width:min(320px,calc(100% - 24px));left:12px;bottom:12px;padding:12px 16px 10px}
 .embed .card .truth,.embed .card .head{font-size:24px}.embed .card .said{font-size:16px}
 .embed .card .note{font-size:14px;padding-top:8px;margin-top:4px}
-@media (max-width:640px){.card .truth,.card .head{font-size:26px}.still .meta{top:auto;bottom:auto;top:64px}}
+.embed .call div{font-size:14px;padding:6px 10px}
+.card .more{display:none}
+/* a short inline viewer (the report's panel): the how-it-was-picked note waits behind More, the scan stays in view */
+@media (max-height:420px){
+.embed .card{padding:10px 14px 9px;gap:3px;cursor:pointer}
+.embed .card .truth,.embed .card .head{font-size:20px;line-height:1.15}.embed .card .said{font-size:14px}
+.embed .card:not(.open) .note{display:none}
+.embed .card .more{display:block;position:absolute;right:14px;top:10px;font-size:11px;line-height:1.3;letter-spacing:.06em;
+text-transform:uppercase;color:var(--mute);background:#fff;padding-left:8px}}
+/* a small inline viewer (phone width or a short frame): the card is one line, tap to read it all */
+@media (max-width:480px),(max-height:300px){
+.embed .card{padding:8px 12px;gap:4px;cursor:pointer;max-height:calc(100% - 24px);overflow:auto}
+.embed .card:not(.open) .meta,.embed .card:not(.open) .said,.embed .card:not(.open) .note{display:none}
+.embed .card .truth,.embed .card .head{font-size:17px;line-height:1.25;letter-spacing:-.01em}
+.embed .card:not(.open) .truth,.embed .card:not(.open) .head{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+padding-right:44px}
+.embed .card .more{display:block;position:absolute;right:12px;top:auto;bottom:9px;font-size:11px;line-height:1.3;letter-spacing:.06em;
+text-transform:uppercase;color:var(--mute);background:#fff}
+.embed .card.open .more{position:static;align-self:flex-end}
+.embed .call div{font-size:13px;padding:5px 8px}.embed .call div .meta{font-size:10px}}
+@media (max-width:640px){.card .truth,.card .head{font-size:26px}}
 @media (prefers-reduced-motion:reduce){.still,body.live .still{transition:none}.still .meta i{animation:none}}
 """
 
@@ -338,6 +364,21 @@ const coll = (c, ms) => new Promise(r => { let d = 0, last = [], sub = null;
 const here = (sdk) => new Promise(r => { let d = 0, sub = null; const fin = (x) => { if (!d) { d = 1; r(x); try { sub && sub.cancel(); } catch (e) {} } };
   try { sub = sdk.Sweep.current.subscribe(c => { if (c && c.id) fin(c); }); } catch (e) { fin(null); } setTimeout(() => fin(null), 3000); });
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+// where the callout may not go (frame px): the card, the Back link, Matterport's logo (top left) and its share and
+// menu buttons (bottom right), and in the report's frame its Full screen button (top right)
+const keepOut = (sz) => { const r = [];
+  for (const el of [document.getElementById('card'), document.querySelector('.back')]) {
+    if (!el) continue; const b = el.getBoundingClientRect(); if (b.width) r.push({l: b.left - 8, t: b.top - 8, r: b.right + 8, b: b.bottom + 8}); }
+  r.push({l: 0, t: 0, r: 200, b: 58}, {l: sz.w - 112, t: sz.h - 66, r: sz.w, b: sz.h});
+  if (CFG.embed) r.push({l: sz.w - 168, t: 0, r: sz.w, b: 62});
+  return r; };
+const hits = (a, list) => list.some(k => a.l < k.r && a.r > k.l && a.t < k.b && a.b > k.t);
+// the card: one line in a small frame, tap (or Enter) to read it all
+(() => { const c = document.getElementById('card'); if (!c) return; const m = c.querySelector('.more');
+  const flip = () => { const o = c.classList.toggle('open'); c.setAttribute('aria-expanded', o ? 'true' : 'false');
+    if (m) m.textContent = o ? 'Less' : 'More'; if (T.place) T.place(); };
+  c.addEventListener('click', flip);
+  c.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } }); })();
 const BLUE = {r: 26 / 255, g: 75 / 255, b: 224 / 255};
 // one blue marker where the view looks, with no Matterport popup; our own callout next to it carries the words
 async function mark(sdk) {
@@ -361,20 +402,35 @@ async function mark(sdk) {
   if (!call) return;
   const box = call.querySelector('div'), card = document.querySelector('.card');
   const head = {x: anchor.x, y: anchor.y + 0.25, z: anchor.z};
-  const place = (ps) => { if (!ps || !ps.position) return;
+  let last = null;
+  const place = (ps) => { if (!ps || !ps.position) return; last = ps;
     const sz = {w: f.clientWidth, h: f.clientHeight}, yaw = (ps.rotation.y || 0) * Math.PI / 180;
     const front = (head.x - ps.position.x) * -Math.sin(yaw) + (head.z - ps.position.z) * -Math.cos(yaw) > 0.1;
     let s = null; try { s = sdk.Conversion.worldToScreen(head, ps, sz); } catch (e) {}
-    const on = !!(s && front && s.x > 8 && s.x < sz.w - 40 && s.y > 8 && s.y < sz.h - 8);
+    const ko = keepOut(sz), dot = {l: s ? s.x - 12 : 0, t: s ? s.y - 12 : 0, r: s ? s.x + 12 : 0, b: s ? s.y + 12 : 0};
+    const on = !!(s && front && s.x > 12 && s.x < sz.w - 12 && s.y > 12 && s.y < sz.h - 12 && !hits(dot, ko));
     call.hidden = !on; if (!on) return;
     call.style.transform = 'translate(' + Math.round(s.x) + 'px,' + Math.round(s.y) + 'px)';
-    // the words stay on screen and clear of the card; the dot itself stays on the marker
-    const bh = box.offsetHeight, bw = box.offsetWidth, cr = card ? card.getBoundingClientRect() : null;
-    let dy = Math.max(12 + bh / 2 - s.y, Math.min(0, sz.h - 12 - bh / 2 - s.y));
-    if (cr && s.x + 34 < cr.right && s.x + 34 + bw > cr.left && s.y + dy + bh / 2 > cr.top - 8) dy = Math.min(dy, cr.top - 8 - bh / 2 - s.y);
-    box.style.marginTop = Math.round(dy) + 'px'; };
+    // the words stay inside the frame and clear of the card, the logo, the report's Full screen button and the
+    // scan's own buttons: right of the dot, else left of it, shifted up or down; no room = the dot alone
+    call.classList.remove('dot');
+    for (const flip of [false, true]) {
+      const room = flip ? s.x - 34 - 8 : sz.w - 8 - s.x - 34;
+      if (room < 110) continue;
+      call.classList.toggle('flip', flip); box.style.maxWidth = Math.min(280, room) + 'px';
+      const bw = box.offsetWidth, bh = box.offsetHeight, l = flip ? s.x - 34 - bw : s.x + 34;
+      if (bh > sz.h - 16) continue;
+      const lo = 8 + bh / 2, hi = sz.h - 8 - bh / 2, cl = (y) => Math.max(lo, Math.min(hi, y));
+      const ys = [cl(s.y)]; for (const k of ko) ys.push(cl(k.t - bh / 2), cl(k.b + bh / 2));
+      ys.sort((a, b) => Math.abs(a - s.y) - Math.abs(b - s.y));
+      const y = ys.find(y => !hits({l, r: l + bw, t: y - bh / 2, b: y + bh / 2}, ko));
+      if (y !== undefined) { box.style.marginTop = Math.round(y - s.y) + 'px'; return; }
+    }
+    call.classList.add('dot'); };
+  T.place = () => place(last);
   place(await sdk.Camera.getPose());
   try { sdk.Camera.pose.subscribe(place); } catch (e) {}
+  addEventListener('resize', () => place(last));
   T.callout = !call.hidden;
 }
 try {
@@ -466,7 +522,26 @@ T.done = true;
 
 
 def _claimed_text(claim: dict, verdict: dict) -> str:
-    return str(verdict.get("claimed") or claim.get("quote") or "").strip()
+    """What the listing says, in its own words where the verdict rewrote them ("0 bedrooms" for a "Studio")."""
+    said = str(verdict.get("claimed") or claim.get("quote") or "").strip()
+    if claim.get("kind") == "bedrooms" and re.match(r"^\s*0\s+bed", said) and (
+            re.search(r"\bstudio\b", str(claim.get("quote") or ""), re.I) or claim.get("value") in (0, 0.0, "0")):
+        return "Studio"
+    return said
+
+
+NONE_SHOWS_RE = re.compile(r"\bnone clearly shows (?:an? )?([a-z]+)", re.I)
+
+
+def _contradicts(note_why: str, verdict: dict) -> bool:
+    """True when a spot note says no spot shows X while the verdict says the scan shows X ("1 bedroom")."""
+    m = NONE_SHOWS_RE.search(note_why or "")
+    if not m or verdict.get("verdict") not in ("contradicted", "close", "confirmed"):
+        return False
+    word, found = m.group(1).lower(), str(verdict.get("found") or "").lower()
+    if verdict.get("verdict") == "confirmed" and not found:
+        return True
+    return bool(re.search(rf"\b{re.escape(word)}s?\b", found)) and not re.match(r"^\s*(?:0|no|zero)\b", found)
 
 
 def _embed_note(state: str, text: str) -> str:
@@ -547,7 +622,8 @@ def _card(target: dict, spot: dict, note: str) -> str:
     else:  # couldn't check: no strike, no "unclear"
         body = (f"<p class=said>Listing says “{escape(claimed)}”</p>"
                 "<p class=head>Couldn’t see it in this scan</p>")
-    return f"<aside class=card aria-live=polite>{meta}{body}<p class=note id=note>{escape(note)}</p></aside>"
+    return (f"<aside class=card id=card tabindex=0 aria-expanded=false aria-live=polite>{meta}{body}<p class=note id=note>{escape(note)}</p>"
+            "<span class=more aria-hidden=true>More</span></aside>")
 
 
 def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | None = None,
@@ -566,7 +642,7 @@ def render_tour(run: dict, target: dict, key: str | None, cache_root: Path | Non
     spot = spot or {"status": "skip", "why": spots.WHOLE_UNIT}
     found_spot = spot.get("status") == "found"
     cant = v.get("verdict") not in ("contradicted", "close", "confirmed")
-    note = _spot_note(spot, cant)
+    note = _spot_note(spot, cant, v)
     sweep = spot.get("sweep") if found_spot and PANO_RE.match(str(spot.get("sweep") or "")) else None
     room_sweeps = [s for s in spot.get("sweeps") or [] if PANO_RE.match(str(s))] if found_spot and not sweep else []
     face = spot.get("face") if isinstance(spot.get("face"), int) and 0 <= spot["face"] < 4 else None

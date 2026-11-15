@@ -385,7 +385,8 @@ def test_drawer_report_says_what_the_report_says():
     assert hard["score"] == 60 and hard["band"] == "medium"
     assert close["score"] is None and close["band"] == "low"  # no number sent: none made up
     assert hard["shade"] == "medium" and close["shade"] == "low"  # the blue's strength by confidence
-    assert hard["tag"] == "Doesn't match · 60 medium" and close["tag"] == "Doesn't match · low"
+    assert hard["tag"] == "60 / 100 · medium" and close["tag"] == "Low"  # the score; the level word alone, never a guess
+    assert hard["also"] == ["record"] and "county" not in hard["also"]  # the report's "also checked", same rule
     assert hard["label"] == "Homes" and hard["found"] == "216 apartments" and hard["quoted"] is True
     assert hard["proof"] == "/report/t-drawer#claim-c1" and hard["walk"] is None
     # facts: no manager row, no "; managed by" clause

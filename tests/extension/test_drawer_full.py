@@ -221,3 +221,79 @@ def test_not_on_the_checkers_own_pages(env):
         page.close()
     finally:
         stub.close()
+
+
+def with_previews(address):
+    """with_report, the first row carrying the report's preview cards (invented); the second an old run's {}."""
+    evs = with_report(address)
+    rows = evs[-1]["report"]["rows"]
+    rows[0]["previews"] = {
+        "scan": {"source": "Matterport", "role": "decided", "tag": "Decided this", "value": "1 bedroom + den",
+                 "read": "One closed bedroom; the second room has no door.", "where": "3D scan of Plan E",
+                 "date": "Mar 2026", "href": "/artifacts/r1#a-c1-matterport"},
+        "record": {"source": "CoStar", "role": "agrees", "tag": "Agrees", "value": "2 bedrooms",
+                   "read": "The building record lists Plan E as 2 bedrooms.", "where": "Building record", "date": "",
+                   "href": None},
+    }
+    rows[1]["previews"] = {}
+    return evs
+
+
+def test_source_preview_cards(env, make):
+    p = make(lambda a: with_previews(a))
+    row = p.R('.fr[data-id="c1"]')
+    dec = row.locator(".cite.dec")
+    assert dec.get_attribute("aria-expanded") == "false" and dec.get_attribute("aria-controls") == "rcCard"
+    card = p.R("#rcCard")
+    assert card.is_hidden()
+    dec.click()  # a click (or tap) opens it pinned
+    card.wait_for(state="visible")
+    assert dec.get_attribute("aria-expanded") == "true"
+    assert "r-decided" in card.get_attribute("class") and card.get_attribute("role") == "dialog"
+    assert card.locator(".cc-h b").inner_text().lower() == "matterport" and card.locator(".cc-h em").inner_text().lower() == "decided this"
+    assert card.locator(".cc-v").inner_text() == "1 bedroom + den"
+    assert card.locator(".cc-read").inner_text() == "One closed bedroom; the second room has no door."
+    assert card.locator(".cc-w").inner_text() == "3D scan of Plan E · Mar 2026"
+    assert card.locator(".cc-v").evaluate("e => getComputedStyle(e).color") == "rgb(26, 75, 224)"
+    go = card.locator(".cc-go")
+    assert go.get_attribute("data-href") == "/artifacts/r1#a-c1-matterport" and go.get_attribute("target") == "_blank"
+    # inside the drawer, never past its edges or the viewport
+    box, dbox = card.bounding_box(), p.R("#drawer").bounding_box()
+    vw = p.page.viewport_size["width"]
+    assert box["x"] >= max(dbox["x"], 0) and box["x"] + box["width"] <= min(dbox["x"] + dbox["width"], vw) + 0.5, (box, dbox)
+    with env["ctx"].expect_page() as newp:
+        go.click()
+    tab = newp.value
+    tab.wait_for_load_state()
+    assert tab.url == p.stub.url + "/artifacts/r1#a-c1-matterport"
+    tab.close()
+    # Esc closes the card (not the drawer) and gives focus back to the chip without reopening it
+    p.page.bring_to_front()
+    dec.focus()
+    p.page.keyboard.press("Escape")
+    assert card.is_hidden() or "on" not in (card.get_attribute("class") or "")
+    p.page.wait_for_timeout(250)
+    assert card.is_hidden() and p.R("#drawer.open").count() == 1
+    # keyboard: Space pins it and moves focus into the card; Esc closes and returns focus
+    dec.press(" ")
+    card.wait_for(state="visible")
+    assert p.page.evaluate("() => document.getElementById('rc-host').shadowRoot.activeElement.className") == "cc-go"
+    p.page.keyboard.press("Escape")
+    p.page.wait_for_timeout(250)
+    assert card.is_hidden() and dec.get_attribute("aria-expanded") == "false"
+    assert p.page.evaluate("() => document.getElementById('rc-host').shadowRoot.activeElement.getAttribute('data-cc')") == "scan"
+    # hover opens the other source's card; no library link when the server sent none; an outside click closes it
+    also = row.locator(".cite:not(.dec)")
+    p.page.mouse.move(0, 0)
+    also.hover()
+    card.wait_for(state="visible")
+    assert card.locator(".cc-h b").inner_text().lower() == "costar" and "r-agrees" in card.get_attribute("class")
+    assert card.locator(".cc-go").count() == 0 and card.locator(".cc-w").inner_text() == "Building record"
+    p.R("#mmH").click()
+    p.page.wait_for_timeout(250)
+    assert card.is_hidden()
+    # an old run's row ({} previews): plain chips, as before
+    c2 = p.R('.fr[data-id="c2"]')
+    assert c2.locator("[data-cc]").count() == 0 and c2.locator(".cw").count() == 0
+    assert c2.locator("a.cite.dec").get_attribute("data-href") == "/artifacts/r1#a-c2-vexcel"
+    assert not p.errors, p.errors

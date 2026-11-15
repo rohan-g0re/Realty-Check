@@ -62,6 +62,7 @@
       <button class="btn primary" id="btnFull">Open the full report</button>
       <div class="ftl" id="ftl"></div>
     </footer>
+    <div class="cc" id="rcCard" role="dialog" hidden></div>
   </aside>`;
   const $ = (id) => root.getElementById(id);
   const tab = $("tab"), drawer = $("drawer"), body = $("body");
@@ -179,6 +180,7 @@
     overlay.follow(420);
   }
   function closeDrawer() {
+    ccClose(true);
     if (!open) return;
     open = false;
     de.style.setProperty("margin-right", "0px", "important");
@@ -688,6 +690,9 @@
       const src = { keys, also };
       const shade = s && SHADES.has(s.shade) ? s.shade : shadeOf(v);
       const tag = scoreTag(v);
+      // the report's source preview cards ({} on an older run: the chips stay plain)
+      const pv = s && s.previews && typeof s.previews === "object" && !Array.isArray(s.previews) ? s.previews : {};
+      src.pv = pv;
       if (s) {
         return { c, v, id: c.id, label: String(s.label || kindLabel(c)), said: s.quoted ? `“${s.said}”` : String(s.said || ""),
           strike: !!s.strike, found: String(s.found || v.found || ""), why: kindText(s.why), src, shade, tag,
@@ -727,6 +732,13 @@
   function citeHTML(row, k, lead, links) {
     const href = links ? artifactPath(row.id, k) : "";
     const cls = `cite${lead ? " dec" : ""}`;
+    const p = links && row.src.pv && row.src.pv[k];
+    if (p && typeof p === "object") { // a preview card on hover, focus or tap (wired in wireCites)
+      const at = `data-cc="${esc(k)}" data-row="${esc(row.id)}" aria-controls="rcCard" aria-expanded="false" aria-haspopup="dialog"`;
+      return `<span class="cw">` + (href
+        ? `<a class="${cls} srcl" ${at} role="button" href="${esc(absUrl(href))}" data-href="${esc(href)}" target="_blank" rel="noopener">${esc(SRC[k])}<i aria-hidden="true">↗</i></a>`
+        : `<button type="button" class="${cls}" ${at}>${esc(SRC[k])}</button>`) + `</span>`;
+    }
     return href
       ? `<a class="${cls} srcl" href="${esc(absUrl(href))}" data-href="${esc(href)}" target="_blank" rel="noopener">${esc(SRC[k])}<i aria-hidden="true">↗</i></a>`
       : `<span class="${cls}">${esc(SRC[k])}</span>`;
@@ -737,6 +749,106 @@
     return `<span class="citl">${keys.length > 1 ? "Sources" : "Source"}</span>` + keys.map((k, i) => citeHTML(row, k, i === 0, links)).join("") +
       (also.length ? `<span class="citl">also checked</span>` + also.map((k) => citeHTML(row, k, false, links)).join("") : "");
   }
+  // Source preview cards (server/report_a.py's citation cards, in the drawer): one card, filled with textContent from
+  // the row's done.report previews, opens on hover (90 ms), keyboard focus or a tap; it stays inside the drawer's
+  // visible part, flips above the chip when there is no room below. Esc, x or a click outside closes it.
+  let ccRows = new Map(), ccBtn = null, ccIn = 0, ccOut = 0, ccPtr = "mouse", ccPinned = false, ccQuiet = false;
+  const card = $("rcCard");
+  function ccBack(o) { if (!o || !o.isConnected) return; ccQuiet = true; try { o.focus({ preventScroll: true }); } catch (e) { /* gone */ } ccQuiet = false; }
+  function ccFill(b) {
+    const p = (ccRows.get(b.dataset.row) || {})[b.dataset.cc];
+    if (!p || typeof p !== "object") return false;
+    const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+    const role = ["decided", "agrees", "differs", "context"].includes(p.role) ? p.role : "context";
+    const name = String(p.source || SRC[b.dataset.cc] || ""), tag = String(p.tag || "");
+    card.replaceChildren();
+    card.className = `cc r-${role}`;
+    card.setAttribute("aria-label", [name, tag].filter(Boolean).join(", "));
+    const x = mk("button", "cc-x", "\u00d7"); x.type = "button"; x.setAttribute("aria-label", "Close");
+    const hd = mk("span", "cc-h"); hd.append(mk("b", "", name)); if (tag) hd.append(mk("em", "", tag));
+    card.append(x, hd);
+    if (p.value) card.append(mk("span", "cc-v", String(p.value)));
+    if (p.read) card.append(mk("span", "cc-read", String(p.read)));
+    const where = [p.where, p.date].filter(Boolean).map(String).join(" \u00b7 ");
+    if (where) card.append(mk("span", "cc-w", where));
+    const href = typeof p.href === "string" && /^\/artifacts\//.test(p.href) && run && run.mode === "server" ? p.href : "";
+    if (href) {
+      const a = mk("a", "cc-go", "Open in artifact library "); a.href = absUrl(href); a.dataset.href = href; a.target = "_blank"; a.rel = "noopener";
+      const i = mk("i", "", "\u2197"); i.setAttribute("aria-hidden", "true"); a.append(i);
+      card.append(a);
+    }
+    return true;
+  }
+  function ccPlace() {
+    if (!ccBtn) return;
+    const dr = drawer.getBoundingClientRect(), r = ccBtn.getBoundingClientRect(), m = 12;
+    const vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight;
+    const L = Math.max(dr.left, 0) + m, R = Math.min(dr.right, vw) - m, T = Math.max(dr.top, 0) + m, B = Math.min(dr.bottom, vh) - m;
+    const w = Math.max(0, Math.min(320, R - L));
+    card.style.width = w + "px";
+    const h = card.offsetHeight, x = Math.min(Math.max(L, r.left), R - w);
+    const below = r.bottom + 8, above = r.top - 8 - h;
+    const side = below + h <= B || above < T ? "bottom" : "top";
+    const y = Math.max(T, Math.min(side === "bottom" ? below : above, B - h));
+    card.style.left = Math.round(x - dr.left) + "px"; card.style.top = Math.round(y - dr.top) + "px";
+    card.dataset.side = side;
+  }
+  function ccOpen(b, pin) {
+    clearTimeout(ccOut); clearTimeout(ccIn);
+    if (ccBtn === b) { ccPinned = ccPinned || !!pin; return; }
+    ccClose(true);
+    if (!b.isConnected || !ccFill(b)) return;
+    card.hidden = false; ccBtn = b; ccPinned = !!pin; ccPlace(); void card.offsetWidth; card.classList.add("on");
+    b.setAttribute("aria-expanded", "true");
+  }
+  function ccClose(now) {
+    clearTimeout(ccIn); clearTimeout(ccOut);
+    if (!ccBtn) return;
+    const b = ccBtn; ccBtn = null; ccPinned = false;
+    b.setAttribute("aria-expanded", "false"); card.classList.remove("on");
+    if (now || REDUCED) { card.hidden = true; return; }
+    setTimeout(() => { if (!card.classList.contains("on")) card.hidden = true; }, 160);
+  }
+  function ccLater() { clearTimeout(ccOut); if (!ccPinned) ccOut = setTimeout(() => ccClose(), 180); }
+  function ccFocusIn() { const go = card.querySelector(".cc-go") || card.querySelector(".cc-x"); if (go) go.focus({ preventScroll: true }); }
+  function wireCites(scope) {
+    scope.querySelectorAll("[data-cc]").forEach((b) => {
+      b.addEventListener("pointerdown", (e) => { ccPtr = e.pointerType || "mouse"; });
+      b.addEventListener("mouseenter", () => { if (ccPtr === "touch") return; clearTimeout(ccOut); clearTimeout(ccIn); ccIn = setTimeout(() => ccOpen(b, false), ccBtn ? 0 : 90); });
+      b.addEventListener("mouseleave", () => { clearTimeout(ccIn); if (ccBtn === b) ccLater(); });
+      b.addEventListener("focus", () => { if (ccQuiet) return; let fv = true; try { fv = b.matches(":focus-visible"); } catch (e) { /* old engine */ } if (fv) ccOpen(b, false); });
+      b.addEventListener("blur", () => setTimeout(() => { if (ccBtn === b && !ccPinned && !card.contains(root.activeElement)) ccClose(); }, 0));
+      b.addEventListener("keydown", (e) => { if (e.key === " " || e.key === "ArrowDown") { e.preventDefault(); ccOpen(b, true); if (ccBtn === b) ccFocusIn(); } });
+      b.addEventListener("click", (e) => {
+        const touch = ccPtr === "touch"; ccPtr = "mouse";
+        if (b.tagName === "A" && !touch && ccBtn === b && !ccPinned && e.detail) return; // a mouse click on a previewed chip opens the source
+        e.preventDefault(); e.stopPropagation();
+        if (ccBtn === b && ccPinned) { ccClose(); return; }
+        ccOpen(b, true);
+        if (e.detail === 0 && ccBtn === b) ccFocusIn();
+      });
+    });
+  }
+  card.addEventListener("mouseenter", () => clearTimeout(ccOut));
+  card.addEventListener("mouseleave", () => ccLater());
+  card.addEventListener("click", (e) => {
+    if (e.target.closest(".cc-x")) { const o = ccBtn; ccClose(); ccBack(o); return; }
+    const go = e.target.closest(".cc-go");
+    if (go) { // opened by the service worker, as the chips are (the page's own CSP never sees it)
+      e.preventDefault();
+      if (run && run.done && run.mode === "server") send({ type: "openReport", report_url: absUrl(go.dataset.href) });
+    }
+  });
+  // capture, so the drawer's own Esc (close the drawer) never fires while a card is open
+  root.addEventListener("keydown", (e) => { if (e.key === "Escape" && ccBtn) { e.preventDefault(); e.stopPropagation(); const o = ccBtn; ccClose(); ccBack(o); } }, true);
+  root.addEventListener("focusin", (e) => { if (ccBtn && !card.contains(e.target) && e.target !== ccBtn) ccClose(); });
+  document.addEventListener("pointerdown", (e) => {
+    if (!ccBtn) return;
+    const path = e.composedPath();
+    if (!path.includes(card) && !path.includes(ccBtn)) ccClose();
+  }, true);
+  addEventListener("resize", () => { if (ccBtn) ccPlace(); }, { passive: true });
+  body.addEventListener("scroll", () => { if (ccBtn) requestAnimationFrame(ccPlace); }, { passive: true });
   // "Not in the listing": the report's top five (done.report.facts, else done.harness.top_facts, else the fill_in
   // list in renter order), text only; never a manager, owner, parcel, class or lot size, and no "; managed by" clause.
   function factsOf(r) {
@@ -824,6 +936,8 @@
   function renderResult() {
     const r = run, k = counts(r);
     const t = topOf(r), rows = badRows(r);
+    ccClose(true);
+    ccRows = new Map(rows.map((x) => [String(x.id), x.src.pv || {}]));
     const meta = [
       r.mode === "sample" ? `<span>Sample result</span>` : "",
       r.cache === "off" ? `<span class="fresh" data-k="fresh">fresh run</span>` : "",
@@ -838,6 +952,7 @@
       rows.map((row, i) => findHTML(row, i, true, true)).join("") + `</ul></section>`;
     h += factsHTML(factsOf(r)) + questionsHTML(questionsOf(r, rows)) + checkedHTML(r) + `</div>`;
     body.innerHTML = h;
+    wireCites(body);
     updateCheck(r);
     fitHeadline();
     // footer: the walkthrough of the worst finding a 3D scan settled, and other addresses on this page
@@ -1219,7 +1334,36 @@
   .cite{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:2px 8px;border:1px solid var(--line);font-size:14px;line-height:1.2;color:var(--ink);text-decoration:none;background:#fff}
   .cite.dec{border-color:var(--ink)}
   .cite i{font-style:normal;font-size:12px;color:var(--blue)}
-  a.cite:hover,a.cite:focus-visible{border-color:var(--blue);color:var(--blue)}
+  a.cite:hover,a.cite:focus-visible,button.cite:hover{border-color:var(--blue);color:var(--blue)}
+  .cw{display:inline-flex}
+  button.cite{font:inherit;font-size:14px;cursor:pointer}
+  .cite[aria-expanded=true]{border-color:var(--blue);color:var(--blue);box-shadow:inset 0 -2px 0 var(--blue)}
+  /* source preview card (server/report_a.py's), anchored inside the drawer */
+  .cc{position:absolute;z-index:5;left:0;top:0;width:320px;display:flex;flex-direction:column;gap:6px;padding:14px 16px 12px;background:#fff;color:var(--ink);
+    border:1px solid var(--ink);border-top:3px solid var(--ink);box-shadow:0 18px 40px -18px rgba(0,0,0,.28);font-size:15px;line-height:1.35;
+    opacity:0;transform:translateY(6px);clip-path:inset(0 0 100% 0);transition:opacity .14s ease-out,transform .14s ease-out,clip-path .14s ease-out}
+  .cc[data-side=top]{transform:translateY(-6px);clip-path:inset(100% 0 0 0)}
+  .cc.on{opacity:1;transform:none;clip-path:inset(0 0 0 0);transition:opacity .22s var(--ease),transform .22s var(--ease),clip-path .22s var(--ease)}
+  .cc.r-decided{border-top-color:var(--blue)}
+  .cc-h{display:flex;align-items:baseline;gap:10px;padding-right:26px}
+  .cc-h b{font-weight:400;font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+  .cc-h em{font-style:normal;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border:1px solid var(--line);color:var(--mute);margin-left:auto;white-space:nowrap}
+  .r-decided .cc-h em{background:var(--blue);border-color:var(--blue);color:#fff}
+  .r-agrees .cc-h em{border-color:var(--ink);color:var(--ink)}
+  .r-differs .cc-h em{border-color:var(--blue);color:var(--blue)}
+  .cc-v{display:block;font-size:30px;font-weight:300;line-height:1.1;letter-spacing:-.02em;margin:4px 0 2px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+  .r-decided .cc-v{color:var(--blue)}
+  .cc.on .cc-v,.cc.on .cc-read,.cc.on .cc-w{animation:rc-ccin .32s var(--ease) both}
+  .cc.on .cc-read{animation-delay:.04s}.cc.on .cc-w{animation-delay:.08s}
+  @keyframes rc-ccin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .cc-read{display:block;overflow-wrap:anywhere}
+  .cc-w{display:block;font-size:13px;color:var(--mute);overflow-wrap:anywhere}
+  .cc-go{display:flex;align-items:center;justify-content:space-between;margin-top:6px;padding-top:9px;border-top:1px solid var(--line);color:var(--blue);text-decoration:none;font-size:15px;min-height:28px}
+  .cc-go:hover{text-decoration:underline}.cc-go i{font-style:normal}
+  .cc-go:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+  .cc-x{position:absolute;top:8px;right:8px;width:28px;height:28px;display:grid;place-items:center;font-size:20px;line-height:1;color:var(--mute);text-align:center}.cc-x:hover{color:var(--blue)}
+  @media (max-width:520px){.cc-go{min-height:44px}.cc-x{width:44px;height:44px;top:4px;right:4px}}
+  @media (prefers-reduced-motion: reduce){.cc,.cc[data-side=top],.cc.on{transform:none;clip-path:none}}
   .fln{flex:none;display:flex;gap:14px}
   .fln .lnk{min-height:28px;color:var(--ink);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bbb}
   /* which home was checked */

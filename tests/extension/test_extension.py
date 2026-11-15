@@ -12,7 +12,7 @@ import rc_harness as H  # noqa: E402
 
 playwright_sync = pytest.importorskip("playwright.sync_api")
 DRAWER_W = 420
-SAMPLE_HEADLINE = "3 things don't match."  # the sample report page (design A) headline
+SAMPLE_HEADLINE = "4 things don't match."  # the sample report page (design A) headline: every mismatch, close too
 COLORS = {"contradicted": "#1a4be0", "close": "#1a4be0", "confirmed": "#111111", "cant_check": "#b5b5b5"}
 
 
@@ -93,12 +93,18 @@ def test_sample_flow_marks_and_report(env):
     page.locator("#rc-host #cols .col").nth(4).wait_for(timeout=10000)  # the claim field, one column per claim
     page.locator("#rc-host #headline").wait_for(timeout=15000)
     # concise verdict: the report's headline and lead line (done.top), quiet counts line, findings in the report's order
-    assert headline(page) == "3 things don't match."
+    assert headline(page) == "4 things don't match."  # three contradicted and one close: every one counts
     assert page.locator("#rc-host #topLine").inner_text().startswith("Biggest difference: the listing says “2 Beds”")
     meta = page.locator("#rc-host #counts").inner_text()
-    assert "Sample result" in meta and "2 true" in meta and "1 close" in meta and "1 couldn't check" in meta, meta
+    assert "Sample result" in meta and "2 true" in meta and "4 don't match" in meta and "1 couldn't check" in meta, meta
+    assert "close" not in meta, meta
     finds = page.locator("#rc-host .find")
-    assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c3", "c2", "c7"]  # every one, close last
+    # the run's pick first, then the most certain first (82, 70, 58)
+    assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c2", "c7", "c3"]
+    assert page.locator("#rc-host .fr").evaluate_all("els => els.map(e => e.dataset.shade)") == [
+        "medium", "high", "medium", "medium"]
+    assert page.locator("#rc-host .ftag").evaluate_all("els => els.map(e => e.textContent)") == [
+        "Doesn't match · 64 medium", "Doesn't match · 82 high", "Doesn't match · 70 medium", "Doesn't match · 58 medium"]
     assert page.locator("#rc-host #moreF").count() == 0
     assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
     assert page.locator("#rc-host .fr .bys").first.inner_text() == "Source: Matterport"
@@ -110,7 +116,7 @@ def test_sample_flow_marks_and_report(env):
     assert chips.count() == 4
     # the judge's own 0-100 score next to the word
     assert chips.evaluate_all("els => els.map(e => e.textContent.replace(/\\s+/g, ' ').trim())") == [
-        "64 · medium confidence", "58 · medium confidence", "82 · high confidence", "70 · medium confidence"]
+        "64 · medium confidence", "82 · high confidence", "70 · medium confidence", "58 · medium confidence"]
     assert page.locator("#rc-host .cfx:visible").count() == 0
     chips.first.click()
     x = page.locator("#rc-host #cfx0")
@@ -152,7 +158,7 @@ def test_sample_flow_marks_and_report(env):
     assert rep.locator(".hero .where").inner_text().startswith("418 Linden Grove Ave")
     assert "Sample address" not in rep.locator("body").inner_text()
     assert rep.locator("#cf-field .cf-cell").count() == 7 * 4  # seven claims, four sources
-    assert rep.locator("[id^='claim-']").count() == 4  # three mismatches and the close one
+    assert rep.locator("[id^='claim-']").count() == 4  # every mismatch, the close one too
     rep.close()
     assert not rep_errors, rep_errors
     assert not errors, errors

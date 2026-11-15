@@ -60,8 +60,8 @@ def _hero(html: str) -> tuple[str, str]:
 
 
 @pytest.mark.parametrize("verdicts,headline,claim", [
-    (ONE_HARD_ONE_CLOSE, "1 thing doesn't match.", "c1"),
-    (ONLY_CLOSE, "Nothing is clearly off.", None),
+    (ONE_HARD_ONE_CLOSE, "2 things don't match.", "c1"),  # a close one counts as a mismatch
+    (ONLY_CLOSE, "1 thing doesn't match.", "c2"),  # and leads when it is the only one
     (ALL_OK, "Everything we could check matches.", None),
 ])
 def test_top_matches_the_report_hero(verdicts, headline, claim):
@@ -82,8 +82,9 @@ def test_top_uses_the_report_ranking_not_page_order():
                 _v("c2", "close", "built in 2016", "built in 2015", "county"),
                 _v("c3", "contradicted", "2 bedrooms", "1 bedroom", "scan")])
     top = top_finding(run)
-    assert top["headline"] == "2 things don't match." and top["hard"] == 2
-    assert top["claim_id"] == "c3" and top["order"] == ["c3", "c1", "c2"]  # close ones after every hard one
+    assert top["headline"] == "3 things don't match." and top["hard"] == 3
+    # no confidence sent: a contradicted one counts as sure (full blue), a close one as unsure, so it comes last
+    assert top["claim_id"] == "c3" and top["order"] == ["c3", "c1", "c2"]
     assert "2 Beds" in top["line"] and top["line"] == _hero(render_report(run))[1]
 
 
@@ -133,17 +134,19 @@ def test_runner_top_is_replaced_by_the_servers(client, monkeypatch):
               "top": {"headline": "Made up.", "lines": ["Made", "up."]}})
     monkeypatch.setattr(srv, "pick_runner", lambda: ("fake", runner))
     done = _post(client, SNAP)[-1]
-    assert done["top"]["headline"] == "Nothing is clearly off." and done["top"]["calm"] is True
+    assert done["top"]["headline"] == "1 thing doesn't match." and done["top"]["calm"] is False
 
 
 def test_replay_of_an_older_run_adds_top(client, monkeypatch):
     run = _run(ONE_HARD_ONE_CLOSE, run_id="900002")
+    run["events"][-1]["top"] = {"headline": "1 thing doesn't match.", "lines": ["1 thing", "doesn't match."],
+                                "calm": False, "hard": 1, "claim_id": "c1", "line": "", "order": ["c1", "c2"]}
     run["address_key"] = srv.norm_address(ADDR)
     srv.save_run(run)
     monkeypatch.setenv("RC_REPLAY", "1")
     done = _post(client, SNAP)[-1]
     assert done["run_id"] == "900002" and done["top"]["claim_id"] == "c1"
-    assert done["top"]["headline"] == "1 thing doesn't match."
+    assert done["top"]["headline"] == "2 things don't match."  # today's count, never the copy saved with the run
 
 
 # ---------- Esc from inside a 3D viewer ----------

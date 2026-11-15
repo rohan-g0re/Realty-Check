@@ -456,7 +456,7 @@ def _tag(key: str, decider, verdict: dict, cell: dict, credited: list, usable: b
         return "Decided this"
     st = cell.get("state") or "none"
     alone = cell.get("verdict")
-    if not usable or st in ("none", "data") or alone not in ("confirmed", "contradicted", "close"):
+    if not usable or st == "none" or alone not in ("confirmed", "contradicted", "close"):
         return "Had nothing"
     if decider:
         if key in credited:

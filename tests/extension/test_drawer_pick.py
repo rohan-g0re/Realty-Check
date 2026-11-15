@@ -17,7 +17,8 @@ ALT = "77 Example Lane, Testville, ZZ 00000"
 ALT_NAME = "The Alder Example"
 SRCS = ("record", "scan", "aerial", "county")
 # server cell states (server/claim_field.py) -> the drawer's data-s
-DRAWER = {"match": "agree", "contra": "contra", "close": "close", "data": "data", "none": "none"}
+DRAWER = {"match": "agree", "contra": "contra", "close": "close", "data": "data", "none": "none",
+          "differ": "none"}  # a state the drawer does not know draws as none
 
 
 @pytest.fixture(scope="module")
@@ -40,11 +41,13 @@ def env():
 
 def field_for(claims):
     """An invented server field whose states differ from what the drawer's own running rules would show."""
-    cycle = ["match", "contra", "close", "data", "none"]
+    cycle = ["match", "contra", "close", "data", "none", "differ"]
     out = []
     for i, c in enumerate(claims):
         cells = {s: cycle[(i + j) % len(cycle)] for j, s in enumerate(SRCS)}
-        out.append({"id": c["id"], "cells": cells, "image": None})
+        # even columns send the blue's strength (medium); odd ones none: contra full, close faint
+        shade = {s: "medium" for s, st in cells.items() if st in ("contra", "close")} if i % 2 == 0 else {}
+        out.append({"id": c["id"], "cells": cells, "shade": shade, "image": None})
     return {"claims": out}
 
 
@@ -145,9 +148,20 @@ def test_cells_are_the_servers(make):
         "cols => cols.map(c => [c.dataset.id, [...c.querySelectorAll('.cell')].map(x => x.dataset.s)])")
     assert got == [[w["id"], [DRAWER[w["cells"][s]] for s in SRCS]] for w in want]
     p.page.wait_for_timeout(2500)  # the cells colour in one after another
-    # close cells are blue like the report's
-    bg = p.R('.cell[data-s="close"]').first.evaluate("e => getComputedStyle(e).backgroundColor")
-    assert bg == "rgb(26, 75, 224)"
+    # blue cells: one blue, its strength by the server's shade (else contra full, close faint)
+    sh = p.R("#cols .col").evaluate_all(
+        "cols => cols.map(c => [...c.querySelectorAll('.cell')].map(x => x.dataset.sh || ''))")
+    for i, (w, row) in enumerate(zip(want, sh)):
+        for s, got_sh in zip(SRCS, row):
+            st = w["cells"][s]
+            exp = "" if st not in ("contra", "close") else "medium" if i % 2 == 0 else "high" if st == "contra" else "low"
+            assert got_sh == exp, (w["id"], s, st, got_sh)
+    look = lambda sel: p.R(sel).first.evaluate(  # noqa: E731
+        "e => [getComputedStyle(e).backgroundColor, getComputedStyle(e).opacity]")
+    assert look('.cell[data-s="close"][data-sh="low"]') == ["rgb(26, 75, 224)", "0.32"]
+    assert look('.cell[data-s="contra"][data-sh="high"]') == ["rgb(26, 75, 224)", "1"]
+    assert look('.cell[data-sh="medium"]') == ["rgb(26, 75, 224)", "0.6"]
+    assert p.R('.cell[data-s="differ"]').count() == 0
 
 
 def test_drawer_is_text_only(make):

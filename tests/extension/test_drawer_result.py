@@ -82,18 +82,26 @@ def test_many_findings_every_row(run):
     assert r.headline() == "5 things don't match."
     assert r.R("#headline").get_attribute("data-n") == "5"
     meta = r.R("#counts").inner_text()
-    for part in ("25 true", "1 close", "4 couldn't check"):
+    for part in ("25 true", "5 don't match", "4 couldn't check"):  # a close one counts as a mismatch
         assert part in meta, meta
+    assert "close" not in meta, meta
     finds = r.R(".find")
     assert finds.count() == 5  # every mismatch, no cap: the list scrolls inside the drawer
     assert r.R("#moreF").count() == 0
-    # worst first: not true before close, then page order
+    # the most certain first (no confidence sent: a contradicted one counts as sure, a close one as unsure)
     assert finds.evaluate_all("els => els.map(e => [e.dataset.id, e.dataset.verdict])") == [
         ["c1", "contradicted"], ["c2", "contradicted"], ["c4", "contradicted"], ["c6", "contradicted"], ["c3", "close"]]
     assert finds.first.locator(".fk").inner_text().lower() == "bedrooms · plan e"
     assert finds.first.locator(".wt").inner_text() == "“2 Beds”"
     assert finds.first.locator("s.wt").count() == 1  # struck through: it doesn't match
     assert r.R('.find[data-id="c3"] s').count() == 0  # close: never struck
+    # one blue, fainter when less sure: the close one faint, the tag the same words for both
+    assert r.R('.fr[data-id="c3"]').get_attribute("data-shade") == "low"
+    assert r.R('.fr[data-id="c1"]').get_attribute("data-shade") == "high"
+    assert r.R('.fr[data-id="c3"] .ftag').inner_text() == r.R('.fr[data-id="c1"] .ftag').inner_text() == "Doesn't match"
+    blue = lambda sel: r.R(sel).evaluate("e => getComputedStyle(e).color")  # noqa: E731
+    assert blue('.fr[data-id="c1"] .is') == "rgb(26, 75, 224)" and blue('.fr[data-id="c3"] .is') != "rgb(26, 75, 224)"
+    assert "Close" not in r.R('.fr[data-id="c3"]').inner_text()
     assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
     assert r.R('.fr[data-id="c1"] .fy').inner_text() == "Invented reason."  # one short why line
     assert r.R("#mmH").inner_text().lower() == "what doesn't match"

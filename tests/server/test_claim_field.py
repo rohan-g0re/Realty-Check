@@ -473,24 +473,32 @@ def test_record_amenity_names_fill_the_costar_cell_and_counts_come_from_one_func
     assert "<span><b>CoStar</b><i>2</i></span>" in html
 
 
-def _floors_run(v, src=None, found=""):
-    return run_of([claim("c1", "stories", 5, "5-story building at 418 Linden Grove Ave")],
-                  [ev("record", {"property_id": "900002", "stories": 5}),
-                   ev("aerial", {"height_m": 14.0, "stories": 4}),
-                   ev("county", {"parcel_id": "900003", "stories": 6})],
-                  [verdict("c1", v, "5 floors", found, src)])
+def _floors_run(v, src=None, found="", conf=None):
+    run = run_of([claim("c1", "stories", 5, "5-story building at 418 Linden Grove Ave")],
+                 [ev("record", {"property_id": "900002", "stories": 5}),
+                  ev("aerial", {"height_m": 14.0, "stories": 4}),
+                  ev("county", {"parcel_id": "900003", "stories": 6})],
+                 [verdict("c1", v, "5 floors", found, src)])
+    if conf is not None:
+        run["events"][-1]["verdict"]["confidence"] = conf
+    return run
 
 
-def test_couldnt_check_never_shows_a_mismatch_colour():
+def cell(field, cid, src):
+    return next(c for c in field["claims"] if c["id"] == cid)["cells"][src]
+
+
+def test_couldnt_check_never_shows_blue_or_an_outline():
     f = claim_field(_floors_run("cant_check", found="sources differ"))
     cells = f["claims"][0]["cells"]
-    assert {cells[k]["state"] for k in ("record", "aerial", "county")} == {"differ"}
-    assert cells["aerial"]["note"] == "CoStar: 5 floors · Vexcel: about 4 floors · County: 6 floors — sources differ"
-    assert f["counts"]["contra"] == f["counts"]["close"] == 0
+    assert cells["record"]["state"] == "match"  # agrees with the listing: black
+    assert cells["aerial"]["state"] == cells["county"]["state"] == "data"  # off the listing: light grey
+    assert all("shade" not in c and "note" not in c for c in cells.values())
+    assert f["counts"]["contra"] == f["counts"]["close"] == 0 and "differ" not in f["counts"]
     html = claim_field_section(_floors_run("cant_check", found="sources differ"))
     assert "cf-cell cf-contra" not in html and "cf-cell cf-close" not in html
-    assert html.count("cf-cell cf-differ") == 3 and "<i class=cf-d></i>sources differ" in html
-    assert ".cf-cell.cf-differ{" in html and "d.cell.note" in html  # outlined; the note is the hover text
+    assert "differ" not in re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+    assert "dashed" not in html and "class=cf-d>" not in html and "cf-differ" not in html
 
 
 def test_couldnt_check_with_one_reading_is_has_data():
@@ -499,18 +507,53 @@ def test_couldnt_check_with_one_reading_is_has_data():
     assert state(claim_field(run), "c1", "aerial") == "data"
 
 
-def test_blue_only_for_a_source_backing_the_found_value():
-    f = claim_field(_floors_run("contradicted", "county", "6 floors"))
-    assert state(f, "c1", "county") == "contra"   # decides: blue
-    assert state(f, "c1", "aerial") == "differ"   # also off the listing, but says 4, not 6
-    assert state(f, "c1", "record") == "match"    # agrees with the listing: still black
-    f = claim_field(_floors_run("close", "county", "6 floors"))
-    assert state(f, "c1", "county") == "close" and state(f, "c1", "aerial") == "differ"
+def test_every_off_listing_source_is_blue_on_a_mismatch_shaded_by_confidence():
+    f = claim_field(_floors_run("contradicted", "county", "6 floors",
+                                {"score": 55, "band": "medium", "decided_by": "county"}))
+    assert (state(f, "c1", "county"), cell(f, "c1", "county")["shade"]) == ("contra", "medium")  # same shade as the list
+    assert (state(f, "c1", "aerial"), cell(f, "c1", "aerial")["shade"]) == ("contra", "medium")  # says 4: blue too
+    assert state(f, "c1", "record") == "match" and "shade" not in cell(f, "c1", "record")  # agrees: black
+    f = claim_field(_floors_run("contradicted", "county", "6 floors", {"score": 30, "decided_by": "county"}))
+    assert cell(f, "c1", "aerial")["shade"] == "low" and cell(f, "c1", "county")["shade"] == "low"
+    f = claim_field(_floors_run("contradicted", "county", "6 floors", {"score": 90, "decided_by": "county"}))
+    assert cell(f, "c1", "aerial")["shade"] == cell(f, "c1", "county")["shade"] == "high"
+    f = claim_field(_floors_run("contradicted", "county", "6 floors"))  # no confidence: medium
+    assert cell(f, "c1", "aerial")["shade"] == "medium" and cell(f, "c1", "county")["shade"] == "medium"
+    f = claim_field(_floors_run("close", "county", "6 floors", {"score": 95}))  # close: always faint
+    assert {(cell(f, "c1", k)["state"], cell(f, "c1", k)["shade"]) for k in ("aerial", "county")} == {("close", "low")}
+    html = claim_field_section(_floors_run("contradicted", "county", "6 floors", {"score": 30, "decided_by": "county"}))
+    assert "cf-cell cf-contra cf-s-low" in html
+    assert ".cf-cell.cf-s-high{background:var(--cf-blue)}" in html and "--cf-blue:#1a4be0" in html
+
+
+def test_holds_up_credited_source_is_black_and_other_disagreeing_sources_light_grey():
     f = claim_field(_floors_run("confirmed", "record", "5 floors"))
     assert state(f, "c1", "record") == "match"
-    assert state(f, "c1", "aerial") == state(f, "c1", "county") == "differ"
+    assert state(f, "c1", "aerial") == state(f, "c1", "county") == "data"
+    # the credited source's own re-judging disagrees (it matched another plan): still black, never blue
+    f = claim_field(_floors_run("confirmed", "county", "5 floors"))
+    assert state(f, "c1", "county") == "match"
+    assert f["counts"]["contra"] == f["counts"]["close"] == 0
     table = compare_table(_floors_run("confirmed", "record", "5 floors"))
-    assert "lt-c lt-differ" in table and "sources differ" in table
+    assert "lt-differ" not in table and "sources differ" not in table
+
+
+def test_a_photo_that_did_not_show_it_is_never_blue():
+    from server.claim_field import _agree_with_verdict
+    cells = {k: {"state": "none"} for k, _ in SOURCES}
+    cells["aerial"] = {"state": "contra", "found": "Not seen in the Vexcel aerial photo",
+                       "observed": {"presence": "not_seen"}}
+    cells["record"] = {"state": "contra", "found": "No pool"}
+    _agree_with_verdict(cells, "contradicted", "record", "No pool", {"score": 80})
+    assert cells["aerial"]["state"] == "data" and "shade" not in cells["aerial"]
+    assert (cells["record"]["state"], cells["record"]["shade"]) == ("contra", "high")
+
+
+def test_legend_is_three_entries():
+    html = claim_field_section(_floors_run("contradicted", "county", "6 floors"))
+    legend = re.search(r"<p class=cf-legend>(.*?)</p>", html).group(1)
+    assert re.findall(r"</i>([^<]+)</span>", legend) == ["matches the listing", "doesn't match (darker = more sure)",
+                                                         "nothing to say"]
 
 
 def test_source_rows_never_owner_land_use_or_publisher():

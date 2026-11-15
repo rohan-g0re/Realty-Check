@@ -2,7 +2,7 @@
 (function(){var root=document.getElementById('cf-field');if(!root||root.getAttribute('data-cf-ready'))return;
 root.setAttribute('data-cf-ready','1');root.classList.remove('cf-nojs');
 var D=JSON.parse(document.getElementById('cf-data').textContent),S=D.sources,C=D.claims;
-var NAME={},WORD={"match": "Matches the listing", "contra": "Doesn't match the listing", "close": "Close, not exact", "differ": "Sources differ", "data": "Has data, not compared", "none": "Nothing from this source"};S.forEach(function(s){NAME[s.key]=s.name;});
+var NAME={},WORD={"match": "Matches the listing", "contra": "Doesn't match the listing", "close": "Close, not exact", "data": "Has data, not compared", "none": "Nothing from this source"};S.forEach(function(s){NAME[s.key]=s.name;});
 var grid=root.querySelector('.cf-grid'),sweep=root.querySelector('.cf-sweep'),tip=document.getElementById('cf-tip');
 var back=document.getElementById('cf-back'),panel=document.getElementById('cf-panel'),body=panel.querySelector('.cf-body');
 var cells=Array.prototype.slice.call(grid.querySelectorAll('.cf-cell'));
@@ -47,8 +47,7 @@ function show(b){clearTimeout(hideT);var d=data(b),st=d.cell.state;colOn(b);
   h+='<p class="cf-src"><span>'+esc(d.s.name)+'</span><span class="cf-st'+(blue(st)?' cf-b':'')+'">'+esc(WORD[st])+'</span></p>';
   h+='<p class="cf-qt">“'+esc(d.c.quote)+'”</p>';
   if(d.c.claimed)h+='<p class="cf-cl">Listing: '+esc(d.c.claimed)+'</p>';
-  if(d.cell.note)h+='<p class="cf-fd cf-nt">'+esc(d.cell.note)+'</p>';
-  else if(d.cell.found)h+='<p class="cf-fd">'+esc(d.s.name)+': '+esc(d.cell.found)+'</p>';
+  if(d.cell.found)h+='<p class="cf-fd">'+esc(d.s.name)+': '+esc(d.cell.found)+'</p>';
   var f=(d.cell.facts||[]).slice(0,d.cell.image?2:5);
   if(f.length)h+='<dl>'+f.map(function(p){return'<dt>'+esc(p[0])+'</dt><dd>'+esc(p[1])+'</dd>';}).join('')+'</dl>';
   tip.innerHTML=h;}
@@ -84,8 +83,7 @@ function fill(b){var d=data(b),st=d.cell.state,c=d.c,cell=d.cell,h='';drop3d();c
  if(c.reason)h+='<p class="cf-dim">'+esc(c.reason)+'</p>';
  h+='<p class="cf-lbl">'+esc(d.s.name)+'</p><p class="cf-state'+(blue(st)?' cf-b':'')+'">'+esc(WORD[st])+(cell.found&&st!=='none'?': '+esc(cell.found):'')+'</p>';
  if(st==='none'){h+='<p class="cf-dim">'+esc(d.s.name)+' had nothing usable about this claim.</p>';}
- else{if(cell.note)h+='<p class="cf-dim">'+esc(cell.note)+'</p>';
-  if(cell.reason&&st!=='data'&&st!=='differ'&&(c.reason||'').indexOf(cell.reason.split('. ').slice(0,2).join('. '))<0)h+='<p class="cf-dim">'+esc(cell.reason)+'</p>';
+ else{if(cell.reason&&st!=='data'&&(c.reason||'').indexOf(cell.reason.split('. ').slice(0,2).join('. '))<0)h+='<p class="cf-dim">'+esc(cell.reason)+'</p>';
   (cell.summaries||[]).forEach(function(s){h+='<p>'+esc(s)+'</p>';});
   if(cell.tour)h+='<button type="button" class="cf-go cf-3d" data-claim="'+esc(c.id)+'">See it in 3D</button><div class="cf-3dhost"></div>';
   if(cell.images&&cell.images.length){h+='<div class="cf-pics'+(cell.images.length===1?' cf-one':'')+'">'+cell.images.map(function(im){var cap=soft(im.caption);return'<figure><a class="pic" href="'+esc(im.url)+'" data-cap="'+esc(cap)+'"><img loading="lazy" decoding="async" alt="'+esc(cap||'Proof picture')+'" src="'+esc(im.url)+'"></a>'+(cap?'<figcaption>'+esc(cap)+'</figcaption>':'')+'</figure>';}).join('')+'</div>';}

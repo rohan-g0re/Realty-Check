@@ -155,7 +155,7 @@ def _ids(html: str) -> list:
 def _tabs(html: str) -> list:
     """(title, tag, small line) of each list row, in order."""
     view = _section(html, "id=mismatch", "</section>")
-    return re.findall(r"<span class=md-t>([^<]*)</span><span class=md-g>([^<]*)(?:<span[^>]*>\d+</span>)?</span>"
+    return re.findall(r"<span class=md-t>([^<]*)</span><span class=md-g[^>]*>([^<]*)</span>"
                       r"<span class=md-s>([^<]*)</span>", view)
 
 
@@ -183,18 +183,20 @@ def test_five_sections_in_order_and_nothing_else():
 def test_hero_is_the_count_with_one_plain_line_and_no_strike():
     html = render_report(_rich())
     hero = _hero_html(html)
-    assert "<h1><span>3 things</span><span class=l2>don&#x27;t match.</span></h1>" in hero
+    # every contradicted or close claim counts: 3 that don't match plus 2 close ones
+    assert "<h1><span>5 things</span><span class=l2>don&#x27;t match.</span></h1>" in hero
     assert "12 Invented Row<br>Inventville, ZZ 00000" in hero
     assert ("<p class=top-line>Biggest difference: the listing says “2 Beds” for Plan Q; the 3D scan shows "
             "1 bedroom.</p>") in hero
-    assert "7 claims, held up to CoStar, Matterport, Vexcel and County. 2 more are close, not exact." in hero
+    assert "<p>7 claims, held up to CoStar, Matterport, Vexcel and County.</p>" in hero and "close" not in hero
     assert "href='#mismatch'>Show me what" in hero
     assert "strike" not in hero and "class=pair" not in hero and "<img" not in hero
 
 
 def test_each_mismatch_once_lead_first_and_selected():
     html = render_report(_rich())
-    assert _ids(html) == ["c3", "c4", "c1", "c2", "c5"]  # beds, size, floors; then the close ones
+    # no confidence sent: a contradicted one counts as sure, a close one as unsure; then beds, size, floors
+    assert _ids(html) == ["c3", "c4", "c1", "c2", "c5"]
     for cid in ("c1", "c2", "c3", "c4", "c5"):
         assert html.count(f"id='claim-{cid}'") == 1
         assert html.count(f"data-claim='{cid}'") == 1
@@ -204,15 +206,16 @@ def test_each_mismatch_once_lead_first_and_selected():
     assert "Biggest difference" not in body[body.index("id=mismatch"):]
     rows = _rows(html)
     # the first panel is the selected one; every other panel is hidden until its list row is picked
-    assert re.search(r"<div class='lvr-row md-p lay-v in' id=pan-c3-0 role=tabpanel [^>]*data-claim='c3'", html)
+    assert re.search(r"<div class='lvr-row md-p lay-v s-high in' id=pan-c3-0 role=tabpanel [^>]*data-claim='c3'", html)
     assert all(" hidden " in rows[c].split(">")[0] for c in ("c4", "c1", "c2", "c5"))
     assert "id=tab-c3-0 aria-controls=pan-c3-0 aria-selected=true tabindex=0" in html
     assert _section(html, "id=mismatch", "</section>").count("aria-selected=true") == 1
     assert _tabs(html) == [("Bedrooms · Plan Q", "Doesn&#x27;t match", "“2 Beds”"),
                            ("Size · Plan Q", "Doesn&#x27;t match", "“900 sq ft”"),
                            ("Floors", "Doesn&#x27;t match", "“9-story tower”"),
-                           ("Year built", "Close", "“Built in 2010”"), ("Pool", "Close", "“Pool”")]
-    assert "5 differences, biggest first." in html
+                           ("Year built", "Doesn&#x27;t match", "“Built in 2010”"),
+                           ("Pool", "Doesn&#x27;t match", "“Pool”")]
+    assert "5 differences, most certain first." in html
     assert "<span class='strike'>“2 Beds”</span>" in rows["c3"] and "lvr-truth>1 bedroom<" in rows["c3"]
     assert "<p class=lvr-why>The 3D scan shows 1 bedroom.</p>" in rows["c3"]
     assert ("<span class=lvr-src>Source: <a class=art href='/artifacts/20990101-000000-aaaaaa#a-c3-matterport'>"
@@ -227,11 +230,15 @@ def test_each_mismatch_once_lead_first_and_selected():
     assert srcs and len(srcs) == len(set(srcs)) and all(re.fullmatch(r"/img/[a-f0-9]{16}", s) for s in srcs)
 
 
-def test_close_rows_are_soft_never_struck():
-    rows = _rows(render_report(_rich()))
-    assert "strike" not in rows["c2"] and "<em>close, not exact</em>" in rows["c2"]
+def test_close_rows_are_faint_never_struck():
+    html = render_report(_rich())
+    rows = _rows(html)
+    # a close one is a mismatch like any other, only fainter: never struck, no separate "close" tag
+    assert "strike" not in rows["c2"] and "close, not exact" not in rows["c2"] and "<em>" not in rows["c2"]
     assert "<span class=lvr-said><span class=''>“Built in 2010”</span></span>" in rows["c2"]
-    assert "md-i close' id=tab-c2-3" in render_report(_rich())
+    assert "md-i s-low' id=tab-c2-3" in html and "lvr-row md-p lay-c s-low" in rows["c2"]
+    assert "md-i s-high' id=tab-c3-0" in html and "lvr-close" not in html
+    assert "<span class=lvr-tag>Doesn&#x27;t match</span>" in rows["c2"]  # the panel names it the same way
     assert "Not seen in the photos" in rows["c5"] and "strike" not in rows["c5"]  # a photo look: never struck
 
 
@@ -284,14 +291,16 @@ def test_zero_findings_is_calm():
     assert "<span id=mismatch></span>" in html and "class='strike" not in html
 
 
-def test_only_close_never_sounds_like_a_mismatch():
+def test_only_close_counts_as_a_mismatch_and_leads():
     claims = [_claim("c1", "year_built", 2015, "Year Built 2015"), _claim("c2", "unit_count", 40, "40 homes")]
     verdicts = [_verdict("c1", "close", "built in 2015", "built in 2014", "county", "County records say built in 2014."),
                 _verdict("c2", "confirmed", "40 apartments", "40 apartments", "county", "County records say 40.")]
+    verdicts[0]["confidence"] = {"score": 40, "band": "low", "decided_by": "county"}
     html = render_report(_run(claims, verdicts))
-    assert "Nothing is" in html and "clearly off." in html
-    assert "match." not in html.split("</h1>")[0] and "Biggest difference" not in html
-    assert "class='strike" not in html and "lvr-close" in html and "href='#mismatch'>See what" in html
+    assert "<h1><span>1 thing</span><span class=l2>doesn&#x27;t match.</span></h1>" in html
+    assert "Biggest difference: the listing says “Year Built 2015”; county records say built in 2014." in html
+    assert "class='strike" not in html and "s-low" in html and "href='#mismatch'>Show me what" in html
+    assert "Nothing is" not in html and "clearly off" not in html and "<span class=md-g" not in html  # one: no list
     assert "id='claim-c1'" in html
     for anchor in ("id=mismatch", "id=match", "id=cant-verify", "id=extra"):
         assert anchor in html
@@ -308,10 +317,12 @@ def test_recorded_pick_leads_hero_line_view_and_top():
     assert "<p class=lvr-why>Floors change the whole building.</p>" in _rows(html)["c1"]
     top = top_finding(run)
     assert top["claim_id"] == "c1" and top["by"] == "model" and top["why"] == "Floors change the whole building."
-    # a pick that is not a mismatch, a close one over hard ones, or an unkind reason is not followed / not shown
-    for pick in ({"claim_id": "c7", "by": "model"}, {"claim_id": "c2", "by": "model"}):
-        done["harness"] = {"top_mismatch": pick}
-        assert _ids(render_report(run))[0] == "c3"
+    # a pick that is not a mismatch is not followed; a close one is a mismatch and leads like any other
+    done["harness"] = {"top_mismatch": {"claim_id": "c7", "by": "model"}}
+    assert _ids(render_report(run))[0] == "c3"
+    done["harness"] = {"top_mismatch": {"claim_id": "c2", "by": "rule"}}
+    assert _ids(render_report(run))[:2] == ["c2", "c3"] and top_finding(run)["claim_id"] == "c2"
+    # an unkind reason is not shown
     done["harness"] = {"top_mismatch": {"claim_id": "c4", "why": "The size is a lie.", "by": "model"}}
     html = render_report(run)
     assert _ids(html)[0] == "c4" and " lie" not in html.split("id=extra")[0]
@@ -331,7 +342,7 @@ def test_listed_vs_reality_on_the_invented_sample_run(monkeypatch, tmp_path):
     assert "<span class=lvr-src>Source: Vexcel + County</span>" in rows["c2"] and "Confidence 82 / 100 · high" in rows["c2"]
     assert "<span class=lvr-src>Source: Matterport</span>" in rows["c1"] and "Confidence 64 / 100 · medium" in rows["c1"]
     assert "/artifacts/" not in html  # the static copy has no server: plain names, no library link
-    assert "close, not exact" in rows["c6"]
+    assert "strike" not in rows["c6"] and " s-medium" in rows["c6"]  # the close year: a mismatch, mid blue
     assert not re.search(r"\b(fake|lie|lies|scam)\b", re.sub(r"<style>.*?</style>", "", html), re.I)
 
 
@@ -540,12 +551,15 @@ def test_confidence_score_in_list_and_panel_never_invented():
     assert "<p class=lvr-cwhy>Vexcel measures the roof height directly.</p>" in rows["c3"]
     assert "<span class=lvr-conf>Confidence 60 / 100 · medium</span>" in rows["c1"]
     assert "<span class=lvr-conf>Low confidence</span>" in rows["c2"] and "/ 100" not in rows["c2"]  # word only
-    view = _section(html, "id=mismatch", "</section>")
-    nums = re.findall(r"<span class=md-c [^>]*>(\d+)</span>", view)
-    assert sorted(nums) == ["60", "82"]  # the number on each list row that has one; none for c2
+    # the list tag: "Doesn't match", then the score and band; the band word alone when no score is sent
+    assert {t[0]: t[1] for t in _tabs(html)} == {"Floors": "Doesn&#x27;t match · 82 high",
+                                                 "Homes": "Doesn&#x27;t match · 60 medium",
+                                                 "Year built": "Doesn&#x27;t match · low"}
+    assert [t[0] for t in _tabs(html)] == ["Floors", "Homes", "Year built"]  # the most certain first
+    assert "s-high' id=tab-c3-0" in html and "s-medium' id=tab-c1-1" in html and "s-low' id=tab-c2-2" in html
     plain = render_report(_rich())  # no confidence at all: no number anywhere in the view
     pv = _section(plain, "id=mismatch", "</section>")
-    assert "class=md-c" not in pv and "lvr-conf" not in pv
+    assert "lvr-conf" not in pv and not re.search(r"Doesn&#x27;t match · ", pv)
 
 
 def test_label_questions_read_as_sentences():
@@ -596,3 +610,15 @@ def test_deciding_source_links_to_the_artifact_library():
     assert "/artifacts/" not in static and "<span class=lvr-src>Source: County</span>" in _rows(static)["c1"]
     run["run_id"] = "../../x"  # an id that is not plain never makes a link
     assert "/artifacts/" not in render_report(run)
+
+
+def test_every_mismatch_gets_a_question_even_past_five():
+    claims = [_claim(f"c{i}", "year_built", 2000 + i, f"Built in {2000 + i}") for i in range(7)]
+    claims.append(_claim("c9", "amenity", "concierge", "Concierge"))
+    verdicts = [_verdict(f"c{i}", "close" if i % 2 else "contradicted", f"built in {2000 + i}", f"built in {1990 + i}",
+                         "county", "County says otherwise.") for i in range(7)]
+    verdicts.append(_verdict("c9", "cant_check", "concierge", "no data", None, "Nothing in our data measures this."))
+    html = render_report(_run(claims, verdicts))
+    qs = re.findall(r"class='btn ghost copy' data-text='([^']+)'", html)
+    assert len(qs) == 7 and all(any(f"{1990 + i}" in q for q in qs) for i in range(7))  # no couldn't-check past five
+    assert "<h1><span>7 things</span>" in html

@@ -16,7 +16,8 @@ from html import escape
 SOURCES = [("record", "CoStar"), ("scan", "Matterport"), ("aerial", "Vexcel"), ("county", "County")]
 SOURCE_NAME = dict(SOURCES)
 STATE_WORDS = {"match": "Matches the listing", "contra": "Doesn't match the listing", "close": "Close, not exact",
-               "differ": "Sources differ", "data": "Has data, not compared", "none": "Nothing from this source"}
+               "data": "Has data, not compared", "none": "Nothing from this source"}
+SHADES = ("high", "medium", "low")  # a blue cell's shade: how sure the claim's verdict is (darker = more sure)
 VERDICT_WORDS = {"confirmed": "Holds up", "contradicted": "Doesn't match", "close": "Close, not exact",
                  "cant_check": "Couldn't check"}
 IMG_RE = re.compile(r"^/img/[a-f0-9]{16}$")
@@ -419,9 +420,10 @@ def claim_field(run: dict) -> dict:
     confidence, cells: {record|scan|aerial|county: {state, ...}}}], "counts": {state: n}}.
     `confidence`: the verdict's own confidence block (judge, on a mismatch) or None.
 
-    state: match | contra | close | differ (this source's reading and another's disagree and the final verdict does
-    not side with it: never blue, see `_agree_with_verdict`) | data (source has relevant evidence but the judge could
-    not compare) | none. A source's row count is `source_counts`.
+    state: match (black) | contra | close (blue) | data (light grey: relevant evidence, nothing to say against the
+    final verdict) | none (light grey, nothing at all); see `_agree_with_verdict`. A blue cell (contra / close) also
+    carries `shade`: "high" | "medium" | "low" (`shade_of`, the verdict's confidence; darker = more sure). A source's
+    row count is `source_counts`.
     """
     from server.report import drop_dead_images
     run = drop_dead_images(run or {})
@@ -439,7 +441,7 @@ def claim_field(run: dict) -> dict:
             except Exception:  # noqa: BLE001  one odd evidence must not break the report
                 cells[k] = {"state": "none"}
         verdict = v.get("verdict") or "cant_check"
-        _agree_with_verdict(cells, verdict, v.get("source"), v.get("found"))
+        _agree_with_verdict(cells, verdict, v.get("source"), v.get("found"), v.get("confidence"))
         for k, _ in SOURCES:
             counts[cells[k]["state"]] += 1
         out_claims.append({"id": cid, "kind": c.get("kind"), "label": c.get("label"),
@@ -472,9 +474,6 @@ def source_counts(field: dict) -> dict:
     return out
 
 
-_COMPARED = ("match", "contra", "close")
-
-
 def _value_of(text) -> str:
     """'about 6 floors' -> '6', 'Named in the record' -> 'named in the record': what a reading says, for telling
     whether two readings agree."""
@@ -485,59 +484,59 @@ def _value_of(text) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip().lower()
 
 
-def _reading(key: str, cell: dict) -> str:
-    """'Vexcel: about 6 floors': one source's reading in a few words, for the 'sources differ' note."""
-    val = str(cell.get("short") or "").strip() or compact(cell.get("found")) or str(cell.get("found") or "").strip()
-    if not val:
-        return ""
-    if not val[1:2].isupper():
-        val = val[:1].lower() + val[1:]
-    if key == "aerial" and val[:1].isdigit():
-        val = "about " + val  # a floor count from the roof height is an estimate
-    return f"{SOURCE_NAME[key]}: {val}"
+def shade_of(verdict: str, conf) -> str:
+    """'high' | 'medium' | 'low': how dark a blue cell is, from the verdict's confidence (score 0-100, else its band;
+    the judge's own bands: high >= 75, medium >= 45). A "close" verdict is always 'low'; no confidence -> 'medium'."""
+    if verdict == "close":
+        return "low"
+    conf = conf if isinstance(conf, dict) else {}
+    score = _num(conf.get("score"))
+    if score is not None:
+        return "high" if score >= 75 else "medium" if score >= 45 else "low"
+    band = str(conf.get("band") or conf.get("level") or "").lower()
+    return band if band in SHADES else "medium"
 
 
-def _agree_with_verdict(cells: dict, verdict: str, source, found) -> None:
-    """Cell colours that never argue with the claim's final verdict (in place). Each cell is first judged on its own
-    source; then:
-      - couldn't check: no mismatch colour. Two or more readings that differ -> every compared cell 'differ'
-        (outlined); a lone reading the judge did not settle on -> 'data'.
-      - doesn't match: blue only for a source that backs the found value (the deciding source, or the same value);
-        any other mismatching reading -> 'differ'.
-      - close: a source backing the found value shows 'close' (light blue); any other mismatching reading -> 'differ'.
-      - holds up: a mismatching reading -> 'differ'.
-    A 'differ' cell carries `note`: every compared reading, e.g. 'CoStar: 5 floors · County: 6 floors — sources
-    differ'."""
-    compared = [k for k, _ in SOURCES if cells[k].get("state") in _COMPARED]
+def _stronger(shade: str) -> str:
+    return SHADES[max(0, SHADES.index(shade) - 1)]
+
+
+def _not_seen(cell: dict) -> bool:
+    """A photo that did not show something: never a mismatch (a photo cannot prove absence)."""
+    return ((cell.get("observed") or {}).get("presence") == "not_seen"
+            or str(cell.get("found") or "").lower().startswith(("not seen", "not visible")))
+
+
+def _agree_with_verdict(cells: dict, verdict: str, source, found, conf=None) -> None:
+    """Cell colours that follow the claim's final verdict (in place). Each cell is first judged on its own source;
+    then, for a cell whose own reading is off the listing (contra / close):
+      - doesn't match / close: blue (state = the verdict's, 'contra' or 'close') with `shade` from the verdict's
+        confidence (`shade_of`); the deciding source one step darker on a 'doesn't match'.
+      - holds up: the source the verdict credits (the deciding source, or one with the found value) is black even
+        when its own re-judging disagrees; any other is light grey ('data').
+      - couldn't check: light grey ('data').
+    A source that agrees with the listing stays black; a photo that did not show something is never blue."""
     want = _value_of(found)
+    decider = conf.get("decided_by") if isinstance(conf, dict) else None
+    decider = decider if decider in SOURCE_NAME else source
 
-    def backs(k):
+    def credited(k):
         return k == source or (bool(want) and _value_of(cells[k].get("found")) == want)
 
-    if verdict not in ("confirmed", "contradicted", "close"):
-        values = {_value_of(cells[k].get("found")) for k in compared}
-        if len(compared) >= 2 and len(values) > 1:
-            for k in compared:
-                cells[k]["state"] = "differ"
+    shade = shade_of(verdict, conf)
+    for k, _ in SOURCES:
+        cell = cells[k]
+        if cell.get("state") not in ("contra", "close"):
+            continue
+        if verdict in ("contradicted", "close") and not _not_seen(cell):
+            cell["state"] = "contra" if verdict == "contradicted" else "close"
+            cell["shade"] = shade
+        elif verdict == "confirmed" and credited(k):
+            cell["state"] = "match"
+            if k == source and found:  # show the value the verdict used, not the re-judged one
+                cell["found"] = cell["short"] = found
         else:
-            for k in compared:
-                if cells[k]["state"] in ("contra", "close"):
-                    cells[k]["state"] = "data"
-    else:
-        for k in compared:
-            st = cells[k]["state"]
-            if st == "match":
-                continue
-            if verdict == "confirmed" or not backs(k):
-                cells[k]["state"] = "differ"
-            elif verdict == "close":
-                cells[k]["state"] = "close"
-    if any(cells[k]["state"] == "differ" for k in compared):
-        readings = [r for r in (_reading(k, cells[k]) for k in compared) if r]
-        note = (" · ".join(readings) + " — sources differ") if readings else "Sources differ"
-        for k in compared:
-            if cells[k]["state"] == "differ":
-                cells[k]["note"] = note
+            cell["state"] = "data"
 
 
 def _count_of(v) -> int | None:
@@ -619,7 +618,7 @@ def _tour_links(run: dict, field: dict) -> None:
 # ---------- rendering ----------
 
 CSS = """
-.cf-field{--cf-ink:#111;--cf-blue:#1a4be0;--cf-grey:#ebebeb;--cf-muted:#6b6b6b;--cf-line:#e2e2e2;
+.cf-field{--cf-ink:#111;--cf-blue:#1a4be0;--cf-b2:#6a8bee;--cf-b3:#bccbf7;--cf-grey:#ebebeb;--cf-muted:#6b6b6b;--cf-line:#e2e2e2;
 --cf-ease:cubic-bezier(.22,1,.36,1);--cf-h:60px;--cf-gap:5px;--cf-min:12px;
 font-family:Newsreader,Georgia,"Times New Roman",serif;color:var(--cf-ink);margin:0 0 48px;width:100%}
 .cf-field *{box-sizing:border-box}
@@ -643,13 +642,11 @@ grid-auto-columns:minmax(var(--cf-min),1fr);gap:var(--cf-gap)}
 background:var(--cf-grey);transition:transform .22s var(--cf-ease),box-shadow .22s var(--cf-ease),opacity .2s;
 animation:cf-in .5s var(--cf-ease) both;animation-delay:calc(var(--cf-i) * 9ms + 60ms)}
 .cf-cell.cf-match{background:var(--cf-ink)}
-.cf-cell.cf-contra{background:var(--cf-blue)}.cf-cell.cf-close{background:#a9baf2}
-.cf-cell.cf-data{background:#fff;box-shadow:inset 0 0 0 2px var(--cf-ink)}
-.cf-cell.cf-differ{background:#fff;border:2px dashed var(--cf-ink)}
+.cf-cell.cf-contra,.cf-cell.cf-close,.cf-cell.cf-s-medium{background:var(--cf-b2)}
+.cf-cell.cf-s-high{background:var(--cf-blue)}.cf-cell.cf-s-low{background:var(--cf-b3)}
 .cf-cell.cf-none{cursor:default}
 .cf-cell:not(.cf-none):hover,.cf-cell:not(.cf-none):focus-visible{transform:translateY(-3px)}
 .cf-cell:not(.cf-none):hover{box-shadow:0 8px 18px rgba(17,17,17,.18)}
-.cf-cell.cf-data:hover{box-shadow:inset 0 0 0 2px var(--cf-ink),0 8px 18px rgba(17,17,17,.18)}
 .cf-cell:focus{outline:none}.cf-cell:focus-visible{outline:2px solid var(--cf-blue);outline-offset:2px}
 .cf-cell.cf-on{outline:2px solid var(--cf-blue);outline-offset:2px}
 @keyframes cf-in{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
@@ -663,15 +660,14 @@ transition:color .15s}
 .cf-mark.cf-flip{align-items:flex-end}
 .cf-mt{display:block;max-width:min(320px,60vw);overflow:hidden;text-overflow:ellipsis}
 .cf-mark.cf-tick{font-size:0;gap:0}
-.cf-mark.cf-near{color:#5f78c9}.cf-mark.cf-near::before{background:#a9baf2}
+.cf-mark.cf-near{color:#5f78c9}.cf-mark.cf-near::before{background:var(--cf-b3)}
 .cf-mark.cf-q{color:var(--cf-muted)}.cf-mark.cf-q::before{background:#c4c4c4}
 .cf-nojs .cf-mark{position:static;display:inline-flex;margin-right:16px}
 .cf-legend{display:flex;flex-wrap:wrap;gap:8px 28px;font-size:15px;color:var(--cf-muted);margin:14px 0 0}
 .cf-legend span{display:inline-flex;align-items:center;gap:8px}
 .cf-legend i{width:12px;height:12px;background:var(--cf-grey);flex:none}
-.cf-legend i.cf-k{background:var(--cf-ink)}.cf-legend i.cf-n{background:#a9baf2}.cf-legend i.cf-b{background:var(--cf-blue)}
-.cf-legend i.cf-o{background:#fff;box-shadow:inset 0 0 0 2px var(--cf-ink)}
-.cf-legend i.cf-d{background:#fff;border:1.5px dashed var(--cf-ink)}
+.cf-legend i.cf-k{background:var(--cf-ink)}
+.cf-legend i.cf-b{width:36px;background:linear-gradient(to right,var(--cf-b3) 0 33.3%,var(--cf-b2) 0 66.6%,var(--cf-blue) 0)}
 .cf-tip{position:fixed;z-index:60;width:260px;height:250px;overflow:hidden;background:#fff;color:var(--cf-ink);
 border:1px solid var(--cf-line);box-shadow:0 14px 36px rgba(17,17,17,.14);padding:12px 14px;pointer-events:none;
 font-family:Newsreader,Georgia,serif;opacity:0;transform:translateY(4px);
@@ -687,7 +683,6 @@ transition:opacity .12s ease,transform .16s var(--cf-ease)}
 .cf-tip dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:1px 10px;font-size:13px;line-height:1.35}
 .cf-tip dt{color:var(--cf-muted)}.cf-tip dd{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cf-tip .cf-fd{font-size:14px;margin:0 0 5px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.cf-tip .cf-fd.cf-nt{-webkit-line-clamp:3}
 .cf-back{position:fixed;inset:0;z-index:70;background:rgba(17,17,17,.28);opacity:0;transition:opacity .32s var(--cf-ease)}
 .cf-back.cf-show{opacity:1}.cf-back[hidden],.cf-panel[hidden]{display:none}
 .cf-panel{position:fixed;top:0;right:0;bottom:0;z-index:71;width:min(520px,100vw);background:#fff;color:var(--cf-ink);
@@ -733,7 +728,7 @@ text-decoration:none;font-size:15px}
 .cf-body button.cf-go{border:0;font:inherit;cursor:pointer}.cf-3dhost .see3d-box{margin-top:12px}
 @media(max-width:640px){.cf-field{--cf-h:44px;--cf-min:8px;--cf-gap:2px}
 .cf-wrap{gap:10px}.cf-rows{width:84px;font-size:14px}.cf-rows span{gap:4px}.cf-mt{max-width:150px}
-.cf-cell.cf-differ{border-width:1.5px}.cf-marks{font-size:14px}.cf-saw-row{flex-wrap:wrap}.cf-saw-row>b{width:100%;font-size:16px}.cf-legend{font-size:14px;gap:6px 18px}.cf-body{padding:18px 16px 32px}
+.cf-marks{font-size:14px}.cf-saw-row{flex-wrap:wrap}.cf-saw-row>b{width:100%;font-size:16px}.cf-legend{font-size:14px;gap:6px 18px}.cf-body{padding:18px 16px 32px}
 .cf-body h3{font-size:26px}}
 @media(prefers-reduced-motion:reduce){.cf-field *,.cf-tip,.cf-panel,.cf-back{animation:none!important;transition:none!important}
 .cf-cell:not(.cf-none):hover,.cf-cell:not(.cf-none):focus-visible{transform:none}}
@@ -788,8 +783,7 @@ function show(b){clearTimeout(hideT);var d=data(b),st=d.cell.state;colOn(b);
   h+='<p class="cf-src"><span>'+esc(d.s.name)+'</span><span class="cf-st'+(blue(st)?' cf-b':'')+'">'+esc(WORD[st])+'</span></p>';
   h+='<p class="cf-qt">“'+esc(d.c.quote)+'”</p>';
   if(d.c.claimed)h+='<p class="cf-cl">Listing: '+esc(d.c.claimed)+'</p>';
-  if(d.cell.note)h+='<p class="cf-fd cf-nt">'+esc(d.cell.note)+'</p>';
-  else if(d.cell.found)h+='<p class="cf-fd">'+esc(d.s.name)+': '+esc(d.cell.found)+'</p>';
+  if(d.cell.found)h+='<p class="cf-fd">'+esc(d.s.name)+': '+esc(d.cell.found)+'</p>';
   var f=(d.cell.facts||[]).slice(0,d.cell.image?2:5);
   if(f.length)h+='<dl>'+f.map(function(p){return'<dt>'+esc(p[0])+'</dt><dd>'+esc(p[1])+'</dd>';}).join('')+'</dl>';
   tip.innerHTML=h;}
@@ -825,8 +819,7 @@ function fill(b){var d=data(b),st=d.cell.state,c=d.c,cell=d.cell,h='';drop3d();c
  if(c.reason)h+='<p class="cf-dim">'+esc(c.reason)+'</p>';
  h+='<p class="cf-lbl">'+esc(d.s.name)+'</p><p class="cf-state'+(blue(st)?' cf-b':'')+'">'+esc(WORD[st])+(cell.found&&st!=='none'?': '+esc(cell.found):'')+'</p>';
  if(st==='none'){h+='<p class="cf-dim">'+esc(d.s.name)+' had nothing usable about this claim.</p>';}
- else{if(cell.note)h+='<p class="cf-dim">'+esc(cell.note)+'</p>';
-  if(cell.reason&&st!=='data'&&st!=='differ'&&(c.reason||'').indexOf(cell.reason.split('. ').slice(0,2).join('. '))<0)h+='<p class="cf-dim">'+esc(cell.reason)+'</p>';
+ else{if(cell.reason&&st!=='data'&&(c.reason||'').indexOf(cell.reason.split('. ').slice(0,2).join('. '))<0)h+='<p class="cf-dim">'+esc(cell.reason)+'</p>';
   (cell.summaries||[]).forEach(function(s){h+='<p>'+esc(s)+'</p>';});
   if(cell.tour)h+='<button type="button" class="cf-go cf-3d" data-claim="'+esc(c.id)+'">See it in 3D</button><div class="cf-3dhost"></div>';
   if(cell.images&&cell.images.length){h+='<div class="cf-pics'+(cell.images.length===1?' cf-one':'')+'">'+cell.images.map(function(im){var cap=soft(im.caption);return'<figure><a class="pic" href="'+esc(im.url)+'" data-cap="'+esc(cap)+'"><img loading="lazy" decoding="async" alt="'+esc(cap||'Proof picture')+'" src="'+esc(im.url)+'"></a>'+(cap?'<figcaption>'+esc(cap)+'</figcaption>':'')+'</figure>';}).join('')+'</div>';}
@@ -906,11 +899,13 @@ def claim_field_section(run: dict, tours: bool = True) -> str:
     first = True
     for ci, c in enumerate(claims):
         for ri, s in enumerate(sources):
-            st = c["cells"][s["key"]]["state"]
+            cell = c["cells"][s["key"]]
+            st = cell["state"]
+            shade = f" cf-s-{cell['shade']}" if st in ("contra", "close") and cell.get("shade") in SHADES else ""
             label = f"{s['name']}, “{c['quote']}”: {STATE_WORDS[st].lower()}"
             tab = "0" if first else "-1"
             first = False
-            h.append(f"<button type=button class='cf-cell cf-{st}' data-c={ci} data-r={ri} tabindex={tab} "
+            h.append(f"<button type=button class='cf-cell cf-{st}{shade}' data-c={ci} data-r={ri} tabindex={tab} "
                      f"style='--cf-i:{ci}' aria-label='{escape(label, True)}'></button>")
     h.append("</div><div class=cf-sweep aria-hidden=true></div><div class=cf-marks>")
     for ci, c in enumerate(claims):
@@ -923,12 +918,8 @@ def claim_field_section(run: dict, tours: bool = True) -> str:
     h.append("</div></div></div></div>")
     h.append("<p class=cf-more aria-hidden=true>Scroll sideways to see every claim →</p>")
     h.append("<p class=cf-legend><span><i class=cf-k></i>matches the listing</span>"
-             "<span><i class=cf-b></i>doesn't match</span><span><i class=cf-n></i>close, not exact</span><span><i></i>nothing to say</span>")
-    if field["counts"]["differ"]:
-        h.append("<span><i class=cf-d></i>sources differ</span>")
-    if field["counts"]["data"]:
-        h.append("<span><i class=cf-o></i>has data, not compared</span>")
-    h.append("<span>One column per claim.</span></p>")
+             "<span><i class=cf-b></i>doesn't match (darker = more sure)</span><span><i></i>nothing to say</span>"
+             "<span>One column per claim.</span></p>")
     h.append(_saw_html(field.get("source_rows") or {}))
     h.append("<div class=cf-tip id=cf-tip hidden aria-hidden=true></div>"
              "<div class=cf-back id=cf-back hidden></div>"
@@ -976,7 +967,6 @@ padding-top:12px;padding-bottom:10px;white-space:nowrap;box-shadow:inset 0 -1px 
 .lt td.lt-contra{background:var(--lt-tint);color:var(--lt-blue)}.lt td.lt-contra .lt-v::before{background:var(--lt-blue)}
 .lt td.lt-close{background:var(--lt-near)}.lt td.lt-close .lt-v::before{background:var(--lt-close)}
 .lt td.lt-data .lt-v::before{background:var(--lt-bg);box-shadow:inset 0 0 0 1.5px var(--lt-ink)}
-.lt td.lt-differ .lt-v::before{background:var(--lt-bg);outline:1.5px dashed var(--lt-ink);outline-offset:-1.5px}
 .lt td.lt-none{color:var(--lt-ghost)}
 .lt td.lt-dec{box-shadow:inset 0 0 0 2px var(--lt-blue)}
 .lt .lt-tag{display:inline-block;margin-top:6px;font-size:12px;line-height:1;padding:3px 6px;background:var(--lt-blue);
@@ -1095,8 +1085,7 @@ def _td_source(cell: dict, name: str, decides: bool, says: str = "") -> str:
     if st == "none":
         return (f"<td class='lt-c lt-none'><span aria-hidden=true>—</span>"
                 f"<span class=lt-sr>Nothing from {escape(name)}</span></td>")
-    full = str(cell.get("note") or "") if st == "differ" else ""
-    full = full or _cell_text(cell)
+    full = _cell_text(cell)
     short = says or str(cell.get("short") or "").strip()
     title = f" title='{escape(full, True)}'" if full and full != short else ""
     tag = "<span class=lt-tag>decides</span>" if decides else ""

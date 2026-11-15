@@ -1,7 +1,8 @@
 """The drawer's headline is the report's: the real server (on its own free port, invented runs through a stub runner)
 sends done.top, the drawer shows it, and /report/<run_id> shows the same headline and lead line.
 
-Cases: one hard mismatch + one close, only close ("Nothing is clearly off."), all confirmed. Headless bundled Chromium
+Cases: one hard mismatch + one close ("2 things don't match.": a close one counts), only close ("1 thing doesn't
+match."), all confirmed. Headless bundled Chromium
 with the unpacked extension, local fixture page only. Skips without Playwright.
 RC_HEADLINE_SHOTS=<folder> also saves a screenshot of each drawer as headline_<case>.png.
 Run: .venv/Scripts/python.exe -m pytest tests/extension/test_drawer_top.py -q
@@ -26,7 +27,7 @@ CASES = {
     "only_close": dict(bad=("c3",), n=8, cant=1, facts=2),
     "all_confirmed": dict(bad=(), n=6, cant=0, facts=2),
 }
-WANT = {"hard_and_close": "1 thing doesn't match.", "only_close": "Nothing is clearly off.",
+WANT = {"hard_and_close": "2 things don't match.", "only_close": "1 thing doesn't match.",
         "all_confirmed": "Everything we could check matches."}
 
 
@@ -116,5 +117,5 @@ def test_drawer_headline_is_the_reports(env, name):
     print(f"{name}: drawer={drawer!r} line={line!r} | report={h1!r} line={top_line!r}")
     assert drawer == h1 == WANT[name]
     assert line == top_line
-    assert bool(line) is (name == "hard_and_close")
+    assert bool(line) is (name != "all_confirmed")  # a close one leads when it is the only mismatch
     assert not errors, errors

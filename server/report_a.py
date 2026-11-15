@@ -3,14 +3,16 @@
 Five sections, top to bottom, and nothing else (each one adapts to the run; nothing is invented). Every mismatch
 appears exactly once on the page, in section 2.
   1 hero        the count as a huge two-line serif headline ("3 things / don't match.", the second line indented;
-                calm "Everything we could check matches." when nothing is off), then a narrow column at the right:
+                every claim whose verdict is contradicted or close counts, whatever its confidence; calm
+                "Everything we could check matches." when nothing is off), then a narrow column at the right:
                 the address on two lines, one plain sentence naming the lead mismatch ("Biggest difference: the
                 listing says “2 Beds”; the 3D scan shows 1 bedroom and a den.", from the run's own pick
                 done.harness.top_mismatch, else the report's ranking), the claim count and sources, the small run
                 meta, and the button down. No strike-through here. Fits the first screen at 1440x900 and 390 wide.
   2 mismatch    "Listed vs. in reality" (#mismatch): one master-detail view that fits a screen. Left: a list (tabs),
-                one row per mismatch, contradicted first, then close ones (the run's pick first and selected): claim
-                type, the listing's words in short, "Doesn't match" / "Close" and the confidence score. Right: the
+                one row per mismatch (contradicted or close), the run's pick first and selected, then the most certain
+                first: claim type, the listing's words in short, "Doesn't match · 40 low" (the confidence; the word
+                only when there is no score). One blue accent, fainter as the confidence drops (_shade). Right: the
                 selected row's panel: the listing's words (struck through in blue only when it doesn't match), what
                 the sources show, one short reason, the credited sources (never one that says something else) with
                 "Confidence 82 / 100 · high" and its why, and the proof. Columnar (Listed | In reality, one record
@@ -57,7 +59,7 @@ SRC_ORDER = ["record", "scan", "aerial", "county"]
 SRC_NAME = {"record": "CoStar", "scan": "Matterport", "aerial": "Vexcel", "county": "County"}
 SRC_LONG = {"record": "CoStar building record", "scan": "Matterport 3D scan", "aerial": "Vexcel aerial imagery",
             "county": "County records"}
-VERDICT_WORD = {"contradicted": "Doesn't match", "close": "Close", "confirmed": "Matches", "cant_check": "Couldn't check"}
+VERDICT_WORD = {"contradicted": "Doesn't match", "close": "Doesn't match", "confirmed": "Matches", "cant_check": "Couldn't check"}
 BRAND = "Realty Check"
 SOFT_KINDS = {"amenity", "parking", "laundry", "view", "other"}  # photo checks: never struck as false
 KIND_LABEL = {"year_built": "Year built", "stories": "Floors", "unit_count": "Homes", "area_sqft": "Size",
@@ -142,30 +144,30 @@ align-items:baseline;width:100%;text-align:left;background:none;border:0;border-
 padding:13px 16px 13px 18px;font:inherit;color:var(--ink);cursor:pointer;transition:background-color .18s ease}
 .md-i:hover{background:var(--soft)}
 .md-i:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
-.md-i[aria-selected=true]{background:#eef2fd}
-.md-i::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--blue);transform:scaleY(0);
+.md-i[aria-selected=true]{background:var(--acc-bg,#eef2fd)}
+.md-i::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc,var(--blue));transform:scaleY(0);
 transition:transform .22s cubic-bezier(.2,.7,.2,1)}
 .md-i[aria-selected=true]::before{transform:none}
 .md-t{font-size:19px;line-height:1.25;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .md-s{grid-column:1/-1;font-size:14px;line-height:1.35;color:var(--mute);min-width:0;overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap}
 .md-g{grid-row:1;grid-column:2;display:inline-flex;align-items:baseline;gap:8px;font-size:12px;letter-spacing:.03em;
-color:var(--blue);white-space:nowrap}
-.md-i.close .md-g{color:var(--mute)}
-.md-c{font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums;border:1px solid var(--line);padding:0 5px}
+color:var(--acc-t,var(--blue));white-space:nowrap;font-variant-numeric:tabular-nums}
+/* one blue accent, fainter as the confidence drops: high full, medium mid, low (or close with no score) faint */
+.s-high{--acc:#1a4be0;--acc-t:#1a4be0;--acc-bg:#eef2fd}
+.s-medium{--acc:#6585ea;--acc-t:#4a6fe6;--acc-bg:#f1f4fd}
+.s-low{--acc:#b3c2f4;--acc-t:#8199ec;--acc-bg:#f6f8fe}
 .md-ps{min-width:0;min-height:0}
 .md-p{height:100%;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden;outline:0;scroll-margin-top:8px}
 .md-p.in{animation:mdin .34s cubic-bezier(.2,.7,.2,1)}
 @keyframes mdin{from{opacity:0;transform:translateY(8px)}}
 .lvr-k{margin:0;display:flex;align-items:baseline;gap:12px;font-size:15px;color:var(--mute);flex:none}
-.lvr-k em{font-style:normal;color:var(--mute);border:1px solid var(--line);padding:0 8px;font-size:13px;letter-spacing:.02em}
+.lvr-tag{font-size:13px;letter-spacing:.02em;color:var(--acc-t,var(--blue));font-variant-numeric:tabular-nums}
 .lvr-lab{display:block;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-bottom:4px}
-.lvr-r .lvr-lab,.vstack>div+div .lvr-lab{color:var(--blue)}
-.lvr-close .lvr-r .lvr-lab,.lvr-close .vstack>div+div .lvr-lab{color:var(--mute)}
+.lvr-r .lvr-lab,.vstack>div+div .lvr-lab{color:var(--acc-t,var(--blue))}
 .lvr-said,.lvr-truth{display:block;font-weight:300;letter-spacing:-.04em;overflow-wrap:anywhere}
 .lvr-said{color:var(--ghost)}
-.lvr-truth{color:var(--blue)}
-.lvr-close .lvr-truth{color:var(--ink)}
+.lvr-truth{color:var(--acc-t,var(--blue))}
 .pcols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(20px,3vw,52px);flex:none;
 border-top:1px solid var(--line);padding:clamp(14px,2vh,26px) 0 clamp(6px,1vh,14px)}
 .pcols .lvr-said,.pcols .lvr-truth{font-size:clamp(40px,4.6vw,80px);line-height:1}
@@ -185,7 +187,7 @@ a.art:hover{color:var(--blue);text-decoration-color:var(--blue)}
 .lvr-cred .lvr-cwhy{font-size:14px;line-height:1.4;color:var(--mute);max-width:72ch;display:-webkit-box;-webkit-line-clamp:2;
 -webkit-box-orient:vertical;overflow:hidden}
 .lvr-proof{margin:0;min-width:0}
-.lvr-proof .rline{margin:0;font-size:15px;line-height:1.4;color:var(--ink);border-left:2px solid var(--blue);padding:2px 0 2px 12px}
+.lvr-proof .rline{margin:0;font-size:15px;line-height:1.4;color:var(--ink);border-left:2px solid var(--acc,var(--blue));padding:2px 0 2px 12px}
 .lvr-proof .rline span{color:var(--mute)}
 figure.lvr-proof{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;align-items:stretch;gap:8px;width:100%}
 figure.lvr-proof>.walk,figure.lvr-proof>.draw,figure.lvr-proof>.cards{flex:1 1 auto;min-height:0}
@@ -197,14 +199,14 @@ figure.lvr-proof .thumbs{grid-template-columns:repeat(auto-fill,96px)}
 figure.lvr-proof figcaption{flex:none}
 figure.lvr-proof .draw{padding:clamp(12px,1.6vw,24px)}
 figure.lvr-proof .draw svg{height:100%;max-height:100%}
-.strike{background:linear-gradient(var(--blue),var(--blue)) no-repeat 0 52%/100% .075em;
+.strike{background:linear-gradient(var(--acc,var(--blue)),var(--acc,var(--blue))) no-repeat 0 52%/100% .075em;
 -webkit-box-decoration-break:clone;box-decoration-break:clone;padding:0 .03em}
 .js .rv .strike{background-size:0 .075em;transition:background-size 1s cubic-bezier(.7,0,.2,1) .35s}
 .js .rv.in .strike{background-size:100% .075em}
 .js .rv.in .md-p.in .strike{animation:strk .9s cubic-bezier(.7,0,.2,1) .2s backwards}
 @keyframes strk{from{background-size:0 .075em}}
 .sq{display:inline-flex;gap:4px;flex:none}.sq i{width:10px;height:10px;background:var(--line);display:block}
-.sq i.on{background:var(--ink)}.sq i.hit{background:var(--blue)}
+.sq i.on{background:var(--ink)}.sq i.hit{background:var(--acc,var(--blue))}
 .js .rv .sq i{transform:scale(0);transition:transform .4s cubic-bezier(.2,.7,.2,1)}
 .js .rv.in .sq i{transform:none}
 .js .rv.in .sq i:nth-child(2){transition-delay:.08s}.js .rv.in .sq i:nth-child(3){transition-delay:.16s}
@@ -829,7 +831,7 @@ def _gap(run: Run, v: dict) -> float:
 
 
 def _rank(run: Run, v: dict) -> tuple:
-    """Sort key: hard mismatches first, then by renter impact, a bigger gap first, then page order."""
+    """Tie-break key: hard mismatches first, then by renter impact, a bigger gap first, then page order."""
     pos = run.order.index(v["claim_id"]) if v.get("claim_id") in run.order else 10**6
     return (0 if v.get("verdict") == "contradicted" else 1, _tier(run, v), -_gap(run, v), pos)
 
@@ -848,14 +850,18 @@ def _top_line(run: Run, v: dict) -> str:
     return f"Biggest difference: the listing says {said}{plan}; {who} {found}."
 
 
+def _off_count(n: dict) -> int:
+    """Every claim that does not match: contradicted or close, whatever its confidence (a low one is fainter on the
+    page, never left out of the count)."""
+    return n["contradicted"] + n["close"]
+
+
 def _headline(n: dict) -> tuple[str, str, bool]:
-    hard = n["contradicted"]
-    if hard == 1:
+    off = _off_count(n)
+    if off == 1:
         return "1 thing", "doesn't match.", False
-    if hard > 1:
-        return f"{hard} things", "don't match.", False
-    if n["close"]:
-        return "Nothing is", "clearly off.", True  # only near misses: never sounds like a mismatch
+    if off > 1:
+        return f"{off} things", "don't match.", False
     if n["confirmed"]:
         return "Everything we could", "check matches.", True
     if n["cant_check"]:
@@ -864,22 +870,24 @@ def _headline(n: dict) -> tuple[str, str, bool]:
 
 
 def _lead(off: list):
-    """The finding the hero names: the top-ranked one, only when it is a hard mismatch (a close one never leads)."""
-    return off[0] if off and off[0].get("verdict") == "contradicted" else None
+    """The finding the hero names: the top-ranked mismatch (_ranked_off: the run's pick, else the most certain one;
+    a close one leads when nothing else is off)."""
+    return off[0] if off else None
 
 
 def top_finding(run_dict: dict) -> dict:
     """The hero's headline and lead finding, for the drawer (done.top, docs/CONTRACT.md 7): the same counts, ranking
     and words the report uses, so the two never disagree.
-    {"headline": "1 thing doesn't match.", "lines": ["1 thing", "doesn't match."], "calm": bool, "hard": int,
-     "claim_id": id of the lead hard mismatch or None, "line": "Biggest difference: ..." or "",
-     "order": claim ids of every hard mismatch, then every close one, in the report's order}"""
+    {"headline": "1 thing doesn't match.", "lines": ["1 thing", "doesn't match."], "calm": bool,
+     "hard": the mismatch count (contradicted + close), "claim_id": id of the lead mismatch or None,
+     "line": "Biggest difference: ..." or "", "order": claim ids of every mismatch in the report's order (the run's
+     pick first, then the most certain first)}"""
     run = Run(run_dict)
     n = _counts(run)
     off = _ranked_off(run, run.verdicts)
     top = _lead(off)
     l1, l2, calm = _headline(n)
-    return {"headline": f"{l1} {l2}", "lines": [l1, l2], "calm": calm, "hard": n["contradicted"],
+    return {"headline": f"{l1} {l2}", "lines": [l1, l2], "calm": calm, "hard": _off_count(n),
             "claim_id": top.get("claim_id") if top else None, "line": _top_line(run, top) if top else "",
             "order": [v.get("claim_id") for v in off], "why": _pick_why(run, top),
             "by": _pick_by(run, top)}
@@ -945,15 +953,7 @@ def _hero(run: Run, n: dict, top=None, has_facts: bool = False) -> str:
     used = [SRC_NAME[s] for s, evs in _source_used(run).items() if evs]
     total = len(run.verdicts)
     lead_line = _top_line(run, top) if top else ""
-    near = ""
-    if n["close"]:
-        near = (_plural(n["close"], "detail is", "details are") + " close, not exact."
-                if not n["contradicted"] else
-                _plural(n["close"], "more is", "more are") + " close, not exact.")
-    if calm and n["close"] and not n["contradicted"]:
-        sub = near + (f" {_plural(n['confirmed'], 'claim matches', 'claims match')}." if n["confirmed"] else "")
-        near = ""
-    elif calm and n["confirmed"]:
+    if calm and n["confirmed"]:
         sub = f"{_plural(n['confirmed'], 'claim matches', 'claims match')}."
         if n["cant_check"]:
             sub += f" {n['cant_check']} we couldn't check."
@@ -963,18 +963,15 @@ def _hero(run: Run, n: dict, top=None, has_facts: bool = False) -> str:
     else:
         sub = "The listing made no claims we could read."
     btn = ""
-    if n["contradicted"]:
+    if _off_count(n):
         btn = f"<a class='btn big' href='#mismatch'>Show me what's off{ARROW_DOWN}</a>"
-    elif n["close"]:
-        btn = f"<a class='btn big' href='#mismatch'>See what's close{ARROW_DOWN}</a>"
     elif n["confirmed"]:
         btn = f"<a class='btn big' href='#checked'>See what we checked{ARROW_DOWN}</a>"
     elif has_facts:
         btn = f"<a class='btn big' href='#extra'>See what the listing left out{ARROW_DOWN}</a>"
     meta = _meta(run)
-    tick = TICK if calm and n["confirmed"] and not n["close"] else ""
-    lines = (f"<p class=top-line>{_e(lead_line)}</p>" if lead_line else "") + f"<p>{_e(sub)}"
-    lines += (f" {_e(near)}" if near else "") + "</p>"
+    tick = TICK if calm and n["confirmed"] else ""
+    lines = (f"<p class=top-line>{_e(lead_line)}</p>" if lead_line else "") + f"<p>{_e(sub)}</p>"
     return ("<section class=hero aria-label='Verdict'><div class=hero-top>"
             f"<h1><span>{_e(l1)}</span><span class=l2>{_e(l2)}{tick}</span></h1>"
             f"<div class='addr rv' style='--d:150ms'><p class=where>{where}</p>{lines}"
@@ -1084,6 +1081,34 @@ def _conf(v: dict) -> tuple[int | None, str, str]:
     return score, (band if band in ("high", "medium", "low") else ""), _kind_text(conf.get("why"))
 
 
+SHADE_SCORE = {"high": 85, "medium": 60, "low": 30}  # a band with no score, for ordering only (never shown)
+
+
+def _shade(v: dict) -> str:
+    """'high' | 'medium' | 'low': how strong the blue is for one mismatch. The confidence band (else read from the
+    score); no confidence at all: a contradicted one full, a close one faint."""
+    score, band, _ = _conf(v)
+    if band:
+        return band
+    if score is not None:
+        return "high" if score >= 75 else "medium" if score >= 45 else "low"
+    return "high" if v.get("verdict") == "contradicted" else "low"
+
+
+def _strength(v: dict) -> float:
+    """How sure the run is of one mismatch, for ordering: the score, else its band's middle (SHADE_SCORE)."""
+    score, _, _ = _conf(v)
+    return float(score) if score is not None else float(SHADE_SCORE[_shade(v)])
+
+
+def _tag(v: dict) -> str:
+    """'Doesn't match · 40 low', 'Doesn't match · 40', 'Doesn't match · low' (no score: the word only, never a made-up
+    number), or 'Doesn't match'."""
+    score, band, _ = _conf(v)
+    conf = " ".join(x for x in (str(score) if score is not None else "", band) if x)
+    return "Doesn't match" + (f" · {conf}" if conf else "")
+
+
 def _conf_text(v: dict) -> str:
     """'Confidence 82 / 100 · high', 'Medium confidence' (no score), or ''."""
     score, band, _ = _conf(v)
@@ -1153,8 +1178,9 @@ def _panel_proof(run: Run, v: dict, first: bool, live_3d: bool, used_imgs: set, 
 
 def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | None = None) -> str:
     """2 'Listed vs. in reality': one master-detail view that fits a screen. Left: a list, one row per mismatch
-    (doesn't match, then close; never a match or a couldn't check) in the report's order (the run's pick first and
-    selected): the claim type, the listing's words in short, 'Doesn't match' / 'Close' and the confidence score.
+    (contradicted or close; never a match or a couldn't check) in the report's order (the run's pick first and
+    selected, then the most certain): the claim type, the listing's words in short, 'Doesn't match · 40 low' (_tag).
+    The blue of the tag, the found value and the left bar is fainter as the confidence drops (_shade).
     Right: the selected row's panel, two-sided: the listing's words (struck through in blue only when it doesn't
     match), what the sources show, one short reason, the credited sources (_credit) with the confidence score and
     its why, and the proof (_panel_proof: columnar for a figure, vertical for a visual proof). One mismatch: the
@@ -1180,7 +1206,7 @@ def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | 
         name = " · ".join(x for x in (what, c.get("label")) if x)
         why = _kind_text(_pick_why(run, v) or _first_sentence(v.get("reason") or ""))
         keys, _band = _credit(v)
-        score, _b, cwhy = _conf(v)
+        _s, _b, cwhy = _conf(v)
         conf_txt = _conf_text(v)
         conf_rows = (v.get("confidence") or {}).get("sources") if isinstance(v.get("confidence"), dict) else None
         spoke = _relevant(run, v) | {r.get("source") for r in conf_rows or [] if isinstance(r, dict)}
@@ -1193,8 +1219,8 @@ def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | 
         also = _src_names(run, cid, others, live_3d)
         sid = re.sub(r"[^A-Za-z0-9_-]", "", cid) + f"-{i}"
         anchor = f"<span class=cl-a id='claim-{_e(cid)}'></span>" if cid else ""
-        word = "Doesn't match" if hard else "Close"
-        tag = "" if hard else " <em>close, not exact</em>"
+        word = _tag(v)
+        shade = f" s-{_shade(v)}"
         listed = (f"<span class=lvr-lab>Listed</span><span class=lvr-said><span class='{strike}'>{said_html}</span>"
                   "</span>")
         found = f"<span class=lvr-lab>In reality</span><span class=lvr-truth>{_e(truth)}</span>"
@@ -1212,20 +1238,19 @@ def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | 
             long = " long" if max(len(said), len(truth)) > 18 else ""  # a sentence-long side: smaller type
             body = (f"<div class='pcols{long}'><div class=lvr-l>{listed}</div><div class=lvr-r>{found}</div></div>"
                     f"{why_html}{cred}{proof}")
-        cls = f"lvr-row md-p lay-{layout}" + ("" if hard else " lvr-close") + (" in" if first else "")
+        cls = f"lvr-row md-p lay-{layout}{shade}" + (" in" if first else "")
         role = "" if one else f" role=tabpanel aria-labelledby=tab-{sid} tabindex=0"
         hide = "" if first or one else " hidden"
         panels.append(f"<div class='{cls}' id=pan-{sid}{role}{hide} data-claim='{_e(cid)}' data-layout='{layout}'>"
-                      f"{anchor}<p class=lvr-k><span>{_e(name)}</span>{tag}</p>{body}</div>")
-        num = (f"<span class=md-c title='{_e(conf_txt)}' aria-label='{_e(conf_txt)}'>{score}</span>"
-               if score is not None else "")
+                      f"{anchor}<p class=lvr-k><span>{_e(name)}</span><span class=lvr-tag>{_e(word)}</span></p>{body}</div>")
+        tip = f" title='{_e(conf_txt)}'" if conf_txt else ""
         short = f"“{said}”" if is_q else _cap(said)
-        tabs.append(f"<button type=button role=tab class='md-i{'' if hard else ' close'}' id=tab-{sid} "
+        tabs.append(f"<button type=button role=tab class='md-i{shade}' id=tab-{sid} "
                     f"aria-controls=pan-{sid} aria-selected={'true' if first else 'false'} "
                     f"tabindex={'0' if first else '-1'}><span class=md-t>{_e(name)}</span>"
-                    f"<span class=md-g>{_e(word)}{num}</span><span class=md-s>{_e(short)}</span></button>")
+                    f"<span class=md-g{tip}>{_e(word)}</span><span class=md-s>{_e(short)}</span></button>")
     n = len(off)
-    sub = "1 difference." if one else f"{n} differences, biggest first."
+    sub = "1 difference." if one else f"{n} differences, most certain first."
     lst = "" if one else (f"<div class=md-list role=tablist aria-orientation=vertical aria-label=Differences>"
                           f"{''.join(tabs)}</div>")
     return ("<section class='wrap lvr' id=mismatch aria-labelledby=lvr-h><span id=compare></span>"
@@ -1268,13 +1293,14 @@ def _pick(run: Run) -> dict | None:
 
 
 def _ranked_off(run: Run, verdicts: list) -> list:
-    """Hard mismatches, then close ones, by _rank; the run's recorded pick (_pick) goes first when it is one of them
-    and is of the leading kind (a close one never moves ahead of a hard one)."""
-    off = sorted((v for v in verdicts if v.get("verdict") in ("contradicted", "close")), key=lambda v: _rank(run, v))
+    """Every mismatch (contradicted or close), the most certain first (_strength; ties by _rank: a contradicted one,
+    renter impact, gap, page order); the run's recorded pick (_pick) goes first when it is one of them."""
+    off = sorted((v for v in verdicts if v.get("verdict") in ("contradicted", "close")),
+                 key=lambda v: (-_strength(v),) + _rank(run, v))
     p = _pick(run)
     if p and off:
         hit = next((v for v in off if v.get("claim_id") == p["claim_id"]), None)
-        if hit is not None and hit.get("verdict") == off[0].get("verdict"):
+        if hit is not None:
             off = [hit] + [v for v in off if v is not hit]
     return off
 
@@ -1632,16 +1658,26 @@ def _question(run: Run, v: dict) -> str:
 
 
 
-def _questions(run: Run, off: list, cant: list) -> str:
-    """4 'Ask before you tour.': a draft of neutral questions (deterministic template), each with Copy, and Copy
-    all."""
-    qs = []
-    for v in off + cant:
+def _question_list(run: Run, off: list, cant: list) -> list:
+    """One question per mismatch (every one, however many), then the couldn't-checks until MAX_QUESTIONS."""
+    qs: list = []
+    for v in off:
         q = _question(run, v)
-        if q not in qs:
+        if q and q not in qs:
             qs.append(q)
+    for v in cant:
         if len(qs) >= MAX_QUESTIONS:
             break
+        q = _question(run, v)
+        if q and q not in qs:
+            qs.append(q)
+    return qs
+
+
+def _questions(run: Run, off: list, cant: list) -> str:
+    """4 'Ask before you tour.': a draft of neutral questions (deterministic template), each with Copy, and Copy
+    all. Every mismatch gets its question."""
+    qs = _question_list(run, off, cant)
     if not qs:
         return "<span id=questions></span>"
     lis = "".join(f"<li class=rv style='--d:{i * 80}ms'><span class=qn>{i + 1}</span><span>{_e(q)}</span>"
@@ -1685,7 +1721,7 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
     run = Run(run_dict)
     address = run.snap.get("address_text") or "Unknown address"
     n = _counts(run)
-    off = _ranked_off(run, run.verdicts)  # hard mismatches first (the run's pick leads), then the close ones
+    off = _ranked_off(run, run.verdicts)  # every mismatch: the run's pick, then the most certain first
     ok = [v for v in run.verdicts if v.get("verdict") == "confirmed"]
     cant = [v for v in run.verdicts if v.get("verdict") not in ("contradicted", "close", "confirmed")]
     facts = _fill_in(run)

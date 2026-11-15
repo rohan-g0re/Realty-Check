@@ -321,7 +321,9 @@ def test_done_field_is_the_report_claim_field(client):
     assert [c["id"] for c in got] == [c["id"] for c in want["claims"]]
     for g, w in zip(got, want["claims"]):
         assert g["cells"] == {k: w["cells"][k]["state"] for k in ("record", "scan", "aerial", "county")}
-        assert set(g) == {"id", "cells", "image", "credit"}
+        assert set(g) == {"id", "cells", "shade", "image", "credit"}
+        # the blue's strength, only for blue cells that carry one
+        assert all(x in ("high", "medium", "low") and g["cells"][k] in ("contra", "close") for k, x in g["shade"].items())
         if not w["highlight"]:
             assert g["image"] is None
     imgs = [c["image"] for c in got if c["image"]]
@@ -376,12 +378,14 @@ def test_drawer_report_says_what_the_report_says():
     run = _drawer_run()
     rep = srv.drawer_report(run)
     rows = rep["rows"]
-    assert [r["id"] for r in rows] == ["c1", "c2"]  # hard first, then close; never a match or a couldn't check
+    assert [r["id"] for r in rows] == ["c1", "c2"]  # the most certain first; never a match or a couldn't check
     hard, close = rows
     assert hard["credit"] == ["county"]  # CoStar says 149, not 216: never credited with the found value
     assert hard["strike"] is True and close["strike"] is False
     assert hard["score"] == 60 and hard["band"] == "medium"
     assert close["score"] is None and close["band"] == "low"  # no number sent: none made up
+    assert hard["shade"] == "medium" and close["shade"] == "low"  # the blue's strength by confidence
+    assert hard["tag"] == "Doesn't match · 60 medium" and close["tag"] == "Doesn't match · low"
     assert hard["label"] == "Homes" and hard["found"] == "216 apartments" and hard["quoted"] is True
     assert hard["proof"] == "/report/t-drawer#claim-c1" and hard["walk"] is None
     # facts: no manager row, no "; managed by" clause
@@ -391,6 +395,7 @@ def test_drawer_report_says_what_the_report_says():
     qs = rep["questions"]
     assert qs[0].startswith("The listing says “The community has 184 apartments”, but county records say 216")
     assert 2 <= len(qs) <= 5 and len(set(qs)) == len(qs)
+    assert any("2019" in q for q in qs)  # the close one gets its question too
     assert [x["id"] for x in rep["ok"]] == ["c3"] and [x["id"] for x in rep["cant"]] == ["c4"]
     assert rep["cant"][0]["why"]
     text = json.dumps(rep).lower()
@@ -410,7 +415,7 @@ def test_done_carries_the_drawer_report(client):
            and e["verdict"]["verdict"] in ("contradicted", "close")]
     assert sorted(r["id"] for r in rep["rows"]) == sorted(off)
     assert [r["id"] for r in rep["rows"]] == done["top"]["order"]  # the report's order
-    assert len(rep["facts"]) <= 5 and len(rep["questions"]) <= 5
+    assert len(rep["facts"]) <= 5 and len(rep["questions"]) <= max(5, len(off))
 
 
 def test_favicon_is_not_a_404(client):

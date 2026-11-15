@@ -11,7 +11,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "exclude_matches": ["http://127.0.0.1/report/*", "http://127.0.0.1/tour/*", "http://localhost/report/*", "http://localhost/tour/*"],
+      "exclude_matches": ["http://127.0.0.1/report/*", "http://127.0.0.1/tour/*", "http://127.0.0.1/artifacts/*", "http://localhost/report/*", "http://localhost/tour/*", "http://localhost/artifacts/*"],
       "js": ["sample_events.js", "content/detect.js", "content/overlay.js", "content/ui.js"],
       "run_at": "document_idle",
       "all_frames": false

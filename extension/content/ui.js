@@ -3,13 +3,13 @@
 (() => {
   if (window.top !== window || document.getElementById("rc-host")) return;
   // Never on the checker's own pages (its report, 3D tour and data routes): the button would cover the report.
-  const OWN_HOST = /^(127\.0\.0\.1|localhost|\[::1\])$/i, OWN_PATH = /^\/(report|tour|runs|field|img|health)(\/|$)/;
+  const OWN_HOST = /^(127\.0\.0\.1|localhost|\[::1\])$/i, OWN_PATH = /^\/(report|tour|artifacts|runs|field|img|health)(\/|$)/;
   if ((OWN_HOST.test(location.hostname) && OWN_PATH.test(location.pathname)) || location.protocol === "chrome-extension:") return;
   const RC = globalThis.RC;
   const W = 420;
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const INK = "#111111", BLUE = "#1a4be0";
-  // Page marks: one blue for "not true" and "close", ink for "true", grey for "couldn't check".
+  // Page marks: one blue for every mismatch (contradicted or close), ink for "true", grey for "couldn't check".
   const VC = { contradicted: BLUE, close: BLUE, confirmed: INK, cant_check: "#b5b5b5" };
   const SOURCES = ["record", "scan", "aerial", "county"];
   const SRC = { record: "CoStar", scan: "Matterport", aerial: "Vexcel", county: "County" };
@@ -338,12 +338,15 @@
   // The finished run's cells come from the server (done.field: server/claim_field.py, the report's own rules), so the
   // drawer and the report show the same grid. The rules below only fill the grid while the run is going (and for
   // a sample run or an older checker that sends no field).
-  const FIELD_STATE = { match: "agree", contra: "contra", close: "close", differ: "differ", data: "data", none: "none" }; // differ: the sources disagree with each other
+  // Blue cells (contra, close) carry the server's shade (high | medium | low: how sure the run is), drawn as the blue's
+  // strength; no shade sent: contra full, close faint. An unknown state draws as none.
+  const FIELD_STATE = { match: "agree", contra: "contra", close: "close", data: "data", none: "none" };
+  const SHADES = new Set(["high", "medium", "low"]);
   function fieldOf(ev) {
     const f = ev && ev.field;
     if (!f || !Array.isArray(f.claims)) return null;
     const by = {}, order = [];
-    for (const c of f.claims) if (c && c.id != null && c.cells) { by[c.id] = c; order.push(c.id); }
+    for (const c of f.claims) if (c && c.id != null && c.cells && typeof c.cells === "object") { by[c.id] = c; order.push(c.id); }
     return { by, order };
   }
   function fieldClaims(r) {
@@ -354,7 +357,7 @@
   }
   function cellState(r, c, src) {
     const fc = r.field && r.field.by[c.id];
-    if (fc) return FIELD_STATE[fc.cells[src]] || "none";
+    if (fc) return (Object.prototype.hasOwnProperty.call(FIELD_STATE, fc.cells[src]) && FIELD_STATE[fc.cells[src]]) || "none";
     const evs = r.evidence.filter((e) => e.source === src && relevant(e, c));
     const v = r.verdicts[c.id];
     if (!v) return evs.length ? "data" : r.done ? "none" : "wait";
@@ -363,15 +366,26 @@
     const own = ownReading(evs, c, src);
     return own === true ? "agree" : own === false ? "contra" : "data";
   }
+  // The blue's strength for a blue cell: the server's shade, else the verdict's own (shadeOf), else contra full and
+  // close faint. "" for a cell that is not blue.
+  function cellShade(r, c, src, st) {
+    if (st !== "contra" && st !== "close") return "";
+    const fc = r.field && r.field.by[c.id];
+    const sent = fc && fc.shade && typeof fc.shade === "object" ? fc.shade[src] : null;
+    if (SHADES.has(sent)) return sent;
+    const v = r.verdicts[c.id];
+    if (!fc && v && BAD.has(v.verdict)) return shadeOf(v);
+    return st === "contra" ? "high" : "low";
+  }
   function colGap(n) { return n > 70 ? 1 : n > 40 ? 2 : 3; }
   function fieldHTML(r, final) {
     const n = r.claims.length;
     const spread = Math.min(18, 520 / Math.max(1, n)); // whole stagger stays near half a second
     const cols = n ? fieldClaims(r).map((c, i) => {
       const v = r.verdicts[c.id];
-      const tip = (c.quote || c.kind) + (v ? " — " + ({ contradicted: "not true", close: "close", confirmed: "true", cant_check: "couldn't check" }[v.verdict] || "") : "");
+      const tip = (c.quote || c.kind) + (v ? " — " + ({ contradicted: "doesn't match", close: "doesn't match", confirmed: "true", cant_check: "couldn't check" }[v.verdict] || "") : "");
       return `<span class="col" data-id="${esc(c.id)}" title="${esc(tip)}" style="--d:${Math.round(i * spread)}ms">` +
-        SOURCES.map((s, ri) => `<i class="cell" data-src="${s}" data-s="${cellState(r, c, s)}" style="--r:${ri}"></i>`).join("") + `</span>`;
+        SOURCES.map((s, ri) => { const st = cellState(r, c, s), sh = cellShade(r, c, s, st); return `<i class="cell" data-src="${s}" data-s="${st}"${sh ? ` data-sh="${sh}"` : ""} style="--r:${ri}"></i>`; }).join("") + `</span>`;
     }).join("") : Array.from({ length: 18 }, (_, i) => `<span class="col ghost" style="--d:${i * 40}ms">${"<i class=\"cell\" data-s=\"wait\"></i>".repeat(4)}</span>`).join("");
     return `<div class="field${final ? " final" : ""}" id="field" role="img" aria-label="${esc(fieldLabel(r))}" style="--g:${colGap(n)}px;--hb:${n > 26 ? 1 : 1.5}px">
       <div class="rl" aria-hidden="true">${SOURCES.map((s) => `<span>${SRC[s]}</span>`).join("")}</div>
@@ -380,7 +394,7 @@
   function fieldLabel(r) {
     const n = r.claims.length, nv = Object.keys(r.verdicts).length;
     if (!n) return "Claim field, waiting for the listing's claims.";
-    return `Claim field: ${n} claims, one column each; rows CoStar, Matterport, Vexcel, County. ${nv} of ${n} judged. Black means a source backs the claim, blue means it does not.`;
+    return `Claim field: ${n} claims, one column each; rows CoStar, Matterport, Vexcel, County. ${nv} of ${n} judged. Black means a source backs the claim, blue means it does not; a paler blue, we are less sure.`;
   }
   function updateField(r) {
     const cols = $("cols");
@@ -390,7 +404,11 @@
     const colEls = cols.children;
     r.claims.forEach((c, i) => {
       const cells = colEls[i].children;
-      SOURCES.forEach((s, ri) => { const st = cellState(r, c, s); if (cells[ri].dataset.s !== st) cells[ri].dataset.s = st; });
+      SOURCES.forEach((s, ri) => {
+        const st = cellState(r, c, s), sh = cellShade(r, c, s, st), el = cells[ri];
+        if (el.dataset.s !== st) el.dataset.s = st;
+        if ((el.dataset.sh || "") !== sh) { if (sh) el.dataset.sh = sh; else delete el.dataset.sh; }
+      });
     });
     $("field").setAttribute("aria-label", fieldLabel(r));
   }
@@ -459,7 +477,7 @@
     st.dataset.top = top;
     st.innerHTML = list.map((s, i) => {
       const src = AG_SRC[s.k];
-      const cnt = src ? r.claims.filter((c) => ["data", "agree", "contra", "close", "differ"].includes(cellState(r, c, src))).length : 0;
+      const cnt = src ? r.claims.filter((c) => ["data", "agree", "contra", "close"].includes(cellState(r, c, src))).length : 0;
       return `<li class="${i === 0 ? "now" + (fresh ? " in" : "") : ""}"><span class="sd" aria-hidden="true"></span>
         <span class="sx"><span class="sk">${esc(s.k)}</span><span class="st">${esc(s.text)}</span></span>
         <span class="sc">${cnt ? cnt : ""}</span></li>`;
@@ -518,7 +536,7 @@
   function alsoKeys(r, c, v, dec) {
     const conf = v && v.confidence && typeof v.confidence === "object" ? v.confidence : {};
     const spoke = new Set((Array.isArray(conf.sources) ? conf.sources : []).map((x) => x && x.source).filter((k) => SRC[k]));
-    for (const k of SOURCES) if (["agree", "contra", "close", "differ", "data"].includes(cellState(r, c, k))) spoke.add(k);
+    for (const k of SOURCES) if (["agree", "contra", "close", "data"].includes(cellState(r, c, k))) spoke.add(k);
     return SOURCES.filter((k) => spoke.has(k) && k !== dec);
   }
   // server/report_a.py's _credit/_supports: the decider (else the verdict's source), then each other source in the
@@ -547,6 +565,29 @@
   function sizeClass(t) { const n = String(t).length; return n > 34 ? " s" : n > 18 ? " m" : ""; }
   // ---------- how sure we are: only on "not true" and "close" verdicts that carry a confidence block ----------
   const BANDS = { high: ["High confidence", 3], medium: ["Medium confidence", 2], low: ["Low confidence", 1] };
+  // server/report_a.py's _shade / _strength / _tag: every contradicted or close claim is a mismatch; how sure the run
+  // is only sets how strong the blue is (high full, medium mid, low faint) and the order (most certain first).
+  const SHADE_SCORE = { high: 85, medium: 60, low: 30 };
+  function scoreOf(v) {
+    const c = v && v.confidence;
+    if (!c || typeof c !== "object" || typeof c.score !== "number" || !Number.isFinite(c.score) || c.score < 0 || c.score > 100) return null;
+    return Math.round(c.score);
+  }
+  function bandOf(v) {
+    const b = v && v.confidence && typeof v.confidence === "object" ? String(v.confidence.band || "").toLowerCase() : "";
+    return SHADES.has(b) ? b : "";
+  }
+  function shadeOf(v) {
+    const b = bandOf(v), s = scoreOf(v);
+    if (b) return b;
+    if (s != null) return s >= 75 ? "high" : s >= 45 ? "medium" : "low";
+    return v && v.verdict === "contradicted" ? "high" : "low";
+  }
+  function strengthOf(v) { const s = scoreOf(v); return s != null ? s : SHADE_SCORE[shadeOf(v)]; }
+  function tagOf(v) {
+    const conf = [scoreOf(v), bandOf(v)].filter((x) => x != null && x !== "").join(" ");
+    return "Doesn't match" + (conf ? " · " + conf : "");
+  }
   function confOf(v) {
     const c = v && BAD.has(v.verdict) && v.confidence;
     if (!c || typeof c !== "object" || !BANDS[c.band]) return null;
@@ -597,8 +638,8 @@
     return p && typeof p === "object" && Array.isArray(p.rows) ? p : null;
   }
   function kindLabel(c) { return [KIND_LABEL[c.kind] || cap(String(c.kind || "").replace(/_/g, " ")) || "Claim", c.label].filter(Boolean).join(" · "); }
-  // Every mismatch, in the report's order: hard ones first (the run's own pick, done.harness.top_mismatch, on top),
-  // then the close ones. No cap: the list scrolls inside the drawer.
+  // Every mismatch (contradicted or close), in the report's order: the run's own pick (done.harness.top_mismatch) on
+  // top, then the most certain first. No cap: the list scrolls inside the drawer.
   function badRows(r) {
     const rep = repOf(r);
     const srv = new Map(rep ? rep.rows.filter((x) => x && x.id != null).map((x) => [String(x.id), x]) : []);
@@ -609,25 +650,27 @@
     const pick = pk && typeof pk === "object" ? pk.claim_id : null;
     const at = (c) => (rank.has(c.id) ? rank.get(c.id) : 1e6);
     const bad = r.claims.map((c, i) => [c, r.verdicts[c.id], i]).filter(([, v]) => v && BAD.has(v.verdict))
-      .sort((a, b) => at(a[0]) - at(b[0]) || ORDER[a[1].verdict] - ORDER[b[1].verdict] || a[2] - b[2]);
-    if (!rank.size && pick != null) { // no order sent: the pick leads when it is of the leading kind
+      .sort((a, b) => at(a[0]) - at(b[0]) || strengthOf(b[1]) - strengthOf(a[1]) || ORDER[a[1].verdict] - ORDER[b[1].verdict] || a[2] - b[2]);
+    if (!rank.size && pick != null) { // no order sent: the pick leads
       const k = bad.findIndex(([c]) => c.id === pick);
-      if (k > 0 && bad[k][1].verdict === bad[0][1].verdict) bad.unshift(bad.splice(k, 1)[0]);
+      if (k > 0) bad.unshift(bad.splice(k, 1)[0]);
     }
     return bad.map(([c, v]) => {
       const s = srv.get(String(c.id));
       const hard = v.verdict === "contradicted";
       const sent = s && Array.isArray(s.credit) ? s.credit.filter((k) => SRC[k]) : [];
       const dec = (sent.length ? sent : creditKeys(r, c, v))[0] || "";
-      const src = { dec, also: alsoKeys(r, c, v, dec), close: !hard };
+      const src = { dec, also: alsoKeys(r, c, v, dec) };
+      const shade = s && SHADES.has(s.shade) ? s.shade : shadeOf(v);
+      const tag = s && typeof s.tag === "string" && /^Doesn't match( · [\w ]{1,16})?$/.test(s.tag) ? s.tag : tagOf(v);
       if (s) {
         return { c, v, id: c.id, label: String(s.label || kindLabel(c)), said: s.quoted ? `“${s.said}”` : String(s.said || ""),
-          strike: !!s.strike, found: String(s.found || v.found || ""), why: kindText(s.why), src,
+          strike: !!s.strike, found: String(s.found || v.found || ""), why: kindText(s.why), src, shade, tag,
           walk: typeof s.walk === "string" && /^\/tour\//.test(s.walk) ? s.walk : "" };
       }
       return { c, v, id: c.id, label: kindLabel(c), said: listingWords(r, c, v), strike: hard,
         found: !hard && SOFT_KINDS.has(c.kind) ? "Not seen in the photos" : cap(String(v.found || "")),
-        why: kindText(firstSentence(v.reason)), src, walk: "" };
+        why: kindText(firstSentence(v.reason)), src, shade, tag, walk: "" };
     });
   }
   function findHTML(row, i, links, fresh) {
@@ -636,9 +679,9 @@
     const was = row.strike ? `<span class="was"><s class="wt">${esc(row.said)}</s></span>` : `<span class="was"><span class="wt">${esc(row.said)}</span></span>`;
     const lk = links ? `<span class="fln"><button class="lnk lproof" data-id="${esc(row.id)}">Proof</button>` +
       (row.walk ? `<button class="lnk l3d" data-walk="${esc(row.walk)}">See it in 3D</button>` : "") + `</span>` : "";
-    return `<li class="fr${fresh ? " in" : ""}" data-id="${esc(row.id)}" data-verdict="${esc(v.verdict)}" style="--i:${i}">` +
+    return `<li class="fr${fresh ? " in" : ""}" data-id="${esc(row.id)}" data-verdict="${esc(v.verdict)}" data-shade="${esc(row.shade)}" style="--i:${i}">` +
       `<button class="find" data-id="${esc(row.id)}" data-verdict="${esc(v.verdict)}" aria-label="${esc(`${row.label}. Listing says ${row.said}. Found ${row.found}. Show it`)}">` +
-      `<span class="fk">${esc(row.label)}</span>${was}<span class="is${sizeClass(row.found)}">${esc(row.found)}</span></button>` +
+      `<span class="fkr"><span class="fk">${esc(row.label)}</span><span class="ftag">${esc(row.tag)}</span></span>${was}<span class="is${sizeClass(row.found)}">${esc(row.found)}</span></button>` +
       (row.why ? `<p class="fy">${esc(row.why)}</p>` : "") +
       (row.src.dec || lk ? `<p class="by"><span class="byw">${srcHTML(row, links)}</span>${lk}</p>` : "") + confHTML(v, i) + `</li>`;
   }
@@ -651,11 +694,11 @@
     return `/artifacts/${encodeURIComponent(rid)}#a-${encodeURIComponent(id)}-${SLUG[key]}`;
   }
   function srcHTML(row, links) {
-    const { dec, also, close } = row.src;
+    const { dec, also } = row.src;
     if (!dec) return "";
     const href = links ? artifactPath(row.id, dec) : "";
     const name = href ? `<button class="lnk srcl" data-href="${esc(href)}">${esc(SRC[dec])}</button>` : `<span class="srcn">${esc(SRC[dec])}</span>`;
-    return `${close ? "Close · " : ""}<span class="bys">Source: ${name}</span>` +
+    return `<span class="bys">Source: ${name}</span>` +
       (also.length ? `<span class="bya">also checked: ${esc(also.map((k) => SRC[k]).join(", "))}</span>` : "");
   }
   // "Not in the listing": the report's top five (done.report.facts, else done.harness.top_facts, else the fill_in
@@ -692,7 +735,8 @@
   const ASK_FROM = { scan: "the 3D scan shows", county: "county records say", record: "the CoStar building record says" };
   function questionsOf(r, rows) {
     const rep = repOf(r);
-    if (rep && Array.isArray(rep.questions)) return rep.questions.map((q) => kindText(q, 400)).filter(Boolean).slice(0, Q_TOP);
+    const most = Math.max(Q_TOP, rows.length); // every mismatch gets its question, then the couldn't-checks up to five
+    if (rep && Array.isArray(rep.questions)) return rep.questions.map((q) => kindText(q, 400)).filter(Boolean).slice(0, most);
     const qs = [];
     const cant = r.claims.map((c) => [c, r.verdicts[c.id]]).filter(([, v]) => v && v.verdict === "cant_check");
     for (const [c, v] of rows.map((x) => [x.c, x.v]).concat(cant)) {
@@ -705,8 +749,9 @@
           : `The listing says ${said}${plan}, but ${who} ${found}. Which is right?`;
       } else q = SOFT_KINDS.has(c.kind) ? `Can you show me ${said}${plan} when I tour?` : `Can you confirm ${said}${plan} in writing?`;
       q = kindText(q, 400);
-      if (q && !qs.includes(q)) qs.push(q);
+      if (BAD.has(v.verdict)) { if (q && !qs.includes(q)) qs.push(q); continue; }
       if (qs.length >= Q_TOP) break;
+      if (q && !qs.includes(q)) qs.push(q);
     }
     return qs;
   }
@@ -747,7 +792,7 @@
       r.mode === "sample" ? `<span>Sample result</span>` : "",
       r.cache === "off" ? `<span class="fresh" data-k="fresh">fresh run</span>` : "",
       k.confirmed ? `<span data-k="confirmed">${k.confirmed} true</span>` : "",
-      k.close ? `<span data-k="close" class="b">${k.close} close</span>` : "",
+      k.contradicted + k.close ? `<span data-k="off" class="b">${k.contradicted + k.close} ${k.contradicted + k.close === 1 ? "doesn't" : "don't"} match</span>` : "",
       k.cant_check ? `<span data-k="cant_check">${k.cant_check} couldn't check</span>` : "",
       `<span data-k="time">${took((r.t1 || Date.now()) - r.t0)}</span>`,
     ].filter(Boolean).join(`<span class="sep" aria-hidden="true"> · </span>`);
@@ -1026,9 +1071,10 @@
   .cell{display:block;background:#f4f4f4;transition:background-color .45s ease,box-shadow .45s ease;transition-delay:calc(var(--r,0) * 80ms)}
   .cell[data-s="none"]{background:#ebebeb}
   .cell[data-s="data"]{background:#fff;box-shadow:inset 0 0 0 var(--hb,1.5px) var(--ink)}
-  .cell[data-s="differ"]{background:#fff;outline:var(--hb,1.5px) dashed var(--blue);outline-offset:calc(-1 * var(--hb,1.5px))}
   .cell[data-s="agree"]{background:var(--ink)}
   .cell[data-s="contra"],.cell[data-s="close"]{background:var(--blue)}
+  .cell[data-s="close"]:not([data-sh]),.cell[data-sh="low"]{opacity:.32}
+  .cell[data-sh="medium"]{opacity:.6}
   .field.final .cell{animation:rc-cell .5s var(--ease) calc(var(--d) + var(--r) * 45ms + 260ms) backwards}
   @keyframes rc-col{from{transform:scaleY(.2);opacity:0}}
   @keyframes rc-cell{from{background:#f4f4f4;box-shadow:none}}
@@ -1089,11 +1135,18 @@
   .find{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;min-height:44px;padding:10px 12px 2px;transition:background-color .18s ease}
   .find:hover{background:#f4f4f4}
   .find.ping,.fr.ping{animation:rc-ping 1.2s ease-out}
+  /* one blue, fainter as the run is less sure: high full, medium mid, low faint (tag, found value, left bar) */
+  .fr{--acc:var(--blue);--acc-t:var(--blue)}
+  .fr[data-shade="medium"]{--acc:#6585ea;--acc-t:#4a6fe6}
+  .fr[data-shade="low"]{--acc:#b3c2f4;--acc-t:#8199ec}
+  .find{box-shadow:inset 3px 0 0 var(--acc)}
+  .fkr{display:flex;align-items:baseline;justify-content:space-between;gap:10px;width:100%}
   .fk{font-size:11px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+  .ftag{flex:none;font-size:12px;line-height:1.3;color:var(--acc-t);font-variant-numeric:tabular-nums}
   .was{display:block;max-width:100%;font-size:17px;line-height:1.3;color:#858585;overflow-wrap:anywhere}
   .wt{text-decoration:none}
-  s.wt{text-decoration-line:line-through;text-decoration-color:var(--blue);text-decoration-thickness:2px}
-  .is{max-width:100%;font-size:26px;font-weight:300;line-height:1.1;letter-spacing:-.02em;color:var(--blue);overflow-wrap:anywhere}
+  s.wt{text-decoration-line:line-through;text-decoration-color:var(--acc,var(--blue));text-decoration-thickness:2px}
+  .is{max-width:100%;font-size:26px;font-weight:300;line-height:1.1;letter-spacing:-.02em;color:var(--acc-t,var(--blue));overflow-wrap:anywhere}
   .is.m{font-size:22px}
   .is.s{font-size:19px;line-height:1.2}
   .fy{padding:3px 12px 0;font-size:14px;line-height:1.4;color:var(--ink)}
@@ -1102,8 +1155,6 @@
   .bys{color:var(--ink)}
   .srcl{color:var(--ink);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bbb}
   .bya{font-size:12px;color:#9a9a9a}
-  /* close, not exact: quiet, never struck through (as in the report) */
-  .find[data-verdict="close"] .is{font-size:19px;line-height:1.25}
   .fln{flex:none;display:flex;gap:14px}
   .fln .lnk{min-height:28px;color:var(--ink);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bbb}
   /* which home was checked */
@@ -1121,7 +1172,7 @@
   .bars i{display:block;width:3px;height:5px;background:#dcdcdc;transition:background-color .3s ease}
   .bars i:nth-child(2){height:8px}
   .bars i:nth-child(3){height:11px}
-  .bars i.on{background:var(--ink)}
+  .bars i.on{background:var(--acc,var(--ink))}
   .cf .go{display:grid;color:#9a9a9a;transition:transform .25s var(--ease)}
   .cf .go svg{width:14px;height:14px}
   button.cfb:hover .go{color:var(--ink)}

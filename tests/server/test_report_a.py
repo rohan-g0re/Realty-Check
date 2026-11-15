@@ -639,3 +639,63 @@ def test_every_mismatch_gets_a_question_even_past_five():
     qs = re.findall(r"class='btn ghost copy' data-text='([^']+)'", html)
     assert len(qs) == 7 and all(any(f"{1990 + i}" in q for q in qs) for i in range(7))  # no couldn't-check past five
     assert "<h1><span>7 things</span>" in html
+
+
+# ---------- source preview cards (citations) ----------
+
+def _cited_run():
+    """Invented: _credit_run with harness citations on c1, ids and a query link in them."""
+    run = _credit_run()
+    v = next(e["verdict"] for e in run["events"] if e["type"] == "verdict" and e["verdict"]["claim_id"] == "c1")
+    v["citations"] = [
+        {"source": "County", "read": "Units field", "where": "county parcel no. 900001-0002, building 1",
+         "date": "2026-03-01", "value": "52 apartments", "image": IMG[2],
+         "link": "https://records.invalid/search?parcel=900001&token=abc", "role": "decided"},
+        {"source": "CoStar", "read": "Unit count field", "where": "CoStar property 900002, field Units",
+         "date": None, "value": "31 apartments", "image": "C:/private/rc_cache/x.png", "link": None, "role": "differs"},
+        {"source": "Matterport", "read": "Scan title", "where": "scan 'Plan Q' (SAMPLEscan01)", "date": None,
+         "value": "a scam listing", "image": None, "link": None, "role": "agrees"}]
+    return run
+
+
+def test_source_chip_opens_a_preview_card():
+    rows = _rows(render_report(_cited_run()))
+    cite = re.search(r"<p class=lvr-cite>(.*?)</p>", rows["c1"]).group(1)
+    # the deciding chip: still a link to its artifact (works without script), now also controls a card
+    assert re.search(r"<a href='/artifacts/20990101-000000-aaaaaa#a-c1-county' target=_blank rel=noopener "
+                     r"class='cite dec' data-cc='(cc-c1-0-county)' aria-controls='\1' aria-expanded=false>County", cite)
+    card = re.search(r"<span class='cc r-decided' id='cc-c1-0-county' role=dialog [^>]*hidden>(.*?)</a></span>", cite).group(1)
+    assert "<b>County</b><em>Decided this</em>" in card
+    assert "<span class=cc-v>52 apartments</span>" in card and "<span class=cc-read>Units field</span>" in card
+    assert f"<img class=cc-img src='{IMG[2]}'" in card
+    assert "2026-03-01" in card and "building 1" in card
+    assert ("<a class=cc-go href='/artifacts/20990101-000000-aaaaaa#a-c1-county' target=_blank rel=noopener>"
+            "Open in artifact library") in card
+    # the also-checked CoStar chip: its own card, the role it had
+    assert "<span class='cc r-differs' id='cc-c1-0-record'" in cite and "<em>Differs</em>" in cite
+    assert "<span class=cc-v>31 apartments</span>" in cite
+
+
+def test_preview_card_never_shows_ids_links_paths_or_unkind_words():
+    html = render_report(_cited_run())
+    view = _section(html, "id=mismatch", "</section>")
+    for bad in ("900001", "900002", "records.invalid", "token=", "C:/private", "rc_cache", "SAMPLEscan01", "scam"):
+        assert bad not in view, bad
+    assert "CoStar property record" in view  # the id is gone, the words stay
+
+
+def test_old_runs_without_citations_keep_plain_chips():
+    html = render_report(_credit_run())
+    view = _section(html, "id=mismatch", "</section>")
+    assert "data-cc=" not in view and "class='cc " not in view
+    static = _rows(render_report(_cited_run(), live_3d=False))["c1"]
+    # the static copy: no library link anywhere, the card still opens from a button
+    assert "/artifacts/" not in static
+    assert "<button type=button class='cite dec' data-cc='cc-c1-0-county'" in static and "cc-go" not in static
+
+
+def test_preview_card_script_and_style_are_inline():
+    from server.report_a import CSS, SCRIPT
+    assert "[data-cc]" in SCRIPT and "aria-expanded" in SCRIPT and "Escape" in SCRIPT
+    assert ".cc{position:fixed" in CSS and "@media (max-width:520px){\n.cc{" in CSS
+    assert ".cc.on .cc-v,.cc.on .cc-read,.cc.on .cc-w,.cc.on .cc-img{animation:none}" in CSS  # reduced motion

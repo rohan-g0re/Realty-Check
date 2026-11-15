@@ -267,7 +267,8 @@ DRAWER_FACTS = 5
 def _drawer_rows(R, run, off: list) -> list:
     """Every mismatch (contradicted or close) in the report's order (server.report_a: its words, credit, score, the
     blue's strength `shade` high | medium | low, the tag '82 / 100 · high' and `also`: the sources that spoke but
-    do not back the found value, the report's "also checked"), as text only."""
+    do not back the found value, the report's "also checked"; `previews`: {source key: the report's preview card,
+    R.cite_preview: source, role, tag, value, read, where (ids stripped), date, href}, {} for old runs), as text only."""
     rows = []
     rid = str(run.raw.get("run_id") or "")
     for v in off:
@@ -279,8 +280,15 @@ def _drawer_rows(R, run, off: list) -> list:
         what = R.KIND_LABEL.get(kind) or R._cap(str(kind or "").replace("_", " ")) or "Claim"
         why = R._kind_text(R._tidy(R._pick_why(run, v) or R._first_sentence(v.get("reason") or "")))
         credit = list(R._credit(v)[0])
+        also = R._also_keys(run, v, credit)
         score, band, _cwhy = R._conf(v)
         cid = str(v.get("claim_id") or "")
+        previews = {}  # the report's source preview card, per source key (credit first = decided, then also)
+        for i, k in enumerate(credit + also):
+            p = R.cite_preview(v, k, lead=i == 0)
+            if p:
+                previews[k] = {f: p[f] for f in ("source", "role", "tag", "value", "read", "where", "date")}
+                previews[k]["href"] = R._art_href(run, cid, k) or None
         walk = None
         try:
             w = R._walk_hrefs(run, v)
@@ -291,7 +299,7 @@ def _drawer_rows(R, run, off: list) -> list:
                      "label": " · ".join(x for x in (what, c.get("label")) if x),
                      "said": said if is_q else R._cap(said), "quoted": bool(is_q), "strike": hard,
                      "found": "Not seen in the photos" if soft else R._truth_text(v).rstrip("."),
-                     "why": why, "credit": credit, "also": R._also_keys(run, v, credit), "score": score,
+                     "why": why, "credit": credit, "also": also, "previews": previews, "score": score,
                      "band": band or None,
                      "shade": R._shade(v), "tag": R._tag(v),
                      "proof": f"/report/{rid}#claim-{cid}" if rid and cid else None, "walk": walk})

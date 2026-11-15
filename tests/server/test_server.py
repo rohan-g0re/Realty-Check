@@ -424,3 +424,25 @@ def test_favicon_is_not_a_404(client):
     assert r.status_code in (200, 204)
     if r.status_code == 200:
         assert r.headers["content-type"] == "image/png"
+
+
+def test_drawer_rows_carry_the_report_preview_cards():
+    run = _drawer_run()
+    v1 = next(e["verdict"] for e in run["events"] if e["type"] == "verdict" and e["verdict"]["claim_id"] == "c1")
+    v1["citations"] = [
+        {"source": "County", "read": "Units field", "where": "parcel no. 900003-01, building 1", "date": "2026-02-01",
+         "value": "216 apartments", "image": None, "link": "https://records.invalid/?parcel=900003", "role": "decided"},
+        {"source": "CoStar", "read": "Unit count field", "where": "CoStar property 900002, field Units", "date": None,
+         "value": "149 apartments", "image": None, "link": None, "role": "differs"}]
+    hard, close = srv.drawer_report(run)["rows"]
+    assert hard["previews"] == {
+        "county": {"source": "County", "role": "decided", "tag": "Decided this", "value": "216 apartments",
+                   "read": "Units field", "where": "building 1", "date": "2026-02-01",
+                   "href": "/artifacts/t-drawer#a-c1-county"},
+        "record": {"source": "CoStar", "role": "differs", "tag": "Differs", "value": "149 apartments",
+                   "read": "Unit count field", "where": "CoStar property record, field Units", "date": "",
+                   "href": "/artifacts/t-drawer#a-c1-costar"}}
+    assert close["previews"] == {}  # an old verdict (no citations): no cards
+    text = json.dumps(hard)
+    for bad in ("900003", "900002", "records.invalid", "parcel no", "?parcel"):
+        assert bad not in text

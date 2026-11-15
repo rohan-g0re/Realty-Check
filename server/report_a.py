@@ -193,6 +193,53 @@ font-size:15px;line-height:1.2;color:var(--ink);text-decoration:none;background:
 .cite.dec{border-color:var(--ink);font-size:16px}
 .cite i{font-style:normal;font-size:13px;color:var(--blue)}
 a.cite:hover,a.cite:focus-visible{border-color:var(--blue);color:var(--blue)}
+.cite-l+.cw{margin-left:2px}.cw+.cite-l{margin-left:10px}
+.cw{display:inline-flex}
+button.cite{font:inherit;font-size:15px;cursor:pointer}button.cite.dec{font-size:16px}
+.cite[aria-expanded=true]{border-color:var(--blue);color:var(--blue);box-shadow:inset 0 -2px 0 var(--blue)}
+.cc{position:fixed;z-index:60;left:0;top:0;width:min(320px,calc(100vw - 24px));box-sizing:border-box;display:flex;
+flex-direction:column;gap:6px;padding:14px 16px 12px;background:#fff;color:var(--ink);border:1px solid var(--ink);
+border-top:3px solid var(--ink);box-shadow:0 18px 40px -18px rgba(0,0,0,.28);font-size:15px;line-height:1.35;
+opacity:0;transform:translateY(6px);clip-path:inset(0 0 100% 0);
+transition:opacity .14s ease-out,transform .14s ease-out,clip-path .14s ease-out}
+.cc[data-side=top]{transform:translateY(-6px);clip-path:inset(100% 0 0 0)}
+.cc.on{opacity:1;transform:none;clip-path:inset(0 0 0 0);
+transition:opacity .22s cubic-bezier(.2,.8,.2,1),transform .22s cubic-bezier(.2,.8,.2,1),clip-path .22s cubic-bezier(.2,.8,.2,1)}
+.cc[hidden]{display:none}
+.cc.r-decided{border-top-color:var(--blue)}
+.cc-h{display:flex;align-items:baseline;gap:10px;padding-right:26px}
+.cc-h b{font-weight:400;font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+.cc-h em{font-style:normal;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;
+border:1px solid var(--line);color:var(--mute);margin-left:auto}
+.r-decided .cc-h em{background:var(--blue);border-color:var(--blue);color:#fff}
+.r-agrees .cc-h em{border-color:var(--ink);color:var(--ink)}
+.r-differs .cc-h em{border-color:var(--blue);color:var(--blue)}
+.cc-v{display:block;font-size:30px;font-weight:300;line-height:1.1;letter-spacing:-.02em;margin:4px 0 2px;
+font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.r-decided .cc-v{color:var(--blue)}
+.cc.on .cc-v,.cc.on .cc-read,.cc.on .cc-w,.cc.on .cc-img{animation:ccin .32s cubic-bezier(.2,.8,.2,1) both}
+.cc.on .cc-read{animation-delay:.04s}.cc.on .cc-w,.cc.on .cc-img{animation-delay:.08s}
+@keyframes ccin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.cc-read{display:block}
+.cc-w{display:block;font-size:13px;color:var(--mute)}
+.cc-img{display:block;width:100%;height:96px;object-fit:cover;border:1px solid var(--line);margin-top:4px}
+.cc-go{display:flex;align-items:center;justify-content:space-between;margin-top:6px;padding-top:9px;
+border-top:1px solid var(--line);color:var(--blue);text-decoration:none;font-size:15px;min-height:28px}
+.cc-go:hover{text-decoration:underline}.cc-go i{font-style:normal}
+.cc-x{position:absolute;top:8px;right:8px;width:28px;height:28px;padding:0;border:0;background:none;font:inherit;
+font-size:20px;line-height:1;color:var(--mute);cursor:pointer}.cc-x:hover{color:var(--blue)}
+@media (max-width:520px){
+.cc{left:0!important;right:0;top:auto!important;bottom:0;width:auto;border-width:3px 0 0;
+padding:16px 16px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -14px 36px -16px rgba(0,0,0,.3);
+transform:translateY(24px);clip-path:none}
+.cc[data-side=top]{transform:translateY(24px);clip-path:none}
+.cc.on{transform:none}
+.cc-v{font-size:34px}.cc-img{height:140px}.cc-go{min-height:44px}.cc-x{width:44px;height:44px;top:4px;right:4px}
+}
+@media (prefers-reduced-motion: reduce){
+.cc,.cc[data-side=top],.cc.on{transform:none;clip-path:none;transition:opacity .01s}
+.cc.on .cc-v,.cc.on .cc-read,.cc.on .cc-w,.cc.on .cc-img{animation:none}
+}
 .art-lib{margin:16px 0 0 auto;max-width:360px;font-size:17px}.art-lib a{color:#fff}
 .lvr-cred .lvr-cwhy{font-size:15px;line-height:1.4;color:var(--mute);max-width:72ch;display:-webkit-box;-webkit-line-clamp:2;
 -webkit-box-orient:vertical;overflow:hidden}
@@ -553,6 +600,49 @@ var ws=all().filter(function(w){return !w.closest('.md-p[hidden]');}),first=null
 if(h){var a=document.getElementById('claim-'+h[1]),fd=a&&a.closest('.lvr-row');first=fd&&fd.querySelector('.walk[data-src]');}
 first=first||ws[0];if(first)mount(first);
 ws.forEach(function(w){if(near)watch(w);else if(w!==first&&live.length<MAX)mount(w);});
+})();
+/* source chips: a preview card per source on hover, keyboard focus or tap (touch: the first tap opens the card, its
+   link opens the artifact); the card moves to <body> so no panel clips it, flips above / clamps into view, and is a
+   bottom sheet on a phone; Esc, the close button or a click outside closes it */
+(function(){var chips=[].slice.call(document.querySelectorAll('[data-cc]'));if(!chips.length)return;
+var still=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+var cur=null,btn=null,tIn=0,tOut=0,ptr='mouse',pinned=false,quiet=false;
+function back(o){if(!o)return;quiet=true;o.focus();quiet=false;}
+function narrow(){return window.matchMedia&&matchMedia('(max-width: 520px)').matches;}
+function card(b){return document.getElementById(b.getAttribute('data-cc'));}
+function place(){if(!cur)return;var c=cur;if(narrow()){c.style.left=c.style.top='';c.setAttribute('data-side','sheet');return;}
+var r=btn.getBoundingClientRect(),w=c.offsetWidth,h=c.offsetHeight,vw=document.documentElement.clientWidth,vh=window.innerHeight,m=12;
+var x=Math.min(Math.max(m,r.left),vw-w-m),below=r.bottom+8,above=r.top-8-h;
+var side=(below+h<=vh-m||above<m)?'bottom':'top',y=side==='bottom'?below:above;y=Math.max(m,Math.min(y,vh-h-m));
+c.style.left=Math.round(x)+'px';c.style.top=Math.round(y)+'px';c.setAttribute('data-side',side);}
+function open(b,pin){clearTimeout(tOut);clearTimeout(tIn);if(btn===b){pinned=pinned||pin;return;}close(true);
+var c=card(b);if(!c)return;if(c.parentNode!==document.body)document.body.appendChild(c);
+c.hidden=false;cur=c;btn=b;pinned=!!pin;place();void c.offsetWidth;c.classList.add('on');b.setAttribute('aria-expanded','true');}
+function close(now){clearTimeout(tIn);clearTimeout(tOut);if(!cur)return;var c=cur,b=btn;cur=btn=null;pinned=false;
+b.setAttribute('aria-expanded','false');c.classList.remove('on');
+if(now||still){c.hidden=true;return;}setTimeout(function(){if(!c.classList.contains('on'))c.hidden=true;},160);}
+function later(){clearTimeout(tOut);if(!pinned)tOut=setTimeout(function(){close();},180);}
+chips.forEach(function(b){var c=card(b);if(!c)return;b.setAttribute('aria-haspopup','dialog');
+if(b.tagName==='A')b.setAttribute('role','button');
+var x=document.createElement('button');x.type='button';x.className='cc-x';x.setAttribute('aria-label','Close');x.innerHTML='&times;';
+x.addEventListener('click',function(){var o=btn;close();back(o);});c.insertBefore(x,c.firstChild);
+b.addEventListener('pointerdown',function(e){ptr=e.pointerType||'mouse';});
+b.addEventListener('mouseenter',function(){if(ptr==='touch')return;clearTimeout(tOut);clearTimeout(tIn);
+tIn=setTimeout(function(){open(b,false);},cur?0:90);});
+b.addEventListener('mouseleave',function(){clearTimeout(tIn);if(btn===b)later();});
+c.addEventListener('mouseenter',function(){clearTimeout(tOut);});c.addEventListener('mouseleave',function(){later();});
+b.addEventListener('focus',function(){if(quiet)return;var fv=true;try{fv=b.matches(':focus-visible');}catch(_){}if(fv)open(b,false);});
+b.addEventListener('click',function(e){var touch=ptr==='touch';ptr='mouse';
+if(b.tagName==='A'&&!touch&&btn===b&&!pinned&&e.detail)return;  /* a mouse click on a previewed chip opens the artifact */
+e.preventDefault();if(btn===b&&pinned){close();return;}open(b,true);
+if(e.detail===0){var go=c.querySelector('.cc-go')||c.querySelector('.cc-x');if(go)go.focus();}});
+b.addEventListener('keydown',function(e){if(e.key===' '||e.key==='ArrowDown'){e.preventDefault();open(b,true);
+var go=c.querySelector('.cc-go')||c.querySelector('.cc-x');if(go)go.focus();}});
+b.addEventListener('blur',function(){setTimeout(function(){if(btn===b&&!pinned&&!(cur&&cur.contains(document.activeElement)))close();},0);});});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&cur){var o=btn;close();back(o);}});
+document.addEventListener('pointerdown',function(e){if(cur&&!cur.contains(e.target)&&!btn.contains(e.target))close();},true);
+document.addEventListener('focusin',function(e){if(cur&&!cur.contains(e.target)&&e.target!==btn)close();});
+window.addEventListener('resize',place);window.addEventListener('scroll',function(){if(cur&&!narrow())requestAnimationFrame(place);},true);
 })();
 """
 
@@ -1157,15 +1247,75 @@ def _art_href(run: Run, cid: str | None = None, key: str | None = None) -> str:
     return f"/artifacts/{rid}#a-{cid}-{SRC_NAME[key].lower()}"
 
 
-def _src_names(run: Run, cid: str, keys: list, links: bool, lead: bool = False) -> str:
+CITE_TAG = {"decided": "Decided this", "agrees": "Agrees", "differs": "Differs", "context": "Also checked"}
+
+
+def cite_preview(v: dict, key: str, lead: bool = False) -> dict | None:
+    """The preview card's fields for one source chip, from that source's entry in the verdict's `citations`
+    (harness/citations.py): {source, role decided|agrees|differs|context, tag, value, read, where, date, image}, all
+    plain text fit to show (server.artifacts: `where` without parcel / property / scan ids; never the citation's
+    `link`, a path, a contact or an unkind word; `image` only as /img/<token>). The chip shown first (lead) is the
+    deciding source. None for old runs (no `citations`) or when nothing fit to show is left."""
+    if not isinstance(v, dict) or key not in SRC_NAME or not v.get("citations"):
+        return None
+    try:
+        from server.artifacts import IMG_RE as A_IMG, _cites, _safe, _where
+    except Exception:  # noqa: BLE001  no stripping helper, no card: the chip stays a plain link
+        return None
+    cits = _cites(v).get(key) or []
+    if not cits:
+        return None
+    rank = {"decided": 0, "agrees": 1, "differs": 2}
+    ct = sorted(cits, key=lambda c: (0 if lead and c.get("role") == "decided" else 1,
+                                     rank.get(str(c.get("role")), 3)))[0]
+    r = str(ct.get("role") or "")
+    role = "decided" if lead else ("agrees" if r == "decided" else r if r in ("agrees", "differs") else "context")
+    date = ct.get("date")
+    out = {"source": SRC_NAME[key], "role": role, "tag": CITE_TAG[role],
+           "value": _safe(ct.get("value"), 80), "read": _safe(ct.get("read"), 80), "where": _where(ct.get("where")),
+           "date": _safe(date, 40) if date not in (None, "", "None") else "",
+           "image": ct.get("image") if isinstance(ct.get("image"), str) and A_IMG.match(ct["image"]) else ""}
+    if not (out["value"] or out["read"] or out["where"]):
+        return None
+    return out
+
+
+def _cite_card(card_id: str, p: dict, href: str) -> str:
+    """The preview card (hidden until the chip opens it; the page's script places it): source + role tag, the value
+    it read in large serif, what it read, where · when, a small picture, and the way into the artifact library."""
+    meta = " · ".join(x for x in (p["where"], p["date"]) if x)
+    img = (f"<img class=cc-img src='{_e(p['image'])}' alt='' loading=lazy>" if p["image"] else "")
+    go = (f"<a class=cc-go href='{_e(href)}' target=_blank rel=noopener>Open in artifact library "
+          "<i aria-hidden=true>↗</i></a>" if href else "")
+    return (f"<span class='cc r-{p['role']}' id='{card_id}' role=dialog aria-label='{_e(p['source'])}, {_e(p['tag'])}' "
+            f"hidden><span class=cc-h><b>{_e(p['source'])}</b><em>{_e(p['tag'])}</em></span>"
+            + (f"<span class=cc-v>{_e(p['value'])}</span>" if p["value"] else "")
+            + (f"<span class=cc-read>{_e(p['read'])}</span>" if p["read"] else "")
+            + (f"<span class=cc-w>{_e(meta)}</span>" if meta else "")
+            + img + go + "</span>")
+
+
+def _src_names(run: Run, cid: str, keys: list, links: bool, lead: bool = False, v: dict | None = None,
+               uid: str = "") -> str:
     """One square-cornered chip per source, each a link to its artifact in a new tab (links=True, the server's page)
-    or plain text; lead=True: the first one (the deciding source) emphasised."""
+    or plain text; lead=True: the first one (the deciding source) emphasised. With the verdict's `citations` (new
+    runs) each chip also opens a preview card (cite_preview, _cite_card) on hover, focus or tap; old runs: as before."""
     out = []
     for i, k in enumerate(keys):
-        cls = "cite dec" if lead and i == 0 else "cite"
+        first = lead and i == 0
+        cls = "cite dec" if first else "cite"
         href = _art_href(run, cid, k) if links else ""
+        p = cite_preview(v, k, first) if v else None
+        card_id = re.sub(r"[^A-Za-z0-9_-]", "", f"cc-{uid}-{k}")
+        if p:
+            card = _cite_card(card_id, p, href)
+            tag = f"a href='{_e(href)}' target=_blank rel=noopener" if href else "button type=button"
+            out.append(f"<span class=cw><{tag} class='{cls}' data-cc='{card_id}' "
+                       f"aria-controls='{card_id}' aria-expanded=false>{_e(SRC_NAME[k])}"
+                       f"<i aria-hidden=true>{chr(0x2197) if href else '+'}</i></{tag.split(' ')[0]}>{card}</span>")
+            continue
         out.append(f"<a class='{cls}' href='{_e(href)}' target=_blank rel=noopener>{_e(SRC_NAME[k])}"
-                   "<i aria-hidden=true>\u2197</i></a>" if href else f"<span class='{cls}'>{_e(SRC_NAME[k])}</span>")
+                   "<i aria-hidden=true>↗</i></a>" if href else f"<span class='{cls}'>{_e(SRC_NAME[k])}</span>")
     return "".join(out)
 
 
@@ -1251,9 +1401,9 @@ def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | 
         layouts.append(layout)
         strike = "strike" if hard else ""  # a close one: the listing's words in plain grey, never struck
         cid = str(v.get("claim_id") or "")
-        names = _src_names(run, cid, keys, live_3d, lead=True)
-        also = _src_names(run, cid, others, live_3d)
         sid = re.sub(r"[^A-Za-z0-9_-]", "", cid) + f"-{i}"
+        names = _src_names(run, cid, keys, live_3d, lead=True, v=v, uid=sid)
+        also = _src_names(run, cid, others, live_3d, v=v, uid=sid)
         anchor = f"<span class=cl-a id='claim-{_e(cid)}'></span>" if cid else ""
         word = _score_html(v)
         shade = f" s-{_shade(v)}"

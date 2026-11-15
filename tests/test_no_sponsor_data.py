@@ -25,7 +25,7 @@ SUFFIXES = {"st", "street", "ave", "avenue", "blvd", "boulevard", "dr", "drive",
 
 # The real-listing demo pages name their real buildings on purpose. They are the one allowed exception,
 # and the reason the repo stays private.
-REAL_DEMO = "demo_site/real/"
+REAL_DEMO = "docs/demo_site/real/"
 
 
 def _index():

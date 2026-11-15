@@ -15,7 +15,7 @@ media/
 *.png
 !extension/icons/*.png
 !tests/fixtures/public/**
-!demo_site/real/img/**
+!docs/demo_site/real/img/**
 iso_cwd/
 vision_cwd/
 .claude/worktrees/

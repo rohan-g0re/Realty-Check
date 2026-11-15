@@ -16,6 +16,8 @@ media/
 !extension/icons/*.png
 !tests/fixtures/public/**
 !docs/demo_site/real/img/**
+!docs/architecture/*.png
+!docs/screenshots/*.png
 iso_cwd/
 vision_cwd/
 .claude/worktrees/
@@ -29,3 +31,7 @@ shots/
 test-results/
 playwright-report/
 *.log
+# documentation media
+!docs/demo/*.mp4
+# OS
+.DS_Store

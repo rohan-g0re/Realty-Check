@@ -1,6 +1,19 @@
 # Realty Check
 
-![Realty Check: is this listing what it says?](docs/img/thumbnail.png)
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top"><img src="docs/img/gallery/1.png" alt="Live check on a Zillow listing. The side panel streams each step of the run."><br><sub>Live check on a Zillow listing. The side panel streams each step of the run.</sub></td>
+    <td width="50%" align="center" valign="top"><img src="docs/img/gallery/2.png" alt="Side panel with the final verdict, the mismatch, a confidence score and citations."><br><sub>Side panel with the final verdict, the mismatch, a confidence score and citations.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top"><img src="docs/img/gallery/3.png" alt="Full report, landing page."><br><sub>Full report, landing page.</sub></td>
+    <td width="50%" align="center" valign="top"><img src="docs/img/gallery/4.png" alt="Listed vs. in reality. The 3D scan opens at the spot that settles the claim."><br><sub>Listed vs. in reality. The 3D scan opens at the spot that settles the claim.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top"><img src="docs/img/gallery/5.png" alt="What the listing left out, and questions to ask before you commit."><br><sub>What the listing left out, and questions to ask before you commit.</sub></td>
+    <td width="50%" align="center" valign="top"><img src="docs/img/gallery/6.png" alt="Claim by claim, every source compared."><br><sub>Claim by claim, every source compared.</sub></td>
+  </tr>
+</table>
 
 **Realty Check tells you, on the listing page itself, which of a listing's claims the building's own records back up and which they don't.**
 
@@ -31,7 +44,7 @@ difference is reported as a difference, not as an accusation.
 
 ## Architecture
 
-![How Realty Check checks one listing](docs/img/architecture.png)
+![Realty Check system architecture](docs/img/system-architecture.png)
 
 | Part | Where | What it does |
 |---|---|---|
@@ -73,7 +86,6 @@ Guard rails in code: the model runs as a fresh Claude Code CLI process per call 
 environment; it is capped at 14 calls and a 75-second budget; a missing feature is never a mismatch; a floor count
 read from a photo never decides; people's names are never shown.
 
-Diagram source: `docs/img/architecture.excalidraw` (built by `docs/img/architecture.py`).
 
 ## Tracks
 
@@ -149,8 +161,3 @@ the Matterport SDK and API, the Vexcel API, CoStar property data, county open da
 
 - Rohan Gore
 - Raunak Choudhary
-
-## Thumbnail
-
-`docs/img/thumbnail.png` (1500×1000) is drawn from `docs/img/thumbnail.html`, in the product's own design: Newsreader,
-black on white, one blue. It uses an invented listing. To change it, edit the HTML and take a 1500×1000 screenshot.

@@ -7,18 +7,21 @@ pick_top_facts(facts, verdicts=..., claims=..., llm=..., timeout=...) -> list of
 `facts` is harness.fill_in.build_fill_in's list as-is ({"id", "topic", "label", "value", "source", "note", "image"}).
 The report's "Not on the listing" list can hold ~25 facts; this keeps the handful a renter or buyer acts on. An item
 rests on one fact or on several (e.g. "CoStar: 3 floors; Vexcel roof height: about 2 floors").
-  - Never picked: parcel number, building class, ratings, lot size, owner. Facts the listing already speaks to
-    (its claims' kinds and quotes, the verdicts' kinds) are left out too. 311 / complaints: the count only.
+  - Never picked: parcel number, building class, ratings, lot size, owner, manager / management company / contact.
+    Facts the listing already speaks to (its claims' kinds and quotes, the verdicts' kinds) are left out too.
+    311 / complaints: the count only. A model item that names who manages or owns the place is rejected.
   - 0 candidates: []. Otherwise the model (Claude Code CLI login through harness.model, Sonnet, low effort, no API
     key) gets the candidate facts and answers {"items": [{"fact_ids", "label", "value", "why"}]}. It may only choose
     and phrase: every id must be a candidate, every number in the label and value must appear in those facts, the
     words must be soft (never fake / lie / scam / fraud) and carry no links, emails or phone numbers. A rejected item
-    is replaced by the next rule item. `sources`, `image` and `topic` always come from the facts, never the model.
+    is replaced by the next rule item. An item resting only on building size (two records differing) is low value
+    for a renter: a rule item a renter acts on takes its place first, and it only fills a slot left over.
+    `sources`, `image` and `topic` always come from the facts, never the model.
   - Any failure (no CLI, timeout after `timeout` s, bad JSON, nothing valid): the rule below, by "rule".
 Rule (what a renter or buyer acts on): no elevator / walk-up; homes available + vacancy; utility metering; 311 /
-complaint counts nearby; records that disagree with each other (floors, homes, building size); aerial observations
-with the top-down photo (parked vehicles, tree cover); then pets, parking, lease, rent and a few more. The result is
-cached per candidate set, so one run asks the model at most once.
+complaint counts nearby; records that disagree on floors or homes; aerial observations with the top-down photo
+(parked vehicles, tree cover); then records that disagree on building size; then pets, parking, lease, floor plans,
+amenities, rent and a few more. The result is cached per candidate set, so one run asks the model at most once.
 """
 from __future__ import annotations
 
@@ -38,8 +41,15 @@ WHY_MAX = 120
 SRC_ORDER = ["CoStar", "Matterport", "Vexcel", "County"]
 
 # Never picked, whatever the model says (ids from harness.fill_in, plus label words for anything new).
-NEVER_IDS = {"county-parcel", "class", "rating", "lot", "owner", "county-owner"}
-NEVER_LABEL = re.compile(r"parcel|building class|rating|lot size|\bowner\b", re.I)
+NEVER_IDS = {"county-parcel", "class", "rating", "lot", "owner", "county-owner", "manager", "county-manager",
+             "contact", "phone", "email", "website"}
+NEVER_LABEL = re.compile(r"parcel|building class|rating|lot size|\bowners?\b|\bmanag\w*|\blandlord|\bcontact|"
+                         r"\bphone\b|\be-?mail\b|\bwebsite\b|\bleasing office\b", re.I)
+# Words a model item may never use: who manages or owns the place is not something to pass along.
+NEVER_SAY = re.compile(r"\bmanag\w*|\bowners?\b|\bowned\s+by\b|\blandlord|\bleasing\s+office\b|\bcontact\b",
+                       re.I)
+# Low value for a renter on their own (two records giving different building sizes): only ever fills a slot.
+LOW_IDS = {"building-size", "county-size"}
 COUNT_ONLY = {"county-311", "county-complaints"}  # 311 / complaints: the count only, never categories or text
 
 # Fact ids (a trailing "-" is a prefix) the listing speaks to when its claims or verdicts have this kind, or its
@@ -74,6 +84,8 @@ LATER = [
     ("parking", "Parking can add to the monthly cost or decide whether a car works here."),
     ("parking-", "Parking can add to the monthly cost or decide whether a car works here."),
     ("lease", "Lease lengths on record; check they fit your plans."),
+    ("plan-count", "More floor plans are on record than the listing shows; worth asking which are open."),
+    ("amenities", "Amenities on record that the listing does not mention; worth asking about."),
     ("rent-range", "Asking rents on record give a sense of the price range here."),
     ("rent-type", "Some homes may come with income rules or other limits."),
     ("lifestyle", "The community may be meant for a specific group of residents."),
@@ -87,7 +99,11 @@ LATER = [
 PROMPT = """A renter or buyer is reading a check of a home listing. Below are facts our sources (CoStar, Matterport, \
 Vexcel, County) know about this place that the listing does not say. Pick at most {n} that matter most to someone \
 deciding whether to rent or buy here (what they pay, how they live day to day, what to ask about). Skip trivia.
-An item may combine 2-3 facts when together they say more (e.g. two sources giving different floor counts).
+Prefer what they act on: walk-up / no elevator, homes available (and vacancy), how utilities are metered, nearby \
+311 counts, floor or home counts that differ between records, things seen from above that come with a photo. \
+Two records giving different building sizes matters little to a renter: pick it only when nothing better is left.
+An item may combine 2-3 facts on the same subject when together they say more (e.g. two sources giving different \
+floor counts). Never mention who manages, owns or runs the place, or how to contact anyone.
 
 Facts (JSON):
 {items}
@@ -197,9 +213,17 @@ def _item(fs: list[dict], by_id: dict, label: str, value: str, why: str, by: str
 
 # ---------- rule ----------
 
-def _disagreements(by_id: dict[str, dict]) -> list[tuple[list[dict], str, str, str]]:
-    """Records that disagree with each other: (facts, label, value, why) for floors, homes and building size."""
+def _disagreements(by_id: dict[str, dict], size: bool = False) -> list[tuple[list[dict], str, str, str]]:
+    """Records that disagree with each other: (facts, label, value, why) for floors and homes, or (size=True)
+    building size only."""
     out = []
+    if size:
+        a, b = by_id.get("building-size"), by_id.get("county-size")
+        x, y = (_first_num(a["value"]), _first_num(b["value"])) if a and b else (None, None)
+        if x and y and abs(x - y) > max(1.0, 0.10 * max(x, y)):
+            out.append(([a, b], "Building size: sources differ", f"CoStar: {x:,.0f} sq ft; County: {y:,.0f} sq ft",
+                        "Sources give different sizes for the building; worth asking."))
+        return out
     rows = []  # floors
     if "floors" in by_id and _first_num(by_id["floors"]["value"]) is not None:
         rows.append((by_id["floors"], "CoStar", _first_num(by_id["floors"]["value"]), ""))
@@ -215,9 +239,7 @@ def _disagreements(by_id: dict[str, dict]) -> list[tuple[list[dict], str, str, s
                     "Sources do not agree on the floor count; worth asking how many floors there are."))
     for a, b, unit, label, why, tol in (
             ("homes", "county-homes", "homes", "Homes: sources differ",
-             "Sources give different home counts for the building; worth asking.", 0.05),
-            ("building-size", "county-size", "sq ft", "Building size: sources differ",
-             "Sources give different sizes for the building; worth asking.", 0.10)):
+             "Sources give different home counts for the building; worth asking.", 0.05),):
         if a in by_id and b in by_id:
             x, y = _first_num(by_id[a]["value"]), _first_num(by_id[b]["value"])
             if x and y and abs(x - y) > max(1.0, tol * max(x, y)):
@@ -259,6 +281,8 @@ def by_rule(cands: list[dict]) -> list[dict]:
     if "aerial-trees" in by_id:
         add([by_id["aerial-trees"]], "Tree cover", by_id["aerial-trees"]["value"],
             "Trees mean shade and greenery around the home.")
+    for fs, label, value, why in _disagreements(by_id, size=True):  # low value for a renter: after the above
+        add(fs, label, value, why)
     for key, why in LATER:
         for f in cands:
             if _hits(f["id"], (key,)):
@@ -283,20 +307,32 @@ def _valid(raw: Any, by_id: dict[str, dict], used: set[str]) -> dict | None:
     label, value = _one_line(raw.get("label")), _one_line(raw.get("value"))
     if not (0 < len(label) <= LABEL_MAX and 0 < len(value) <= VALUE_MAX):
         return None
-    if NEVER_LABEL.search(label) or any(_UNKIND.search(s) or _CONTACT.search(s) for s in (label, value)):
+    if NEVER_LABEL.search(label) or any(_UNKIND.search(s) or _CONTACT.search(s) or NEVER_SAY.search(s)
+                                        for s in (label, value)):
         return None
     known = set().union(*(_numbers(f"{f['label']} {f['value']} {f.get('note') or ''}") for f in fs))
     if not _numbers(f"{label} {value}") <= known:
         return None  # a number the facts do not give: invented
     why = soft_why(raw.get("why"))
-    if why and (_CONTACT.search(why) or not _numbers(why) <= known):
+    if why and (_CONTACT.search(why) or NEVER_SAY.search(why) or not _numbers(why) <= known):
         why = ""
     return _item(fs, by_id, label, value, why, "model")
 
 
+def _low(item: dict) -> bool:
+    """Rests only on building size: low value for a renter."""
+    return all(i in LOW_IDS for i in item.get("fact_ids") or [])
+
+
+def _acted_on(item: dict) -> bool:
+    """A rule item from the tiers a renter acts on (walk-up .. aerial): not building size, not the later tiers."""
+    return not _low(item) and not any(_hits(i, [k for k, _ in LATER]) for i in item.get("fact_ids") or [])
+
+
 def _for_model(cands: list[dict]) -> list[dict]:
+    by_id = {f["id"]: f for f in cands}
     return [{"id": f["id"], "topic": str(f.get("topic") or ""), "label": f["label"][:60], "value": f["value"][:160],
-             "source": SRC_NAME.get(str(f.get("source") or ""), ""), "has_photo": bool(f.get("image"))}
+             "source": SRC_NAME.get(str(f.get("source") or ""), ""), "has_photo": bool(_image([f], by_id))}
             for f in cands if f["id"] != "aerial-view"]
 
 
@@ -334,7 +370,8 @@ def pick_top_facts(facts: Any, *, verdicts: Any = None, claims: Any = None, llm:
         got = _parse(text)
         raws = got.get("items") if isinstance(got.get("items"), list) else []
         by_id = {f["id"]: f for f in cands}
-        picked: list[dict] = []
+        main: list[dict] = []
+        low: list[dict] = []
         used: set[str] = set()
         rejected = 0
         for raw in raws[:MAX_ITEMS]:
@@ -342,16 +379,23 @@ def pick_top_facts(facts: Any, *, verdicts: Any = None, claims: Any = None, llm:
             if it is None:
                 rejected += 1
                 continue
-            picked.append(it)
+            (low if _low(it) else main).append(it)
             used.update(it["fact_ids"])
-        if picked:
-            for r in rule:  # a rejected item's place goes to the next rule item on other facts
-                if rejected <= 0 or len(picked) >= MAX_ITEMS:
+        if main or low:
+            # The model's items keep their places, except building size: rule items a renter acts on come first,
+            # then the model's building-size item, then (for rejected items) the next rule items on other facts.
+            budget = min(MAX_ITEMS, len(main) + len(low) + rejected)
+            picked = list(main)
+            taken = {i for x in main for i in x["fact_ids"]}
+            low_ids = {i for x in low for i in x["fact_ids"]}
+            for r in [r for r in rule if _acted_on(r)] + low + [r for r in rule if not _acted_on(r)]:
+                if len(picked) >= budget:
                     break
-                if not used & set(r["fact_ids"]):
-                    picked.append(r)
-                    used.update(r["fact_ids"])
-                    rejected -= 1
+                ids = set(r["fact_ids"])
+                if ids & taken or (r["by"] == "rule" and ids & low_ids):
+                    continue
+                picked.append(r)
+                taken |= ids
             out = picked
     except Exception:  # noqa: BLE001  no CLI, timeout, bad JSON: the rule stands
         out = rule

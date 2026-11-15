@@ -8,14 +8,14 @@ appears exactly once on the page, in section 2.
                 listing says “2 Beds”; the 3D scan shows 1 bedroom and a den.", from the run's own pick
                 done.harness.top_mismatch, else the report's ranking), the claim count and sources, the small run
                 meta, and the button down. No strike-through here. Fits the first screen at 1440x900 and 390 wide.
-  2 mismatch    "Listed vs. in reality" (#mismatch): one row per mismatch, contradicted first, then close ones,
-                labelled softly. Left: the listing's words (struck through in blue only when it doesn't match;
-                plain grey for a close one). Right: what the sources show, one short reason, the credited sources
-                (the deciding one and any other whose own figure is the found value, never one that says something
-                else) with the confidence band, and the proof inline: a picture, "See it in 3D", or one record line.
-                The lead row (the run's pick, else the ranking: beds/baths/size, then rent and fees, then building
-                facts, then amenities; a bigger gap first) is set largest, its strike draws itself in, and it holds
-                the full proof (live 3D viewer, pictures, a measured drawing or a record card).
+  2 mismatch    "Listed vs. in reality" (#mismatch): one master-detail view that fits a screen. Left: a list (tabs),
+                one row per mismatch, contradicted first, then close ones (the run's pick first and selected): claim
+                type, the listing's words in short, "Doesn't match" / "Close" and the confidence score. Right: the
+                selected row's panel: the listing's words (struck through in blue only when it doesn't match), what
+                the sources show, one short reason, the credited sources (never one that says something else) with
+                "Confidence 82 / 100 · high" and its why, and the proof. Columnar (Listed | In reality, one record
+                line) for a figure; vertical (claim, found value, then the proof filling the panel: live 3D viewer,
+                pictures, or the measured roof-height drawing) for a visual proof. One mismatch: the panel alone.
   3 extra       "Not in the listing" (#extra): at most five things the listing does not say that matter to a renter
                 or buyer: label, value, one line on why it matters, source, a picture when there is one. Data:
                 done.harness.top_facts; else harness.top_facts.pick_top_facts(facts, llm=None); else a small local
@@ -34,8 +34,8 @@ Pictures only via /img/<token>; outside requests: the Newsreader font, and Matte
 Pictures whose cached file is gone (older runs) are taken out before rendering (server.report.drop_dead_images), and
 any picture that still fails to load is hidden in the browser (no broken-image icon).
 
-3D viewers (live_3d=True, the server's page): when the lead row's proof is a 3D scan it shows the live Matterport
-viewer inline (the same-origin /tour/<run_id>?claim=<id>&embed=1 page in an iframe), opened at the picked spot, with
+3D viewers (live_3d=True, the server's page): when the selected panel's proof is a 3D scan it shows the live Matterport
+viewer inline (made only for the selected panel; picking another row takes it down) (the same-origin /tour/<run_id>?claim=<id>&embed=1 page in an iframe), opened at the picked spot, with
 no click and no new tab; it mounts at once, never more than two live at a time, and a still picture covers it until
 the tour page reports "ready" (postMessage). Other scan rows, confirmed rows and the claim field panel have "See it
 in 3D", which opens a viewer in place. live_3d=False (the extension's static sample, no server) keeps the still
@@ -75,7 +75,6 @@ SRC_SHORT = {"record": "CoStar", "scan": "3D scan", "aerial": "Vexcel", "county"
 TIER_UNIT = {"bedrooms", "bathrooms", "area_sqft"}
 TIER_BUILDING = {"stories", "year_built", "unit_count"}
 MONEY_RE = re.compile(r"\$\s?\d|\brent\b|\bfees?\b|\bdeposit\b|\bprice\b|\bper month\b|/mo\b", re.I)
-LVR_SHOW = 8       # 'Listed vs. in reality' rows shown before the "show the other N" button
 LIST_SHOW = 12     # matches / couldn't-check entries shown before the "show the other N" button
 MAX_QUESTIONS = 5
 UNKIND = re.compile(r"(?i)\b(fake|faked|lie|lies|lied|lying|scam\w*|fraud\w*)\b")
@@ -109,7 +108,7 @@ transition:background-color .18s ease,transform .18s ease;white-space:nowrap}
 .top nav{display:flex;align-items:center;gap:4px 20px}
 .back{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:15px;text-decoration:none}
 /* 1 hero: the count, huge, on two staggered lines; a narrow column at the right beneath it */
-.hero{display:flex;flex-direction:column;padding:clamp(4px,1.6vw,28px) 0 clamp(72px,9vw,150px)}
+.hero{display:flex;flex-direction:column;padding:clamp(4px,1.6vw,28px) 0 clamp(56px,7vw,112px)}
 .hero-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:clamp(24px,3.4vh,44px) 6%}
 h1{margin:0;flex:1 1 100%;font-weight:300;font-size:clamp(58px,min(11vw,18.5vh),172px);line-height:.92;
 letter-spacing:-.05em;display:flex;flex-direction:column}
@@ -125,56 +124,104 @@ h1 .tick{display:inline-block;width:.42em;height:.42em;margin-left:.12em;vertica
 .sh{margin:0 0 clamp(24px,3vw,44px);font-weight:300;font-size:clamp(40px,5.4vw,84px);line-height:.95;letter-spacing:-.045em}
 .sh-sub{margin:calc(-1 * clamp(10px,1.6vw,26px)) 0 clamp(24px,3vw,40px);font-size:17px;color:var(--mute);max-width:56ch}
 .empty{font-size:20px;color:var(--mute);margin:0}
-/* 2 listed vs. in reality: every mismatch once, two columns */
-.lvr{padding-bottom:clamp(80px,9vw,150px);scroll-margin-top:24px}
-.lvr-head,.lvr-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(24px,5vw,88px)}
-.lvr-head{font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);padding-bottom:12px;
-border-bottom:1px solid var(--ink)}
-.lvr-head span+span{color:var(--blue)}
-.lvr-rows{list-style:none;margin:0;padding:0}
-.lvr-row{row-gap:10px;padding:clamp(18px,2vw,30px) 0;border-bottom:1px solid #ececec;align-items:start;scroll-margin-top:24px}
-.lvr-k{grid-column:1/-1;margin:0;display:flex;align-items:baseline;gap:12px;font-size:15px;color:var(--mute)}
-.lvr-k b{font-weight:400;color:var(--blue);font-variant-numeric:tabular-nums}
+/* 2 listed vs. in reality: one master-detail view that fits a screen (list left, the selected panel right) */
+.lvr{padding-bottom:clamp(48px,5vw,88px);scroll-margin-top:8px}
+.lvr-top{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 24px;
+margin:0 0 clamp(12px,1.4vw,20px);padding-bottom:12px;border-bottom:1px solid var(--ink)}
+.lvr-top .sh{margin:0;font-size:clamp(34px,3.6vw,56px);line-height:1.08}
+.lvr-n{margin:0;font-size:16px;color:var(--mute)}
+.md{display:grid;grid-template-columns:minmax(250px,1fr) minmax(0,2fr);column-gap:clamp(20px,3vw,52px);
+height:clamp(440px,calc(100vh - 150px),780px)}
+.md.one{grid-template-columns:minmax(0,1fr)}
+.md.flat{height:clamp(340px,52vh,480px)}  /* figures only: no picture to fill a tall panel */
+.md-p[hidden]{display:none}html:not(.js) .md{height:auto}html:not(.js) .md-p[hidden]{display:flex}
+.md-list{position:relative;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;
+border-right:1px solid var(--line);scrollbar-width:thin}
+.md-i{position:relative;flex:none;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:1px;
+align-items:baseline;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #ececec;
+padding:13px 16px 13px 18px;font:inherit;color:var(--ink);cursor:pointer;transition:background-color .18s ease}
+.md-i:hover{background:var(--soft)}
+.md-i:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.md-i[aria-selected=true]{background:#eef2fd}
+.md-i::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--blue);transform:scaleY(0);
+transition:transform .22s cubic-bezier(.2,.7,.2,1)}
+.md-i[aria-selected=true]::before{transform:none}
+.md-t{font-size:19px;line-height:1.25;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.md-s{grid-column:1/-1;font-size:14px;line-height:1.35;color:var(--mute);min-width:0;overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap}
+.md-g{grid-row:1;grid-column:2;display:inline-flex;align-items:baseline;gap:8px;font-size:12px;letter-spacing:.03em;
+color:var(--blue);white-space:nowrap}
+.md-i.close .md-g{color:var(--mute)}
+.md-c{font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums;border:1px solid var(--line);padding:0 5px}
+.md-ps{min-width:0;min-height:0}
+.md-p{height:100%;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden;outline:0;scroll-margin-top:8px}
+.md-p.in{animation:mdin .34s cubic-bezier(.2,.7,.2,1)}
+@keyframes mdin{from{opacity:0;transform:translateY(8px)}}
+.lvr-k{margin:0;display:flex;align-items:baseline;gap:12px;font-size:15px;color:var(--mute);flex:none}
 .lvr-k em{font-style:normal;color:var(--mute);border:1px solid var(--line);padding:0 8px;font-size:13px;letter-spacing:.02em}
-.lvr-close .lvr-k b{color:var(--mute)}
-.lvr-l,.lvr-r{display:flex;flex-direction:column;gap:10px;min-width:0}
-.lvr-said,.lvr-truth{font-weight:300;font-size:clamp(26px,2.8vw,42px);line-height:1.08;letter-spacing:-.03em;overflow-wrap:anywhere}
-.lvr-said{color:var(--ghost);align-self:flex-start}
+.lvr-lab{display:block;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-bottom:4px}
+.lvr-r .lvr-lab,.vstack>div+div .lvr-lab{color:var(--blue)}
+.lvr-close .lvr-r .lvr-lab,.lvr-close .vstack>div+div .lvr-lab{color:var(--mute)}
+.lvr-said,.lvr-truth{display:block;font-weight:300;letter-spacing:-.04em;overflow-wrap:anywhere}
+.lvr-said{color:var(--ghost)}
 .lvr-truth{color:var(--blue)}
 .lvr-close .lvr-truth{color:var(--ink)}
-.lvr-why{margin:0;font-size:18px;line-height:1.4;max-width:46ch}
-.lvr-cred{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
-.lvr-src{font-size:15px;color:var(--mute)}
-.lvr-lab{display:none}
-.lvr-more{margin-top:20px}
-.lvr-proof{margin:4px 0 0;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 18px}
-.lvr-proof a.pic{width:168px}.lvr-proof a.pic img{aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
+.pcols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(20px,3vw,52px);flex:none;
+border-top:1px solid var(--line);padding:clamp(14px,2vh,26px) 0 clamp(6px,1vh,14px)}
+.pcols .lvr-said,.pcols .lvr-truth{font-size:clamp(40px,4.6vw,80px);line-height:1}
+.pcols.long .lvr-said,.pcols.long .lvr-truth{font-size:clamp(28px,2.8vw,46px);line-height:1.06}
+.vstack{flex:none;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(20px,3vw,52px);
+border-top:1px solid var(--line);padding-top:12px}
+.vstack .lvr-said,.vstack .lvr-truth{font-size:clamp(26px,2.5vw,40px);line-height:1.05}
+.lvr-why{margin:0;font-size:18px;line-height:1.4;max-width:62ch;flex:none}
+.lvr-cred{flex:none;display:flex;flex-direction:column;gap:2px}
+.lvr-cred p{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+.lvr-src{font-size:15px;color:var(--ink)}
+.lvr-also{font-size:14px;color:var(--mute)}.lvr-also a{color:var(--mute)}
+a.art{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+a.art:hover{color:var(--blue);text-decoration-color:var(--blue)}
+.art-lib{margin:16px 0 0 auto;max-width:360px;font-size:17px}.art-lib a{color:#fff}
+.lvr-conf{font-size:15px;color:var(--mute);font-variant-numeric:tabular-nums}
+.lvr-cred .lvr-cwhy{font-size:14px;line-height:1.4;color:var(--mute);max-width:72ch;display:-webkit-box;-webkit-line-clamp:2;
+-webkit-box-orient:vertical;overflow:hidden}
+.lvr-proof{margin:0;min-width:0}
 .lvr-proof .rline{margin:0;font-size:15px;line-height:1.4;color:var(--ink);border-left:2px solid var(--blue);padding:2px 0 2px 12px}
 .lvr-proof .rline span{color:var(--mute)}
-.lvr-proof .see3d-box{flex:1 1 100%}
-/* the lead row: largest on the page, with the full proof */
-.lvr-lead{padding:clamp(26px,3vw,48px) 0 clamp(36px,4vw,64px)}
-.lvr-lead .lvr-said,.lvr-lead .lvr-truth{font-size:clamp(44px,6.2vw,100px);line-height:.98;letter-spacing:-.045em}
-.lvr-lead .lvr-why{font-size:clamp(19px,1.6vw,23px)}
-.lvr-lead .lvr-k{font-size:16px}
-figure.lvr-proof{display:flex;flex-direction:column;align-items:stretch;gap:12px;width:100%}
-figure.lvr-proof .pics{width:100%}
-.lvr-lead .walk{width:100%;aspect-ratio:16/9;min-height:360px}
-.lvr-lead .stage{aspect-ratio:4/3;min-height:0}
-.strike{background:linear-gradient(var(--blue),var(--blue)) no-repeat 0 46%/100% .075em;
+figure.lvr-proof{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;align-items:stretch;gap:8px;width:100%}
+figure.lvr-proof>.walk,figure.lvr-proof>.draw,figure.lvr-proof>.cards{flex:1 1 auto;min-height:0}
+figure.lvr-proof .walk{aspect-ratio:auto;max-height:none;min-height:200px;width:100%}
+figure.lvr-proof .pics{flex:1 1 auto;min-height:0;grid-template-rows:minmax(0,1fr) auto}
+figure.lvr-proof .pics .lead{min-height:0}
+figure.lvr-proof .pics .lead img{height:100%;aspect-ratio:auto}
+figure.lvr-proof .thumbs{grid-template-columns:repeat(auto-fill,96px)}
+figure.lvr-proof figcaption{flex:none}
+figure.lvr-proof .draw{padding:clamp(12px,1.6vw,24px)}
+figure.lvr-proof .draw svg{height:100%;max-height:100%}
+.strike{background:linear-gradient(var(--blue),var(--blue)) no-repeat 0 52%/100% .075em;
 -webkit-box-decoration-break:clone;box-decoration-break:clone;padding:0 .03em}
 .js .rv .strike{background-size:0 .075em;transition:background-size 1s cubic-bezier(.7,0,.2,1) .35s}
 .js .rv.in .strike{background-size:100% .075em}
+.js .rv.in .md-p.in .strike{animation:strk .9s cubic-bezier(.7,0,.2,1) .2s backwards}
+@keyframes strk{from{background-size:0 .075em}}
 .sq{display:inline-flex;gap:4px;flex:none}.sq i{width:10px;height:10px;background:var(--line);display:block}
 .sq i.on{background:var(--ink)}.sq i.hit{background:var(--blue)}
 .js .rv .sq i{transform:scale(0);transition:transform .4s cubic-bezier(.2,.7,.2,1)}
 .js .rv.in .sq i{transform:none}
 .js .rv.in .sq i:nth-child(2){transition-delay:.08s}.js .rv.in .sq i:nth-child(3){transition-delay:.16s}
 .js .rv.in .sq i:nth-child(4){transition-delay:.24s}
-@media (max-width:640px){.lvr-head{display:none}.lvr-row{grid-template-columns:minmax(0,1fr);row-gap:12px}
-.lvr-lab{display:block;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
-.lvr-r .lvr-lab{color:var(--blue)}.lvr-close .lvr-r .lvr-lab{color:var(--mute)}
-.lvr-l,.lvr-r{gap:6px}.lvr-proof a.pic{width:140px}}
+@media (max-width:760px){
+.md{display:block;height:auto}
+.md-list{flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;gap:8px;padding:2px 2px 10px;
+scroll-snap-type:x proximity}
+.md-i{width:auto;min-width:170px;max-width:72vw;border:1px solid var(--line);padding:10px 14px 10px 16px;scroll-snap-align:start}
+.md-ps{margin-top:14px}
+.md-p{height:auto;overflow:visible}
+.pcols,.vstack{grid-template-columns:minmax(0,1fr);row-gap:12px}
+.pcols .lvr-said,.pcols .lvr-truth{font-size:40px}
+figure.lvr-proof .walk{aspect-ratio:4/3;min-height:260px}
+figure.lvr-proof .pics .lead img{height:auto;aspect-ratio:16/10}
+figure.lvr-proof .draw svg{height:auto;max-height:340px}
+}
 /* proof: 3D walk */
 .stage{position:relative;background:#ededeb;overflow:hidden;aspect-ratio:16/8;min-height:300px}
 .stage>img,.stage>svg.room{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -224,31 +271,34 @@ transition:transform .25s ease,box-shadow .25s ease}
 .cards{display:flex;flex-direction:column;gap:10px}
 .nopic{background:var(--soft);min-height:160px;display:flex;align-items:center;justify-content:center;padding:24px;
 text-align:center;font-weight:300;font-size:clamp(34px,4vw,60px);line-height:1;letter-spacing:-.04em;color:var(--blue)}
-/* 3 not in the listing: at most five rows */
-.nil{padding-bottom:clamp(80px,9vw,150px);scroll-margin-top:24px}
+/* 3 not in the listing + 4 questions: side by side on a wide screen, compact rows */
+.duo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(32px,4vw,80px);align-items:start;
+padding-bottom:clamp(48px,5vw,88px)}
+@media (max-width:1040px){.duo{grid-template-columns:minmax(0,1fr)}}
+.duo .sh{font-size:clamp(34px,3.6vw,56px);margin:0 0 6px}
+.duo .sh-sub{margin:0 0 14px;font-size:16px}
+.nil,.ask{scroll-margin-top:24px;min-width:0}.duo>.wrap{padding:0;max-width:none;margin:0}
 .nil-rows{list-style:none;margin:0;padding:0;border-top:1px solid var(--ink)}
-.nil-row{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,4fr) minmax(0,5fr);column-gap:clamp(20px,4vw,72px);
-row-gap:10px;padding:clamp(18px,2vw,30px) 0;border-bottom:1px solid #ececec;align-items:start}
-.nil-k{margin:0;display:flex;align-items:baseline;gap:12px;font-size:17px;line-height:1.35}
+.nil-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:16px;padding:12px 0;border-bottom:1px solid #ececec;
+align-items:start}
+.nil-m{display:flex;flex-direction:column;gap:2px;min-width:0}
+.nil-k{margin:0;display:flex;align-items:baseline;gap:10px;font-size:15px;line-height:1.35;color:var(--mute)}
 .nil-k b{font-weight:400;color:var(--blue);font-variant-numeric:tabular-nums}
-.nil-v{margin:0;font-weight:300;font-size:clamp(26px,2.8vw,42px);line-height:1.08;letter-spacing:-.03em;overflow-wrap:anywhere}
-.nil-w{display:flex;flex-direction:column;gap:10px;min-width:0}
-.nil-w p{margin:0;font-size:18px;line-height:1.4;max-width:46ch}
-.nil-w .nil-src{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--mute)}
-.nil-w a.pic{width:min(100%,280px)}.nil-w a.pic img{aspect-ratio:16/10;object-fit:cover;background:var(--soft)}
-@media (max-width:820px){.nil-row{grid-template-columns:minmax(0,1fr)}}
+.nil-v{margin:0;font-weight:300;font-size:clamp(22px,1.9vw,28px);line-height:1.15;letter-spacing:-.02em;overflow-wrap:anywhere}
+.nil-m p.nil-w{margin:0;font-size:16px;line-height:1.4;color:var(--ink)}
+.nil-src{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mute)}
+.nil-row a.pic{width:112px}.nil-row a.pic img{aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
 /* 4 questions */
-.ask{padding-bottom:clamp(80px,9vw,150px);scroll-margin-top:24px}
 .qlist{list-style:none;margin:0;padding:0;border-top:1px solid var(--ink)}
-.qlist li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px clamp(16px,3vw,40px);
-padding:clamp(16px,1.8vw,24px) 0;border-bottom:1px solid #ececec;font-size:22px;line-height:1.35}
-.qlist .qn{color:var(--blue);font-size:15px;font-variant-numeric:tabular-nums;align-self:baseline}
-.qlist li>span:not(.qn){max-width:62ch}
-.ask-all{margin:28px 0 0}
-@media (max-width:560px){.qlist li{grid-template-columns:auto minmax(0,1fr);font-size:19px}
-.qlist li .btn{grid-column:2;justify-self:start}}
+.qlist li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px 16px;
+padding:11px 0;border-bottom:1px solid #ececec;font-size:18px;line-height:1.38}
+.qlist .qn{color:var(--blue);font-size:14px;font-variant-numeric:tabular-nums;align-self:baseline}
+.qlist .btn.ghost{min-height:34px;font-size:14px;padding:0 12px}
+.ask-all{margin:16px 0 0}
+@media (max-width:560px){.qlist li{grid-template-columns:auto minmax(0,1fr);font-size:17px}
+.qlist li .btn{grid-column:2;justify-self:start}.nil-row a.pic{width:88px}}
 /* 5 heatmap + sources (the dark band) */
-.field-sec{padding-bottom:clamp(72px,8vw,130px);scroll-margin-top:24px}
+.field-sec{padding-bottom:clamp(48px,5vw,88px);scroll-margin-top:24px}
 .fld{display:flex;gap:clamp(10px,1.6vw,24px);overflow-x:auto;padding-bottom:6px}
 .fld-names{flex:none;display:grid;grid-auto-rows:clamp(30px,4vw,56px);gap:6px;font-size:17px;width:clamp(100px,13%,180px)}
 .fld-names span{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -261,11 +311,11 @@ padding:clamp(16px,1.8vw,24px) 0;border-bottom:1px solid #ececec;font-size:22px;
 .legend i{display:inline-block;width:11px;height:11px;margin-right:8px;background:#ececec;vertical-align:-1px}
 .legend i.m{background:var(--ink)}.legend i.x{background:var(--blue)}.legend i.w{background:#bdbdbd}
 .dark{background:#111;color:#f2f2f2}.dark a{color:#fff}.dark .mute{color:#a9a9a9}
-.srcs{padding-top:clamp(96px,10vw,170px);padding-bottom:clamp(80px,8vw,140px)}
+.srcs{padding-top:clamp(64px,7vw,110px);padding-bottom:clamp(56px,6vw,96px)}
 .h2{margin:0;font-weight:300;font-size:clamp(48px,8vw,124px);line-height:.92;letter-spacing:-.05em;display:flex;flex-direction:column}
 .h2 .l2{padding-left:clamp(0px,15vw,220px)}
 .lede{margin:clamp(24px,3vw,40px) 0 0 auto;max-width:360px;font-size:17px}
-.src-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(16px,2.4vw,48px);margin-top:clamp(48px,6vw,96px)}
+.src-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(16px,2.4vw,48px);margin-top:clamp(32px,4vw,64px)}
 .src{display:flex;flex-direction:column;gap:10px;min-width:0}
 .src .tile{background:#1d1d1d;aspect-ratio:4/3;display:flex;flex-direction:column;justify-content:space-between;padding:18px;
 font-size:15px;line-height:1.45;color:#cfcfcf;overflow:hidden;transition:transform .3s ease}
@@ -290,12 +340,12 @@ border:1px solid var(--ink);font-size:20px;line-height:1;flex:none}
 .mlist li{padding:0 0 12px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
 .mlist small{display:block;font-size:14px;color:var(--mute)}
 .reasons{display:flex;flex-direction:column;gap:18px}
-.reasons p{margin:0 0 4px;font-size:15px;color:var(--mute)}
+.reasons p{margin:0 0 4px;font-size:15px;color:var(--mute);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .reasons .qs{font-size:19px;line-height:1.4}
 .toggle{margin-top:18px}
 .js .more-wrap:not(.open) .more{display:none}
 /* footer */
-.foot{padding-top:clamp(80px,8vw,130px);padding-bottom:40px}
+.foot{padding-top:clamp(56px,6vw,96px);padding-bottom:40px}
 .mark{margin:0;font-weight:300;font-size:clamp(52px,15.5vw,224px);line-height:.95;letter-spacing:-.05em;white-space:nowrap}
 .foot-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:32px;margin-top:clamp(40px,5vw,80px)}
 .foot-links{display:flex;flex-direction:column;gap:6px;font-size:clamp(26px,2.6vw,36px)}
@@ -328,12 +378,14 @@ body{font-size:18px}
 .src-grid{grid-template-columns:minmax(0,1fr)}
 .src .tile{aspect-ratio:auto;min-height:150px}
 .stage{aspect-ratio:auto;min-height:300px}
-.walk,.lvr-lead .walk{min-height:280px}
+.walk{min-height:280px}
 }
 @media (prefers-reduced-motion: reduce){
 html{scroll-behavior:auto}
 .js .rv,.js .rv.in{opacity:1;transform:none;transition:none}
 .js .rv .strike{background-size:100% .075em;transition:none}
+.js .rv.in .md-p.in .strike,.md-p.in{animation:none}
+.md-i::before{transition:none}
 .js .rv .sq i{transform:none;transition:none}
 .js .fld-col i{transform:none;opacity:1;transition:none}
 .stage>img,.stage .pin::after,h1 .tick path{animation:none}
@@ -390,6 +442,42 @@ var dd=t.closest('details')||t.querySelector&&t.querySelector('details.allck');i
 openTo();window.addEventListener('hashchange',openTo);
 })();
 (function(){
+/* 2 'Listed vs. in reality': a list of tabs, one panel shown. Arrow keys move the selection; #claim-<id> and
+   #mismatch select / show it. A 3D viewer is made only for the selected panel, after a short pause (fast arrowing
+   never starts several), and the one in the panel left is taken down. */
+var md=document.querySelector('.md');if(!md)return;
+var list=md.querySelector('[role=tablist]'),tabs=[].slice.call(md.querySelectorAll('[role=tab]')),tm=null;
+var still=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+function pan(t){return document.getElementById(t.getAttribute('aria-controls'));}
+function tabOf(p){return document.getElementById(p.getAttribute('aria-labelledby')||'');}
+function keep(t){if(!list)return;var L=list;
+if(L.scrollHeight>L.clientHeight){if(t.offsetTop<L.scrollTop)L.scrollTop=t.offsetTop;
+else if(t.offsetTop+t.offsetHeight>L.scrollTop+L.clientHeight)L.scrollTop=t.offsetTop+t.offsetHeight-L.clientHeight;}
+if(L.scrollWidth>L.clientWidth){if(t.offsetLeft<L.scrollLeft)L.scrollLeft=t.offsetLeft;
+else if(t.offsetLeft+t.offsetWidth>L.scrollLeft+L.clientWidth)L.scrollLeft=t.offsetLeft+t.offsetWidth-L.clientWidth;}}
+function select(t,focus){if(!t)return;var shown=null;
+tabs.forEach(function(x){var on=x===t,p=pan(x);x.setAttribute('aria-selected',on?'true':'false');x.tabIndex=on?0:-1;if(!p)return;
+if(on){shown=p;if(p.hidden){p.hidden=false;p.classList.remove('in');void p.offsetWidth;p.classList.add('in');}}
+else if(!p.hidden){p.hidden=true;p.classList.remove('in');
+[].forEach.call(p.querySelectorAll('.walk'),function(w){if(window.RC3D)window.RC3D.unmount(w);});}});
+if(focus)t.focus({preventScroll:true});keep(t);clearTimeout(tm);
+var w=shown&&shown.querySelector('.walk[data-src]');
+if(w)tm=setTimeout(function(){if(!shown.hidden&&window.RC3D)window.RC3D.mount(w);},260);}
+if(list){list.addEventListener('click',function(e){var t=e.target.closest('[role=tab]');if(t)select(t,true);});
+list.addEventListener('keydown',function(e){var i=tabs.indexOf(document.activeElement);if(i<0)return;var j=null;
+if(e.key==='ArrowDown'||e.key==='ArrowRight')j=Math.min(tabs.length-1,i+1);
+else if(e.key==='ArrowUp'||e.key==='ArrowLeft')j=Math.max(0,i-1);
+else if(e.key==='Home')j=0;else if(e.key==='End')j=tabs.length-1;
+if(j===null)return;e.preventDefault();select(tabs[j],true);});}
+function show(p,scroll){var t=p&&tabOf(p);if(t&&p.hidden)select(t,false);
+if(scroll){var s=document.getElementById('mismatch');if(s)s.scrollIntoView({behavior:'auto',block:'start'});}}
+window.RCMD={show:show,select:select};
+function go(){var id=location.hash.slice(1);if(!id)return;var el=document.getElementById(id);if(!el)return;
+var p=el.closest&&el.closest('.md-p');if(p){show(p,true);return;}
+if(id==='mismatch'||id==='compare')show(null,true);}
+go();window.addEventListener('hashchange',go);
+})();
+(function(){
 /* live 3D viewers: mount without a click, at most MAX live, still picture on top until the tour page says ready */
 var MAX=2,live=[],T0=performance.now(),R=window.RC3D={live:live,times:{},max:MAX};
 function all(){return [].slice.call(document.querySelectorAll('.walk[data-src]'));}
@@ -428,6 +516,7 @@ w._to=setTimeout(function(){if(w._f&&!w.classList.contains('live')){w.classList.
 else if(d.state==='error'){note(w,d.note);w.classList.add('live','nospot');w.classList.remove('loading');clearTimeout(w._to);}
 else if(d.state==='off'){unmount(w);w.classList.add('off');note(w,d.note||'The live 3D view is not available here.');}});
 R.see=function(cid,src,host){var a=cid&&document.getElementById('claim-'+cid),f=a&&a.closest('.lvr-row'),w=f&&f.querySelector('.walk[data-src]');
+if(w&&f.hidden&&window.RCMD)window.RCMD.show(f,true);
 if(w){mount(w);w.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});return w;}
 if(!src||!host)return null;var box=host.querySelector('.see3d-box');
 if(!box){box=document.createElement('div');box.className='see3d-box';box.innerHTML="<div class=walk><div class=stage>"+
@@ -445,7 +534,8 @@ inview=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isInter
 /* a fade-in parent (opacity 0, transform) would keep Chrome from running the viewer and pin the dock to it: show those
    parents at once */
 all().forEach(function(w){var p=w.closest('.rv');if(p)p.classList.add('in');});
-var ws=all(),first=null,h=location.hash.match(/^#claim-([A-Za-z0-9_-]{1,32})$/);
+/* a viewer in a list panel that is not selected is never made: only the selected panel's */
+var ws=all().filter(function(w){return !w.closest('.md-p[hidden]');}),first=null,h=location.hash.match(/^#claim-([A-Za-z0-9_-]{1,32})$/);
 if(h){var a=document.getElementById('claim-'+h[1]),fd=a&&a.closest('.lvr-row');first=fd&&fd.querySelector('.walk[data-src]');}
 first=first||ws[0];if(first)mount(first);
 ws.forEach(function(w){if(near)watch(w);else if(w!==first&&live.length<MAX)mount(w);});
@@ -984,108 +1074,164 @@ def _record_line(run: Run, v: dict) -> str:
     return ""
 
 
-def _row_proof(run: Run, v: dict, lead: bool, live_3d: bool, used_imgs: set, used_walk: list) -> str:
-    """The proof inside a mismatch row, picked from what the verdict has. The lead row: the full slot (live 3D
-    viewer, pictures, a measured drawing, or a record card). Any other row: 'See it in 3D', one small picture, or
-    one record line. '' when there is nothing to show."""
+def _conf(v: dict) -> tuple[int | None, str, str]:
+    """(the verdict's 0-100 trust score (confidence.score) or None, band 'high' | 'medium' | 'low' or '', its
+    one-line why or ''). Never a made-up number: no score, None."""
+    conf = v.get("confidence") if isinstance(v.get("confidence"), dict) else {}
+    s = conf.get("score")
+    score = int(round(s)) if isinstance(s, (int, float)) and not isinstance(s, bool) and 0 <= s <= 100 else None
+    band = str(conf.get("band") or "").lower()
+    return score, (band if band in ("high", "medium", "low") else ""), _kind_text(conf.get("why"))
+
+
+def _conf_text(v: dict) -> str:
+    """'Confidence 82 / 100 · high', 'Medium confidence' (no score), or ''."""
+    score, band, _ = _conf(v)
+    if score is not None:
+        return f"Confidence {score} / 100" + (f" · {band}" if band else "")
+    return f"{_cap(band)} confidence" if band else ""
+
+
+def _art_href(run: Run, cid: str | None = None, key: str | None = None) -> str:
+    """Link into the run's artifact library (server/artifacts.py, GET /artifacts/<run_id>): the page, or one source's
+    proof for one claim (#a-<claim_id>-<costar|matterport|vexcel|county>). '' when the ids are not plain."""
+    rid = str(run.raw.get("run_id") or "")
+    if not re.fullmatch(r"[a-z0-9-]{1,64}", rid):
+        return ""
+    if cid is None:
+        return f"/artifacts/{rid}"
+    if key not in SRC_NAME or not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", str(cid)):
+        return ""
+    return f"/artifacts/{rid}#a-{cid}-{SRC_NAME[key].lower()}"
+
+
+def _src_names(run: Run, cid: str, keys: list, links: bool) -> str:
+    """Source names joined with ' + ', each a link to its artifact (links=True, the server's page) or plain text."""
+    out = []
+    for k in keys:
+        href = _art_href(run, cid, k) if links else ""
+        out.append(f"<a class=art href='{_e(href)}'>{_e(SRC_NAME[k])}</a>" if href else _e(SRC_NAME[k]))
+    return " + ".join(out)
+
+
+def _panel_proof(run: Run, v: dict, first: bool, live_3d: bool, used_imgs: set, used_walk: list) -> tuple[str, str]:
+    """(layout, proof html) for one mismatch panel, decided by the proof it has. 'v' (vertical: the listing's
+    words, the found value, then the visual proof filling the panel): a 3D scan view, scan or aerial pictures, or a
+    measured drawing from the Vexcel roof height. 'c' (columnar: Listed | In reality, then one record line): a
+    figure from CoStar / County / Vexcel numbers or a scan title."""
     c = run.claim(v)
     label = c.get("label")
     walk = _walk_hrefs(run, v)
     imgs = [x for x in run.images_for([v], label) if x[0] not in used_imgs]
-    if lead:
-        measured = _measured(run, v)
-        if walk:
+    fid = " id=f1" if first else ""
+    alt = _e(_truth_text(v).rstrip(".")[:40])
+    if walk:
+        if first:
             used_walk.append("#f1")
-            view = next(((p, cap) for p, cap in imgs if "floor plan" not in cap.lower()), None)
-            if view:
-                used_imgs.add(view[0])
-            bg = f"<img src='{_e(view[0])}' alt='' loading=lazy>" if view else (
-                "<svg class=room viewBox='0 0 160 80' preserveAspectRatio='none' aria-hidden=true>"
-                "<path d='M0 0h160v80H0z' fill='#e4e4e1'/><path d='M0 0l55 22h50L160 0z' fill='#f5f5f3'/>"
-                "<path d='M0 80l55-22h50l55 22z' fill='#d6d5d1'/><path d='M55 22h50v36H55z' fill='#efefed'/></svg>")
-            scan_name = _scan_title(run, label) if label else ""
-            small = (f"{scan_name} · " if scan_name else "") + "Opening at the spot that shows this…"
-            proof, kind_word = _walk_box(walk[1], walk[2], bg, small, live_3d) + measured, "walk"
-        elif imgs:
-            imgs = imgs[:3]
-            used_imgs.update(p for p, _ in imgs)
-            proof, kind_word = _pics(imgs), "pictures"
-        elif measured:
-            proof, kind_word = measured, "measured"
-        else:
-            proof, kind_word = _line_cards(run, v), "record"
-        if not proof:
-            return ""
-        alt = _truth_text(v).rstrip(".")[:40]
-        return f"<figure class='proof lvr-proof' id=f1 data-proof='{kind_word}' data-alt='{_e(alt)}'>{proof}</figure>"
-    bits, kind_word = [], ""
-    if walk and live_3d:
-        bits.append(f"<button type=button class=see3d data-src='{_e(walk[1])}' data-claim='{_e(walk[2])}'>"
-                    "See it in 3D</button>")
-        kind_word = "3d"
+        view = next(((p, cap) for p, cap in imgs if "floor plan" not in cap.lower()), None)
+        if view:
+            used_imgs.add(view[0])
+        bg = f"<img src='{_e(view[0])}' alt='' loading=lazy>" if view else (
+            "<svg class=room viewBox='0 0 160 80' preserveAspectRatio='none' aria-hidden=true>"
+            "<path d='M0 0h160v80H0z' fill='#e4e4e1'/><path d='M0 0l55 22h50L160 0z' fill='#f5f5f3'/>"
+            "<path d='M0 80l55-22h50l55 22z' fill='#d6d5d1'/><path d='M55 22h50v36H55z' fill='#efefed'/></svg>")
+        scan_name = _scan_title(run, label) if label else ""
+        small = (f"{scan_name} · " if scan_name else "") + "Opening at the spot that shows this…"
+        return "v", (f"<figure class='proof lvr-proof'{fid} data-proof='walk' data-alt='{alt}'>"
+                     f"{_walk_box(walk[1], walk[2], bg, small, live_3d)}</figure>")
     if imgs:
-        used_imgs.add(imgs[0][0])
-        bits.append(_fig(*imgs[0]))
-        kind_word = kind_word or "pictures"
-    elif not bits:
-        line = _record_line(run, v)
-        if line:
-            bits.append(line)
-            kind_word = "record"
-    return f"<div class=lvr-proof data-proof='{kind_word}'>{''.join(bits)}</div>" if bits else ""
+        imgs = imgs[:3]
+        used_imgs.update(p for p, _ in imgs)
+        return "v", f"<figure class='proof lvr-proof'{fid} data-proof='pictures' data-alt='{alt}'>{_pics(imgs)}</figure>"
+    if v.get("source") == "aerial":
+        measured = _measured(run, v)
+        if measured:
+            return "v", f"<figure class='proof lvr-proof'{fid} data-proof='measured' data-alt='{alt}'>{measured}</figure>"
+    line = _record_line(run, v)
+    return "c", (f"<div class=lvr-proof data-proof='record'>{line}</div>" if line else "")
 
 
 def _mismatch_view(run: Run, off: list, live_3d: bool = True, used_walk: list | None = None) -> str:
-    """2 'Listed vs. in reality': every mismatch once (doesn't match, then close; never a match or a couldn't
-    check), in the report's order (the run's pick first). Each row: the listing's words on the left (struck through
-    in blue when it doesn't match; a close one plain grey, never struck), what the sources show on the right, one
-    short reason, the credited sources (_credit) with the confidence band, and the proof inline (_row_proof). The
-    first row is set largest and holds the full proof. Two columns; one on a phone. Only an anchor when nothing is
-    off."""
+    """2 'Listed vs. in reality': one master-detail view that fits a screen. Left: a list, one row per mismatch
+    (doesn't match, then close; never a match or a couldn't check) in the report's order (the run's pick first and
+    selected): the claim type, the listing's words in short, 'Doesn't match' / 'Close' and the confidence score.
+    Right: the selected row's panel, two-sided: the listing's words (struck through in blue only when it doesn't
+    match), what the sources show, one short reason, the credited sources (_credit) with the confidence score and
+    its why, and the proof (_panel_proof: columnar for a figure, vertical for a visual proof). One mismatch: the
+    panel only, full width. Only an anchor when nothing is off."""
     if not off:
         return "<span id=mismatch></span>"
     used_walk = used_walk if used_walk is not None else []
     used_imgs: set = set()
-    rows = []
+    one = len(off) == 1
+    tabs, panels, layouts = [], [], []
     for i, v in enumerate(off):
-        lead = i == 0
+        first = i == 0
         c = run.claim(v)
         kind = _kind(v, c)
         hard = v.get("verdict") == "contradicted"
         soft = not hard and kind in SOFT_KINDS
         said, is_q = _strike_text(run, v, c)
         said_html = f"“{_e(said)}”" if is_q else _e(_cap(said))
-        if lead:
-            truth = "Not seen in the photos" if soft else _truth_text(v).rstrip(".")
-        else:
-            truth = _short_found(run, v)
+        truth = "Not seen in the photos" if soft else _truth_text(v).rstrip(".")
         what = KIND_LABEL.get(kind) or _cap(str(kind or "").replace("_", " ")) or "Claim"
+        if kind == "amenity" and isinstance(c.get("value"), str) and 0 < len(c["value"]) <= 28:
+            what = _cap(c["value"])  # "Pool" reads better in the list than "Amenity"
         name = " · ".join(x for x in (what, c.get("label")) if x)
-        why = _kind_text((_pick_why(run, v) if lead else "") or _first_sentence(v.get("reason") or ""))
-        keys, band = _credit(v)
-        src = " · ".join(x for x in (" + ".join(SRC_NAME[k] for k in keys), f"{band} confidence" if band else "") if x)
-        proof = _row_proof(run, v, lead, live_3d, used_imgs, used_walk)
+        why = _kind_text(_pick_why(run, v) or _first_sentence(v.get("reason") or ""))
+        keys, _band = _credit(v)
+        score, _b, cwhy = _conf(v)
+        conf_txt = _conf_text(v)
+        conf_rows = (v.get("confidence") or {}).get("sources") if isinstance(v.get("confidence"), dict) else None
+        spoke = _relevant(run, v) | {r.get("source") for r in conf_rows or [] if isinstance(r, dict)}
+        others = [k for k in SRC_ORDER if k in spoke and k not in keys]  # also checked: spoke, did not back it
+        layout, proof = _panel_proof(run, v, first, live_3d, used_imgs, used_walk)
+        layouts.append(layout)
         strike = "strike" if hard else ""  # a close one: the listing's words in plain grey, never struck
         cid = str(v.get("claim_id") or "")
+        names = _src_names(run, cid, keys, live_3d)
+        also = _src_names(run, cid, others, live_3d)
+        sid = re.sub(r"[^A-Za-z0-9_-]", "", cid) + f"-{i}"
         anchor = f"<span class=cl-a id='claim-{_e(cid)}'></span>" if cid else ""
+        word = "Doesn't match" if hard else "Close"
         tag = "" if hard else " <em>close, not exact</em>"
-        cls = "lvr-row rv" + (" lvr-lead" if lead else "") + ("" if hard else " lvr-close") + (" more" if i >= LVR_SHOW else "")
-        rows.append(
-            f"<li class='{cls}' style='--d:{min(i, 6) * 70}ms' data-claim='{_e(cid)}'>{anchor}"
-            f"<p class=lvr-k><b>{i + 1}</b><span>{_e(name)}</span>{tag}</p>"
-            f"<div class=lvr-l><span class=lvr-lab>Listed</span><span class=lvr-said><span class='{strike}'>"
-            f"{said_html}</span></span></div>"
-            f"<div class=lvr-r><span class=lvr-lab>In reality</span><span class=lvr-truth>{_e(truth)}</span>"
-            + (f"<p class=lvr-why>{_e(why)}</p>" if why else "")
-            + (f"<p class=lvr-cred>{_squares(keys)}<span class=lvr-src>{_e(src)}</span></p>" if src else "")
-            + proof + "</div></li>")
-    rest = len(off) - LVR_SHOW
-    btn = (f"<button type=button class='btn ghost morebtn toggle lvr-more' aria-controls=lvr-more aria-expanded=false "
-           f"data-more='Show the other {rest}' data-less='Show fewer'>Show the other {rest}</button>") if rest > 0 else ""
+        listed = (f"<span class=lvr-lab>Listed</span><span class=lvr-said><span class='{strike}'>{said_html}</span>"
+                  "</span>")
+        found = f"<span class=lvr-lab>In reality</span><span class=lvr-truth>{_e(truth)}</span>"
+        cred = ""
+        if names or conf_txt:
+            cred = (f"<div class=lvr-cred><p>{_squares(keys)}"
+                    + (f"<span class=lvr-src>Source: {names}</span>" if names else "")
+                    + (f"<span class=lvr-also>also checked: {also}</span>" if also and names else "")
+                    + (f"<span class=lvr-conf>{_e(conf_txt)}</span>" if conf_txt else "") + "</p>"
+                    + (f"<p class=lvr-cwhy>{_e(cwhy)}</p>" if cwhy else "") + "</div>")
+        why_html = f"<p class=lvr-why>{_e(why)}</p>" if why else ""
+        if layout == "v":
+            body = f"<div class=vstack><div>{listed}</div><div>{found}</div></div>{proof}{why_html}{cred}"
+        else:
+            long = " long" if max(len(said), len(truth)) > 18 else ""  # a sentence-long side: smaller type
+            body = (f"<div class='pcols{long}'><div class=lvr-l>{listed}</div><div class=lvr-r>{found}</div></div>"
+                    f"{why_html}{cred}{proof}")
+        cls = f"lvr-row md-p lay-{layout}" + ("" if hard else " lvr-close") + (" in" if first else "")
+        role = "" if one else f" role=tabpanel aria-labelledby=tab-{sid} tabindex=0"
+        hide = "" if first or one else " hidden"
+        panels.append(f"<div class='{cls}' id=pan-{sid}{role}{hide} data-claim='{_e(cid)}' data-layout='{layout}'>"
+                      f"{anchor}<p class=lvr-k><span>{_e(name)}</span>{tag}</p>{body}</div>")
+        num = (f"<span class=md-c title='{_e(conf_txt)}' aria-label='{_e(conf_txt)}'>{score}</span>"
+               if score is not None else "")
+        short = f"“{said}”" if is_q else _cap(said)
+        tabs.append(f"<button type=button role=tab class='md-i{'' if hard else ' close'}' id=tab-{sid} "
+                    f"aria-controls=pan-{sid} aria-selected={'true' if first else 'false'} "
+                    f"tabindex={'0' if first else '-1'}><span class=md-t>{_e(name)}</span>"
+                    f"<span class=md-g>{_e(word)}{num}</span><span class=md-s>{_e(short)}</span></button>")
+    n = len(off)
+    sub = "1 difference." if one else f"{n} differences, biggest first."
+    lst = "" if one else (f"<div class=md-list role=tablist aria-orientation=vertical aria-label=Differences>"
+                          f"{''.join(tabs)}</div>")
     return ("<section class='wrap lvr' id=mismatch aria-labelledby=lvr-h><span id=compare></span>"
-            "<h2 class='sh rv' id=lvr-h>Listed vs. in reality</h2>"
-            "<div class=lvr-head aria-hidden=true><span>Listed</span><span>In reality</span></div>"
-            f"<div class=more-wrap id=lvr-more><ol class=lvr-rows>{''.join(rows)}</ol>{btn}</div></section>")
+            f"<div class='lvr-top rv'><h2 class=sh id=lvr-h>Listed vs. in reality</h2><p class=lvr-n>{_e(sub)}</p></div>"
+            f"<div class='md rv{' one' if one else ''}{'' if 'v' in layouts else ' flat'}'>{lst}<div class=md-ps>{''.join(panels)}</div></div></section>")
+
 
 def _walk_box(src: str | None, cid: str, bg: str, small: str, live_3d: bool) -> str:
     """The inline 3D viewer: a still picture (bg) the page's script covers with the live viewer once it stands at
@@ -1215,17 +1361,22 @@ def _contribution(run: Run, s: str, evs: list, facts: list) -> str:
     return ". ".join(bits) + "." if bits else ""
 
 
-def _sources(run: Run, facts: list) -> str:
+def _sources(run: Run, facts: list, links: bool = True) -> str:
     used = _source_used(run)
-    settled = {s: 0 for s in SRC_ORDER}
-    weighed = {s: 0 for s in SRC_ORDER}
-    for v in run.verdicts:
-        rel = _relevant(run, v)
-        for s in rel:
-            if s == v.get("source") and v.get("verdict") != "cant_check":
-                settled[s] += 1
-            else:
-                weighed[s] += 1
+    try:  # the heatmap's own counts, so the two never disagree
+        from server.claim_field import claim_field, source_counts
+        per = source_counts(claim_field(run.raw))
+        settled = {s: per[s]["settled"] for s in SRC_ORDER}
+        weighed = {s: per[s]["weighed"] for s in SRC_ORDER}
+    except Exception:  # noqa: BLE001  (claim_field missing or failed: count here)
+        settled = {s: 0 for s in SRC_ORDER}
+        weighed = {s: 0 for s in SRC_ORDER}
+        for v in run.verdicts:
+            for s in _relevant(run, v):
+                if s == v.get("source") and v.get("verdict") != "cant_check":
+                    settled[s] += 1
+                else:
+                    weighed[s] += 1
     cells = []
     for i, s in enumerate(SRC_ORDER):
         evs = used[s]
@@ -1249,6 +1400,9 @@ def _sources(run: Run, facts: list) -> str:
     return ("<section class='dark' id=sources aria-label='Four sources'><div class='wrap srcs'>"
             "<h2 class='h2 rv'><span>Four sources.</span><span class=l2>One address.</span></h2>"
             "<p class='lede mute rv'>Every claim goes to each source that can speak to it. The number is how many it spoke to.</p>"
+            + (f"<p class='art-lib rv'><a href='{_e(_art_href(run))}'>Open the artifact library \u2192</a></p>"
+               if links and _art_href(run) else "")
+            +
             f"<div class=src-grid>{''.join(cells)}</div></div></section>")
 
 
@@ -1258,6 +1412,12 @@ TOPF_BANNED_IDS = {"class", "rating", "lot", "county-parcel", "owner", "county-o
                    "county-land-use", "building-size", "county-size"}
 TOPF_BANNED = re.compile(r"(?i)parcel|building class|lot size|rating|owner|manag|contact|phone|e-?mail|\bagent\b")
 TOPF_COUNT_ONLY = re.compile(r"(?i)311|complaint|service request")
+# a 311 / complaint value: a count, optionally with when and how near ("43 since 2026-01-01 within 100 m"); never
+# what the requests say
+TOPF_COUNT_VALUE = re.compile(r"(?i)\d[\d,]*(?:\s+(?:requests?|complaints?|on record))?"
+                              r"(?:\s+(?:since|in|over|within|near|during|the|last|past|of|around|nearby|"
+                              r"\d[\d,./-]*|m|km|ft|feet|metres|meters|miles?|mi|days?|weeks?|months?|years?|"
+                              r"jan\w*|feb\w*|mar\w*|apr\w*|may|jun\w*|jul\w*|aug\w*|sep\w*|oct\w*|nov\w*|dec\w*)[,.]?)*")
 # a top fact that names one of these is left out when a claim of that kind is already a mismatch (shown once)
 TOPF_KIND_RX = {"stories": r"(?i)\b(floors?|stor(?:y|ies)|roof height|height)\b", "year_built": r"(?i)\byear built\b",
                 "unit_count": r"(?i)\bnumber of homes\b|\bhomes \(county\)", "bedrooms": r"(?i)\bbedrooms?\b",
@@ -1357,11 +1517,16 @@ def _clean_top_fact(it, off_kinds: set) -> dict | None:
         return None
     label = re.sub(r"\s+", " ", str(it.get("label") or "")).strip()
     value = re.sub(r"\s+", " ", str(it.get("value") if it.get("value") is not None else "")).strip()
+    # a manager named next to something useful ("24 of 215 homes available; managed by X"): keep the useful part
+    trimmed = re.sub(r"(?i)\s*(?:[;,·]|\band\b|\s[-–])?\s*\(?\b(?:managed|run|operated) by\b.*$", "", value).strip(" ;,·-")
+    if trimmed != value and re.search(r"(?i)manag", label):
+        label = "Homes available" if re.search(r"(?i)avail|vacan|homes", label + " " + trimmed) else ""
+        value = trimmed
     if not label or not value or len(label) > 80 or len(value) > 120 or "<" in label + value:
         return None
     if it.get("id") in TOPF_BANNED_IDS or TOPF_BANNED.search(f"{label} {it.get('id') or ''}"):
         return None
-    if TOPF_COUNT_ONLY.search(label) and not re.fullmatch(r"\d[\d,]*", value):
+    if TOPF_COUNT_ONLY.search(label) and not TOPF_COUNT_VALUE.fullmatch(value):
         return None
     if UNKIND.search(label + " " + value):
         return None
@@ -1390,12 +1555,12 @@ def _not_listed(run: Run, facts: list, off: list) -> str:
     for i, f in enumerate(items):
         names = " + ".join(SRC_NAME[k] for k in f["keys"])
         pic = _fig(f["image"], f["label"]) if f["image"] else ""
-        rows.append(f"<li class='nil-row rv' style='--d:{i * 70}ms'><p class=nil-k><b>{i + 1}</b>{_e(f['label'])}</p>"
-                    f"<p class=nil-v>{_e(f['value'])}</p><div class=nil-w>"
-                    + (f"<p>{_e(f['why'])}</p>" if f["why"] else "")
+        rows.append(f"<li class='nil-row rv' style='--d:{i * 70}ms'><div class=nil-m>"
+                    f"<p class=nil-k><b>{i + 1}</b>{_e(f['label'])}</p><p class=nil-v>{_e(f['value'])}</p>"
+                    + (f"<p class=nil-w>{_e(f['why'])}</p>" if f["why"] else "")
                     + (f"<span class=nil-src>{_squares(f['keys'])}{_e(names)}</span>" if names else "")
-                    + pic + "</div></li>")
-    sub = "What our sources know that the listing doesn't say, picked for someone about to rent or buy."
+                    + "</div>" + pic + "</li>")
+    sub = "What our sources know that the listing doesn't say."
     return (f"<section class='wrap nil' id=extra aria-labelledby=nil-h>{head}<p class='sh-sub rv'>{_e(sub)}</p>"
             f"<ol class=nil-rows>{''.join(rows)}</ol></section>")
 
@@ -1431,7 +1596,7 @@ def _checked(run: Run, ok: list, cant: list, live_3d: bool = True) -> str:
                 said, is_q = _strike_text(run, v, c)
                 txt = f"“{said}”" if is_q else _cap(said)
                 by_reason.setdefault(_cant_reason(run, v, c), []).append(f"{label}: {txt}" if label else txt)
-        rs = "".join(f"<div><p>{_e(r)}</p><div class=qs>{_e(' · '.join(dict.fromkeys(t)))}</div></div>"
+        rs = "".join(f"<div><p title='{_e(r)}'>{_e(r)}</p><div class=qs>{_e(' · '.join(dict.fromkeys(t)))}</div></div>"
                      for r, t in by_reason.items())
         blocks.append(f"<div class=ck id=cant-verify><h3>{_e(_plural(len(cant), 'thing', 'things'))} nobody could check"
                       f"</h3><div class=reasons>{rs}</div></div>")
@@ -1459,7 +1624,11 @@ def _question(run: Run, v: dict) -> str:
         return f"The listing says {said}{plan}, but {who} {found}. Which is right?"
     if kind in SOFT_KINDS:
         return f"Can you show me {said}{plan} when I tour?"
-    return f"Can you confirm {said}{plan} in writing?"
+    if kind == "bedrooms" and not is_q and str(said).strip().lower() == "studio":
+        return f"Can you confirm in writing that {c['label'] if c.get('label') else 'the home'} is a studio?"
+    if c.get("label"):
+        return f"Can you confirm in writing that {c['label']} has {said if is_q else str(said).strip()}?"
+    return f"Can you confirm {said} in writing?"
 
 
 
@@ -1483,7 +1652,7 @@ def _questions(run: Run, off: list, cant: list) -> str:
                f"Copy all {len(qs)}</button></p>" if len(qs) > 1 else "")
     return ("<section class='wrap ask' id=questions aria-labelledby=ask-h>"
             "<h2 class='sh rv' id=ask-h>Ask before you tour.</h2>"
-            "<p class='sh-sub rv'>A draft to send the landlord or agent. Copy one, or all of them.</p>"
+            "<p class='sh-sub rv'>A draft for the landlord or agent.</p>"
             f"<ol class=qlist>{lis}</ol>{all_btn}</section>")
 
 def _footer(run: Run) -> str:
@@ -1524,7 +1693,7 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
 
     mismatch = _mismatch_view(run, off, live_3d, used_walk)  # 2
     extra = _not_listed(run, facts, off)  # 3
-    hero = _hero(run, n, _lead(off), has_facts="class=nil-row" in extra)  # 1
+    hero = _hero(run, n, _lead(off), has_facts="nil-row" in extra)  # 1
     url = run.snap.get("url") or ""
     nav = []
     if url.startswith(("http://", "https://")):
@@ -1547,7 +1716,7 @@ def render_report(run_dict: dict, live_3d: bool = True) -> str:
          PRECONNECT if used_walk and live_3d else "",
          f"<style>{CSS}</style></head><body id=top>",
          f"<div class=wrap><header class=top><a class=brand href='#top'>{BRAND}</a><nav aria-label=Report>{''.join(nav)}</nav></header>",
-         hero, "</div>", err, mismatch, extra, _questions(run, off, cant), field, _sources(run, facts),
+         hero, "</div>", err, mismatch, "<div class='wrap duo'>", extra, _questions(run, off, cant), "</div>", field, _sources(run, facts, live_3d),
          _checked(run, ok, cant, live_3d), _footer(run),
          "<div class=lb id=lb hidden role=dialog aria-modal=true aria-label='Picture'>"
          "<button type=button class=btn>Close</button><p></p></div>",

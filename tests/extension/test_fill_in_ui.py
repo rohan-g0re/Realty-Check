@@ -51,11 +51,11 @@ def load_events_facts():
 def test_ui_handles_fill_in_neutrally():
     src = (EXT / "content" / "ui.js").read_text(encoding="utf-8")
     assert 'case "fill_in"' in src
-    m = re.search(r"function fillInHTML\(facts\) \{(.*?)\n  \}\n", src, re.S)
-    assert m, "fillInHTML not found"
+    m = re.search(r"function factsHTML\(facts\) \{(.*?)\n  \}\n", src, re.S)
+    assert m, "factsHTML not found"
     fn = m.group(1)
     assert "VC[" not in fn and "#dc2626" not in fn and "#16a34a" not in fn  # no verdict colours
-    for field in ("f.label", "f.value", "f.note", "f.id"):
+    for field in ("f.label", "f.value", "f.why", "f.id", "f.src"):
         assert f"esc({field})" in fn, field
     assert '"#extra"' in src
 
@@ -98,21 +98,16 @@ def test_sample_flow_shows_fill_in(env):
     page.locator("#rc-host #useSample").wait_for(timeout=10000)
     page.locator("#rc-host #useSample").click()
     page.locator("#rc-host #headline").wait_for(timeout=15000)
-    tog = page.locator("#rc-host #fiToggle")
-    tog.wait_for(timeout=3000)
-    assert tog.inner_text().strip() == f"Not in the listing ({len(load_events_facts())})"
-    assert tog.get_attribute("aria-expanded") == "false"
-    assert page.locator("#rc-host .fact").count() == 0  # collapsed by default
-    tog.click()
+    page.locator("#rc-host #fi").wait_for(timeout=3000)
     facts = page.locator("#rc-host .fact")
-    assert facts.count() == 4  # top 4 only
-    # renter order: home sizes, then year built / renovated, then what the aerial survey saw; the rest in the report
-    assert facts.locator(".fl").all_inner_texts() == ["Plan A", "Typical size, 1 bed", "Last renovated", "Seen from above"]
-    assert tog.get_attribute("aria-expanded") == "true"
-    assert facts.first.locator(".fl").inner_text() == "Plan A"
+    # the report's own five (done.harness.top_facts), as text, shown right away
+    assert facts.locator(".fl").all_inner_texts() == ["Elevators", "Homes available", "Utility meters",
+                                                      "311 requests nearby", "Seen from above"]
+    assert facts.first.locator(".fv").inner_text() == "2 passenger elevators"
     assert facts.first.locator(".fs").inner_text() == "CoStar"
-    assert "From the building record" in facts.first.locator(".fn").inner_text()
-    assert page.locator("#rc-host #fiAll").inner_text() == "See all in the full report"
+    assert "furniture" in facts.first.locator(".fn").inner_text()
+    assert "Example Property Management" not in page.locator("#rc-host #fi").inner_text()  # never the manager
+    assert page.locator("#rc-host #fiAll").inner_text() == "More in the full report"
     with env["ctx"].expect_page() as newp:
         page.locator("#rc-host #fiAll").click()
     rep = newp.value
@@ -121,8 +116,6 @@ def test_sample_flow_shows_fill_in(env):
     extra = rep.locator("#extra").inner_text()  # the report lists the sample's top picks, not every fact
     assert "Seen from above" in extra and "Sport court" in extra
     rep.close()
-    page.locator("#rc-host #fiToggle").click()
-    assert page.locator("#rc-host .fact").count() == 0
     assert not errors, errors
     page.close()
 
@@ -150,10 +143,9 @@ def _run_stub(env, monkeypatch, facts):
 def test_server_fill_in_escaped_and_links_to_extra(env, monkeypatch):
     stub, page, errors = _run_stub(env, monkeypatch, FACTS)
     try:
-        page.locator("#rc-host #fiToggle").click()
         assert page.locator("#rc-host .fact").count() == 4
         assert page.locator('#rc-host .fact[data-id="f2"] .fl').inner_text() == "Pets <b>"  # escaped, not markup
-        assert page.locator('#rc-host .fact[data-id="f5"]').count() == 0
+        assert page.locator('#rc-host .fact[data-id="f3"]').count() == 0  # never a lot size
         assert page.locator('#rc-host .fact[data-id="f4"] .fs').inner_text() == "Vexcel"
         with env["ctx"].expect_page() as newp:
             page.locator("#rc-host #fiAll").click()
@@ -170,7 +162,7 @@ def test_server_fill_in_escaped_and_links_to_extra(env, monkeypatch):
 def test_no_fill_in_event_shows_nothing(env, monkeypatch):
     stub, page, errors = _run_stub(env, monkeypatch, None)
     try:
-        assert page.locator("#rc-host #fiToggle").count() == 0
+        assert page.locator("#rc-host #fi").count() == 0
         assert not errors, errors
     finally:
         page.close()
@@ -180,7 +172,8 @@ def test_no_fill_in_event_shows_nothing(env, monkeypatch):
 def test_one_fact_singular(env, monkeypatch):
     stub, page, errors = _run_stub(env, monkeypatch, json.loads(json.dumps(FACTS[:1])))
     try:
-        assert page.locator("#rc-host #fiToggle").inner_text().strip() == "Not in the listing (1)"
+        assert page.locator("#rc-host .fact").count() == 1
+        assert page.locator("#rc-host #fiH").inner_text().lower() == "not in the listing"
         assert not errors, errors
     finally:
         page.close()

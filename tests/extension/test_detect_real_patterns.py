@@ -102,7 +102,6 @@ def test_capitals_and_prices(env):
 def test_own_report_page_is_not_scanned(env):
     page = env["ctx"].new_page()
     page.goto(f"{env['base']}/report/r1.html")
-    page.wait_for_selector("#rc-host", state="attached", timeout=10000)
-    page.wait_for_timeout(300)
-    assert page.locator("#rc-host").get_attribute("data-count") == "0"
+    page.wait_for_timeout(1200)
+    assert page.locator("#rc-host").count() == 0  # the checker's own pages get no button and no drawer at all
     page.close()

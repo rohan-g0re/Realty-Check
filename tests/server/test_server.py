@@ -321,10 +321,100 @@ def test_done_field_is_the_report_claim_field(client):
     assert [c["id"] for c in got] == [c["id"] for c in want["claims"]]
     for g, w in zip(got, want["claims"]):
         assert g["cells"] == {k: w["cells"][k]["state"] for k in ("record", "scan", "aerial", "county")}
-        assert set(g) == {"id", "cells", "image"}
+        assert set(g) == {"id", "cells", "image", "credit"}
         if not w["highlight"]:
             assert g["image"] is None
     imgs = [c["image"] for c in got if c["image"]]
     assert imgs and all(client.get(u).status_code == 200 for u in imgs)  # proof pictures for the findings
     assert client.get(f"/field/{run_id}").json() == done["field"]
     assert client.get("/field/nope").status_code == 404
+
+
+# ---------- the drawer's text report (done.report), credit and favicon (invented runs only) ----------
+
+def _drawer_run():
+    """An invented run: the listing says 184 homes, County says 216, CoStar says 149 (a third figure)."""
+    claims = [
+        {"id": "c1", "kind": "unit_count", "value": 184, "scope": "building", "label": None,
+         "quote": "The community has 184 apartments", "checkable": True},
+        {"id": "c2", "kind": "year_built", "value": 2018, "scope": "building", "label": None, "quote": "Built in 2018",
+         "checkable": True},
+        {"id": "c3", "kind": "stories", "value": 5, "scope": "building", "label": None, "quote": "5-story building",
+         "checkable": True},
+        {"id": "c4", "kind": "amenity", "value": "pool", "scope": "building", "label": None, "quote": "Rooftop pool",
+         "checkable": True},
+    ]
+    v1 = {"claim_id": "c1", "verdict": "contradicted", "claimed": "184 apartments", "found": "216 apartments",
+          "source": "county", "reason": "County lists 216 homes on the parcel.", "image": None,
+          "confidence": {"score": 60, "band": "medium", "decided_by": "county", "why": "Invented.",
+                         "sources": [{"source": "county", "says": "216 apartments", "agrees_with_listing": False},
+                                     {"source": "record", "says": "149 apartments", "agrees_with_listing": False}]}}
+    v2 = {"claim_id": "c2", "verdict": "close", "claimed": "built in 2018", "found": "built in 2019", "source": "county",
+          "reason": "County lists 2019.", "image": None, "confidence": {"band": "low", "decided_by": "county"}}
+    v3 = {"claim_id": "c3", "verdict": "confirmed", "claimed": "5 stories", "found": "5 floors", "source": "record",
+          "reason": "Invented.", "image": None}
+    v4 = {"claim_id": "c4", "verdict": "cant_check", "claimed": "rooftop pool", "found": "no source covers this",
+          "source": "aerial", "reason": "Nothing in our data measures this.", "image": None}
+    facts = [{"id": "elevators", "topic": "Building", "label": "Elevators", "value": "2 elevators; managed by Example Co",
+              "source": "record", "note": "", "image": None},
+             {"id": "manager", "topic": "Building", "label": "Property manager", "value": "Example Co", "source": "record",
+              "note": "", "image": None}]
+    events = [{"type": "run_started", "run_id": "t-drawer", "address": "418 Linden Grove Ave, Faketown, ZZ 00001"},
+              {"type": "claims", "claims": claims}]
+    events += [{"type": "verdict", "verdict": v} for v in (v1, v2, v3, v4)]
+    events += [{"type": "fill_in", "facts": facts},
+               {"type": "done", "run_id": "t-drawer", "counts": {"contradicted": 1, "close": 1, "confirmed": 1,
+                                                                 "cant_check": 1},
+                "harness": {"top_facts": [{"label": "Elevators", "value": "2 elevators; managed by Example Co",
+                                           "why": "Moving in is easier.", "sources": ["CoStar"]},
+                                          {"label": "Property manager", "value": "Example Co", "sources": ["CoStar"]}]}}]
+    return {"run_id": "t-drawer", "snapshot": {"address_text": "418 Linden Grove Ave, Faketown, ZZ 00001"},
+            "events": events}
+
+
+def test_drawer_report_says_what_the_report_says():
+    run = _drawer_run()
+    rep = srv.drawer_report(run)
+    rows = rep["rows"]
+    assert [r["id"] for r in rows] == ["c1", "c2"]  # hard first, then close; never a match or a couldn't check
+    hard, close = rows
+    assert hard["credit"] == ["county"]  # CoStar says 149, not 216: never credited with the found value
+    assert hard["strike"] is True and close["strike"] is False
+    assert hard["score"] == 60 and hard["band"] == "medium"
+    assert close["score"] is None and close["band"] == "low"  # no number sent: none made up
+    assert hard["label"] == "Homes" and hard["found"] == "216 apartments" and hard["quoted"] is True
+    assert hard["proof"] == "/report/t-drawer#claim-c1" and hard["walk"] is None
+    # facts: no manager row, no "; managed by" clause
+    assert [f["label"] for f in rep["facts"]] == ["Elevators"]
+    assert rep["facts"][0]["value"] == "2 elevators"
+    assert "manag" not in json.dumps(rep["facts"]).lower()
+    qs = rep["questions"]
+    assert qs[0].startswith("The listing says “The community has 184 apartments”, but county records say 216")
+    assert 2 <= len(qs) <= 5 and len(set(qs)) == len(qs)
+    assert [x["id"] for x in rep["ok"]] == ["c3"] and [x["id"] for x in rep["cant"]] == ["c4"]
+    assert rep["cant"][0]["why"]
+    text = json.dumps(rep).lower()
+    for word in ("fake", "lie", "scam", "fraud", "/img/", "<"):
+        assert word not in text
+    done = srv.with_drawer_keys(run["events"][-1], run)
+    assert done["report"] == rep
+    assert [c["credit"] for c in done["field"]["claims"] if c["id"] == "c1"] == [["county"]]
+
+
+def test_done_carries_the_drawer_report(client):
+    _, events = post(client)
+    done = events[-1]
+    rep = done["report"]
+    assert set(rep) == {"rows", "facts", "questions", "ok", "cant"}
+    off = [e["verdict"]["claim_id"] for e in events if e["type"] == "verdict"
+           and e["verdict"]["verdict"] in ("contradicted", "close")]
+    assert sorted(r["id"] for r in rep["rows"]) == sorted(off)
+    assert [r["id"] for r in rep["rows"]] == done["top"]["order"]  # the report's order
+    assert len(rep["facts"]) <= 5 and len(rep["questions"]) <= 5
+
+
+def test_favicon_is_not_a_404(client):
+    r = client.get("/favicon.ico")
+    assert r.status_code in (200, 204)
+    if r.status_code == 200:
+        assert r.headers["content-type"] == "image/png"

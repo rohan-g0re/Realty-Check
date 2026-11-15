@@ -45,6 +45,42 @@ var dd=t.closest('details')||t.querySelector&&t.querySelector('details.allck');i
 openTo();window.addEventListener('hashchange',openTo);
 })();
 (function(){
+/* 2 'Listed vs. in reality': a list of tabs, one panel shown. Arrow keys move the selection; #claim-<id> and
+   #mismatch select / show it. A 3D viewer is made only for the selected panel, after a short pause (fast arrowing
+   never starts several), and the one in the panel left is taken down. */
+var md=document.querySelector('.md');if(!md)return;
+var list=md.querySelector('[role=tablist]'),tabs=[].slice.call(md.querySelectorAll('[role=tab]')),tm=null;
+var still=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+function pan(t){return document.getElementById(t.getAttribute('aria-controls'));}
+function tabOf(p){return document.getElementById(p.getAttribute('aria-labelledby')||'');}
+function keep(t){if(!list)return;var L=list;
+if(L.scrollHeight>L.clientHeight){if(t.offsetTop<L.scrollTop)L.scrollTop=t.offsetTop;
+else if(t.offsetTop+t.offsetHeight>L.scrollTop+L.clientHeight)L.scrollTop=t.offsetTop+t.offsetHeight-L.clientHeight;}
+if(L.scrollWidth>L.clientWidth){if(t.offsetLeft<L.scrollLeft)L.scrollLeft=t.offsetLeft;
+else if(t.offsetLeft+t.offsetWidth>L.scrollLeft+L.clientWidth)L.scrollLeft=t.offsetLeft+t.offsetWidth-L.clientWidth;}}
+function select(t,focus){if(!t)return;var shown=null;
+tabs.forEach(function(x){var on=x===t,p=pan(x);x.setAttribute('aria-selected',on?'true':'false');x.tabIndex=on?0:-1;if(!p)return;
+if(on){shown=p;if(p.hidden){p.hidden=false;p.classList.remove('in');void p.offsetWidth;p.classList.add('in');}}
+else if(!p.hidden){p.hidden=true;p.classList.remove('in');
+[].forEach.call(p.querySelectorAll('.walk'),function(w){if(window.RC3D)window.RC3D.unmount(w);});}});
+if(focus)t.focus({preventScroll:true});keep(t);clearTimeout(tm);
+var w=shown&&shown.querySelector('.walk[data-src]');
+if(w)tm=setTimeout(function(){if(!shown.hidden&&window.RC3D)window.RC3D.mount(w);},260);}
+if(list){list.addEventListener('click',function(e){var t=e.target.closest('[role=tab]');if(t)select(t,true);});
+list.addEventListener('keydown',function(e){var i=tabs.indexOf(document.activeElement);if(i<0)return;var j=null;
+if(e.key==='ArrowDown'||e.key==='ArrowRight')j=Math.min(tabs.length-1,i+1);
+else if(e.key==='ArrowUp'||e.key==='ArrowLeft')j=Math.max(0,i-1);
+else if(e.key==='Home')j=0;else if(e.key==='End')j=tabs.length-1;
+if(j===null)return;e.preventDefault();select(tabs[j],true);});}
+function show(p,scroll){var t=p&&tabOf(p);if(t&&p.hidden)select(t,false);
+if(scroll){var s=document.getElementById('mismatch');if(s)s.scrollIntoView({behavior:'auto',block:'start'});}}
+window.RCMD={show:show,select:select};
+function go(){var id=location.hash.slice(1);if(!id)return;var el=document.getElementById(id);if(!el)return;
+var p=el.closest&&el.closest('.md-p');if(p){show(p,true);return;}
+if(id==='mismatch'||id==='compare')show(null,true);}
+go();window.addEventListener('hashchange',go);
+})();
+(function(){
 /* live 3D viewers: mount without a click, at most MAX live, still picture on top until the tour page says ready */
 var MAX=2,live=[],T0=performance.now(),R=window.RC3D={live:live,times:{},max:MAX};
 function all(){return [].slice.call(document.querySelectorAll('.walk[data-src]'));}
@@ -83,6 +119,7 @@ w._to=setTimeout(function(){if(w._f&&!w.classList.contains('live')){w.classList.
 else if(d.state==='error'){note(w,d.note);w.classList.add('live','nospot');w.classList.remove('loading');clearTimeout(w._to);}
 else if(d.state==='off'){unmount(w);w.classList.add('off');note(w,d.note||'The live 3D view is not available here.');}});
 R.see=function(cid,src,host){var a=cid&&document.getElementById('claim-'+cid),f=a&&a.closest('.lvr-row'),w=f&&f.querySelector('.walk[data-src]');
+if(w&&f.hidden&&window.RCMD)window.RCMD.show(f,true);
 if(w){mount(w);w.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});return w;}
 if(!src||!host)return null;var box=host.querySelector('.see3d-box');
 if(!box){box=document.createElement('div');box.className='see3d-box';box.innerHTML="<div class=walk><div class=stage>"+
@@ -100,7 +137,8 @@ inview=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isInter
 /* a fade-in parent (opacity 0, transform) would keep Chrome from running the viewer and pin the dock to it: show those
    parents at once */
 all().forEach(function(w){var p=w.closest('.rv');if(p)p.classList.add('in');});
-var ws=all(),first=null,h=location.hash.match(/^#claim-([A-Za-z0-9_-]{1,32})$/);
+/* a viewer in a list panel that is not selected is never made: only the selected panel's */
+var ws=all().filter(function(w){return !w.closest('.md-p[hidden]');}),first=null,h=location.hash.match(/^#claim-([A-Za-z0-9_-]{1,32})$/);
 if(h){var a=document.getElementById('claim-'+h[1]),fd=a&&a.closest('.lvr-row');first=fd&&fd.querySelector('.walk[data-src]');}
 first=first||ws[0];if(first)mount(first);
 ws.forEach(function(w){if(near)watch(w);else if(w!==first&&live.length<MAX)mount(w);});

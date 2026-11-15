@@ -86,6 +86,19 @@ def rewrite_images(ev: dict, images: dict[str, str]) -> dict:
         v["image"] = _register(old)
         if old and v["image"] != old:
             images[v["image"][5:]] = old
+        v["citations"] = [c for c in v.get("citations") or [] if isinstance(c, dict)]
+        for c in v["citations"]:
+            old = c.get("image")
+            c["image"] = _register(old) if old else None
+            if old and c["image"] != old:
+                images[c["image"][5:]] = old
+    if ev.get("type") == "done" and isinstance(ev.get("harness"), dict):
+        for f in ev["harness"].get("top_facts") or []:
+            if isinstance(f, dict) and f.get("image"):
+                old = f["image"]
+                f["image"] = _register(old)
+                if f["image"] != old:
+                    images[f["image"][5:]] = old
     if ev.get("type") == "fill_in":
         ev["facts"] = [f for f in ev.get("facts") or [] if isinstance(f, dict)]
         for f in ev["facts"]:
@@ -193,8 +206,10 @@ def apply_pick(snapshot: dict) -> dict:
 
 def drawer_field(run: dict) -> dict | None:
     """The claim field's cell states (server/claim_field.py, the report's own rules) for the drawer's mini grid:
-    {"claims": [{"id", "cells": {record|scan|aerial|county: match|contra|close|data|none}, "image"}]}.
-    `image`: the best proof picture (an /img/<token> URL) for a claim that does not match, else null."""
+    {"claims": [{"id", "cells": {record|scan|aerial|county: match|contra|close|data|none}, "image", "credit"}]}.
+    `image`: the best proof picture (an /img/<token> URL) for a claim that does not match, else null.
+    `credit`: for a claim that does not match, the source keys the report credits with the found value
+    (server.report_a._credit: the deciding one first, never a source that says something else), else null."""
     try:
         from server.claim_field import IMG_RE, claim_field
         field = claim_field(run)
@@ -215,8 +230,20 @@ def drawer_field(run: dict) -> dict | None:
                      if (cells.get(k) or {}).get("state") in ("contra", "close")]
             img = next((p for p in pool if isinstance(p, str) and IMG_RE.match(p)), None)
         out.append({"id": c.get("id"), "cells": {k: (cells.get(k) or {}).get("state") or "none" for k in FIELD_SOURCES},
-                    "image": img})
+                    "image": img, "credit": drawer_credit(verdicts.get(c.get("id")))})
     return {"claims": out}
+
+
+def drawer_credit(v) -> list | None:
+    """The sources the report credits with a mismatch's found value (server.report_a._credit, the same rule), so the
+    drawer never names a source that says something else. None for a claim that matches, or when it cannot be built."""
+    if not isinstance(v, dict) or v.get("verdict") not in ("contradicted", "close"):
+        return None
+    try:
+        from server.report_a import _credit
+        return list(_credit(v)[0])
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def drawer_top(run: dict) -> dict | None:
@@ -229,9 +256,117 @@ def drawer_top(run: dict) -> dict | None:
         return None
 
 
+MANAGED_RE = re.compile(r"(?i)\s*[;,]\s*(?:managed|operated|owned)\s+by\b.*$")
+DRAWER_FACTS = 5
+
+
+def _drawer_rows(R, run, off: list) -> list:
+    """Every mismatch in the report's order (server.report_a: its words, credit and score), as text only."""
+    rows = []
+    rid = str(run.raw.get("run_id") or "")
+    for v in off:
+        c = run.claim(v)
+        kind = R._kind(v, c)
+        hard = v.get("verdict") == "contradicted"
+        soft = not hard and kind in R.SOFT_KINDS
+        said, is_q = R._strike_text(run, v, c)
+        what = R.KIND_LABEL.get(kind) or R._cap(str(kind or "").replace("_", " ")) or "Claim"
+        why = R._kind_text(R._pick_why(run, v) or R._first_sentence(v.get("reason") or ""))
+        score, band, _cwhy = R._conf(v)
+        cid = str(v.get("claim_id") or "")
+        walk = None
+        try:
+            w = R._walk_hrefs(run, v)
+            walk = w[0] if w else None
+        except Exception:  # noqa: BLE001
+            walk = None
+        rows.append({"id": cid, "verdict": v.get("verdict"), "kind": kind,
+                     "label": " · ".join(x for x in (what, c.get("label")) if x),
+                     "said": said if is_q else R._cap(said), "quoted": bool(is_q), "strike": hard,
+                     "found": "Not seen in the photos" if soft else R._truth_text(v).rstrip("."),
+                     "why": why, "credit": list(R._credit(v)[0]), "score": score, "band": band or None,
+                     "proof": f"/report/{rid}#claim-{cid}" if rid and cid else None, "walk": walk})
+    return rows
+
+
+def _drawer_facts(R, run, off: list) -> list:
+    """'Not in the listing': the report's top five (done.harness.top_facts, else its rule), text only; never a
+    manager, owner, parcel, class or lot size; any '; managed by ...' clause cut."""
+    out = []
+    for f in R._top_facts(run, R._fill_in(run), off):
+        value = MANAGED_RE.sub("", f.get("value") or "").strip()
+        if not value or R.TOPF_BANNED.search(f.get("label") or ""):
+            continue
+        out.append({"label": f["label"], "value": value, "why": f.get("why") or "",
+                    "sources": [R.SRC_NAME[k] for k in f.get("keys") or [] if k in R.SRC_NAME]})
+        if len(out) >= DRAWER_FACTS:
+            break
+    return out
+
+
+def _drawer_checked(R, run, vs: list, cant: bool) -> list:
+    out = []
+    for v in vs:
+        c = dict(run.claim(v))
+        c["_claimed"] = R._claimed_words(v, c)
+        said, is_q = R._strike_text(run, v, c)
+        kind = R._kind(v, c)
+        row = {"id": str(v.get("claim_id") or ""), "label": R.KIND_LABEL.get(kind) or "",
+               "text": f"“{said}”" if is_q else R._cap(said)}
+        if cant:
+            try:
+                row["why"] = R._kind_text(R._cant_reason(run, v, c))
+            except Exception:  # noqa: BLE001
+                row["why"] = ""
+        out.append(row)
+    return out
+
+
+def drawer_report(run: dict) -> dict | None:
+    """Everything the report says, as text for the drawer (docs/CONTRACT.md 7, done.report), built read-only with
+    server/report_a.py's own helpers so the two never disagree:
+    {"rows": [{id, verdict, kind, label, said, quoted, strike, found, why, credit, score, band, proof, walk}],
+     "facts": [{label, value, why, sources}] (at most five), "questions": [str], "ok": [{id, label, text}],
+     "cant": [{id, label, text, why}]}. No pictures, drawings or viewers. None when it cannot be built."""
+    try:
+        import server.report_a as R
+        r = R.Run(R.drop_dead_images(run) if hasattr(R, "drop_dead_images") else run)
+        off = R._ranked_off(r, r.verdicts)
+        ok = [v for v in r.verdicts if v.get("verdict") == "confirmed"]
+        cant = [v for v in r.verdicts if v.get("verdict") not in ("contradicted", "close", "confirmed")]
+        out = {"rows": _drawer_rows(R, r, off)}
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        out["facts"] = _drawer_facts(R, r, off)
+    except Exception:  # noqa: BLE001
+        out["facts"] = []
+    qs: list = []
+    try:
+        for v in off + cant:
+            q = R._question(r, v)
+            if q and q not in qs and not R.UNKIND.search(q):
+                qs.append(q)
+            if len(qs) >= R.MAX_QUESTIONS:
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    out["questions"] = qs
+    for key, vs, is_cant in (("ok", ok, False), ("cant", cant, True)):
+        try:
+            out[key] = _drawer_checked(R, r, vs, is_cant)
+        except Exception:  # noqa: BLE001
+            out[key] = []
+    return out
+
+
 def with_drawer_keys(ev: dict, run: dict) -> dict:
-    """A `done` event with the additive drawer keys (`field`, `top`) the report computes, where missing."""
+    """A `done` event with the additive drawer keys (`field`, `top`, `report`) the report computes, where missing."""
     add = {}
+    if "report" not in ev:
+        rep = drawer_report(run)
+        if rep is not None:
+            add["report"] = rep
     if "field" not in ev:
         field = drawer_field(run)
         if field is not None:
@@ -367,6 +502,17 @@ def health():
     return {"ok": True, "harness": pick_runner()[0]}
 
 
+FAVICON = Path(__file__).resolve().parent.parent / "extension" / "icons" / "icon32.png"
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """The browser asks every page here for /favicon.ico; answer with the extension's icon, not a 404."""
+    if FAVICON.is_file():
+        return FileResponse(FAVICON, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+    return Response(status_code=204)
+
+
 @app.post("/check")
 async def check(snapshot: dict, request: Request):
     base = str(request.base_url).rstrip("/")
@@ -442,3 +588,8 @@ def tour_page(request: Request, run_id: str, claim: str | None = None, embed: st
     key = tour.sdk_key()
     spot = tour.spot_for(target) if key else None  # cached, else start view now (picked in the background)
     return HTMLResponse(tour.render_tour(run, target, key, cache_dir(), spot, embed=em), headers=headers)
+
+
+from server import artifacts as _artifacts  # noqa: E402
+
+_artifacts.register(app)

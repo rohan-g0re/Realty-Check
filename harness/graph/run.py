@@ -1187,6 +1187,12 @@ class Run:
                     v = {"claim_id": c.get("id"), "verdict": "cant_check", "claimed": str(c.get("quote") or ""),
                          "found": "no data", "source": None,
                          "reason": f"This claim could not be judged ({type(e).__name__}).", "image": None}
+                try:  # the proof behind it (docs/CONTRACT.md 2.5.1); a result with no openable proof: cant_check
+                    from harness.citations import cite
+                    v = cite(v, c, evs, self.match)
+                except Exception as e:  # never breaks a run: the verdict stays as judged, with no citations
+                    v = {**v, "citations": []}
+                    self.agent_stats["citations_error"] = f"{type(e).__name__}: {str(e)[:200]}"
                 verdicts.append(v)
                 self.emit({"type": "verdict", "verdict": v})
             self.verdicts, self.judged_by = verdicts, by

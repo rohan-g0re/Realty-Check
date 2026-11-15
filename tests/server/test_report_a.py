@@ -112,8 +112,10 @@ def test_claim_counts_render(n):
                          "record" if i % 3 != 1 else None, "One line.") for i in range(n)]
     html = render_report(_run(claims, verdicts, facts=[]))
     assert html.startswith("<!doctype html>") and html.rstrip().endswith("</html>")
-    if n == 60:
-        assert "Show the other" in html
+    if n == 60:  # one list row and one panel per mismatch, all in the one view; only the first panel shown
+        view = _section(html, "id=mismatch", "</section>")
+        assert view.count("role=tab ") == 20 and view.count("role=tabpanel") == 20
+        assert view.count(" hidden data-claim=") == 19
 
 
 def test_mismatch_has_claim_anchor():
@@ -140,12 +142,21 @@ SECTIONS = ("<section class=hero", "id=mismatch", "id=extra", "id=questions", "i
 
 
 def _rows(html: str) -> dict:
+    """{claim id: that mismatch's panel html} in the 'Listed vs. in reality' view."""
     view = _section(html, "id=mismatch", "</section>")
-    return dict(re.findall(r"data-claim='(\w+)'>(.*?)</li>", view))
+    parts = re.split(r"(?=<div class='lvr-row md-p)", view)[1:]
+    return {re.search(r"data-claim='(\w+)'", p).group(1): p for p in parts}
 
 
 def _ids(html: str) -> list:
-    return re.findall(r"<li class='lvr-row[^']*'[^>]*data-claim='(\w+)'", _section(html, "id=mismatch", "</section>"))
+    return re.findall(r"<div class='lvr-row md-p[^']*'[^>]*data-claim='(\w+)'", _section(html, "id=mismatch", "</section>"))
+
+
+def _tabs(html: str) -> list:
+    """(title, tag, small line) of each list row, in order."""
+    view = _section(html, "id=mismatch", "</section>")
+    return re.findall(r"<span class=md-t>([^<]*)</span><span class=md-g>([^<]*)(?:<span[^>]*>\d+</span>)?</span>"
+                      r"<span class=md-s>([^<]*)</span>", view)
 
 
 def _hero_html(html: str) -> str:
@@ -181,7 +192,7 @@ def test_hero_is_the_count_with_one_plain_line_and_no_strike():
     assert "strike" not in hero and "class=pair" not in hero and "<img" not in hero
 
 
-def test_each_mismatch_once_lead_first_and_largest():
+def test_each_mismatch_once_lead_first_and_selected():
     html = render_report(_rich())
     assert _ids(html) == ["c3", "c4", "c1", "c2", "c5"]  # beds, size, floors; then the close ones
     for cid in ("c1", "c2", "c3", "c4", "c5"):
@@ -189,16 +200,27 @@ def test_each_mismatch_once_lead_first_and_largest():
         assert html.count(f"data-claim='{cid}'") == 1
     body = re.sub(r"<style>.*?</style>|<script.*?</script>", "", html, flags=re.S)
     body = body[:body.index("id=cf-field")]  # the heatmap names claims by design
-    assert body.count("“9-story tower”") == 4  # its row, and its question (text, Copy, Copy all)
+    assert body.count("“9-story tower”") == 5  # its list row, its panel, and its question (text, Copy, Copy all)
     assert "Biggest difference" not in body[body.index("id=mismatch"):]
     rows = _rows(html)
-    assert html.count("lvr-row rv lvr-lead") == 1 and "lvr-lead' style='--d:0ms' data-claim='c3'" in html
+    # the first panel is the selected one; every other panel is hidden until its list row is picked
+    assert re.search(r"<div class='lvr-row md-p lay-v in' id=pan-c3-0 role=tabpanel [^>]*data-claim='c3'", html)
+    assert all(" hidden " in rows[c].split(">")[0] for c in ("c4", "c1", "c2", "c5"))
+    assert "id=tab-c3-0 aria-controls=pan-c3-0 aria-selected=true tabindex=0" in html
+    assert _section(html, "id=mismatch", "</section>").count("aria-selected=true") == 1
+    assert _tabs(html) == [("Bedrooms · Plan Q", "Doesn&#x27;t match", "“2 Beds”"),
+                           ("Size · Plan Q", "Doesn&#x27;t match", "“900 sq ft”"),
+                           ("Floors", "Doesn&#x27;t match", "“9-story tower”"),
+                           ("Year built", "Close", "“Built in 2010”"), ("Pool", "Close", "“Pool”")]
+    assert "5 differences, biggest first." in html
     assert "<span class='strike'>“2 Beds”</span>" in rows["c3"] and "lvr-truth>1 bedroom<" in rows["c3"]
     assert "<p class=lvr-why>The 3D scan shows 1 bedroom.</p>" in rows["c3"]
-    assert "<span class=lvr-src>Matterport</span>" in rows["c3"]
-    # proof inline: the lead row holds the full slot, others a picture or one record line
-    assert "<figure class='proof lvr-proof' id=f1 data-proof='pictures'" in rows["c3"]
+    assert ("<span class=lvr-src>Source: <a class=art href='/artifacts/20990101-000000-aaaaaa#a-c3-matterport'>"
+            "Matterport</a></span>") in rows["c3"]
+    # layout by proof: pictures fill a vertical panel; a figure from a record or a scan title is columnar
+    assert "<figure class='proof lvr-proof' id=f1 data-proof='pictures'" in rows["c3"] and "data-layout='v'" in rows["c3"]
     assert "data-proof='pictures'" in rows["c1"] and "/img/0000000000000001" in rows["c1"]
+    assert "data-layout='c'" in rows["c4"] and "<div class='pcols'>" in rows["c4"] and "class=vstack" not in rows["c4"]
     assert "<p class=rline>Matterport 3D scan <span>· titled “1BR - 700 SF”</span></p>" in rows["c4"]
     assert "<p class=rline>County records <span>· Year built: 2008</span></p>" in rows["c2"]
     srcs = re.findall(r"<img src='([^']+)'", _section(html, "id=mismatch", "</section>"))
@@ -209,6 +231,7 @@ def test_close_rows_are_soft_never_struck():
     rows = _rows(render_report(_rich()))
     assert "strike" not in rows["c2"] and "<em>close, not exact</em>" in rows["c2"]
     assert "<span class=lvr-said><span class=''>“Built in 2010”</span></span>" in rows["c2"]
+    assert "md-i close' id=tab-c2-3" in render_report(_rich())
     assert "Not seen in the photos" in rows["c5"] and "strike" not in rows["c5"]  # a photo look: never struck
 
 
@@ -231,6 +254,10 @@ def test_lead_row_strike_for_every_kind(claim, verdict, said, truth):
     row = _rows(html)["c1"]
     assert f"<span class='strike'>{said}</span>" in row and f"<span class=lvr-truth>{truth}</span>" in row
     assert "<h1><span>1 thing</span><span class=l2>doesn&#x27;t match.</span></h1>" in html
+    # one mismatch: no list, the panel alone, full width
+    view = _section(html, "id=mismatch", "</section>")
+    assert "role=tablist" not in view and "<div class='md rv one" in view and " hidden" not in view
+    assert "1 difference." in view
 
 
 def test_one_finding_record_proof_and_no_fill_in():
@@ -277,7 +304,7 @@ def test_recorded_pick_leads_hero_line_view_and_top():
     done["harness"] = {"top_mismatch": {"claim_id": "c1", "why": "Floors change the whole building.", "by": "model"}}
     html = render_report(run)
     assert "Biggest difference: the listing says “9-story tower”" in _hero_html(html)
-    assert _ids(html)[:3] == ["c1", "c3", "c4"]
+    assert _ids(html)[:3] == ["c1", "c3", "c4"] and "id=tab-c1-0 aria-controls=pan-c1-0 aria-selected=true" in html
     assert "<p class=lvr-why>Floors change the whole building.</p>" in _rows(html)["c1"]
     top = top_finding(run)
     assert top["claim_id"] == "c1" and top["by"] == "model" and top["why"] == "Floors change the whole building."
@@ -301,7 +328,9 @@ def test_listed_vs_reality_on_the_invented_sample_run(monkeypatch, tmp_path):
     html = render_report(run, live_3d=False)
     rows = _rows(html)
     assert set(rows) == {"c1", "c2", "c3", "c6"}  # the three hard ones and the close year; no match, no couldn't-check
-    assert "Vexcel + County · high confidence" in rows["c2"] and "Matterport · medium confidence" in rows["c1"]
+    assert "<span class=lvr-src>Source: Vexcel + County</span>" in rows["c2"] and "Confidence 82 / 100 · high" in rows["c2"]
+    assert "<span class=lvr-src>Source: Matterport</span>" in rows["c1"] and "Confidence 64 / 100 · medium" in rows["c1"]
+    assert "/artifacts/" not in html  # the static copy has no server: plain names, no library link
     assert "close, not exact" in rows["c6"]
     assert not re.search(r"\b(fake|lie|lies|scam)\b", re.sub(r"<style>.*?</style>", "", html), re.I)
 
@@ -327,9 +356,11 @@ def test_credit_names_only_sources_that_support_the_found_value():
     html = render_report(_credit_run())
     rows = _rows(html)
     # the record says 31 / 2012 (something else): never credited; one that says the same figure is
-    assert "<span class=lvr-src>County · medium confidence</span>" in rows["c1"] and "CoStar" not in rows["c1"]
-    assert "<span class=lvr-src>County · low confidence</span>" in rows["c2"]
-    assert "<span class=lvr-src>Vexcel + County · high confidence</span>" in rows["c3"] and "CoStar" not in rows["c3"]
+    assert "<span class=lvr-src>Source: <a class=art href='/artifacts/20990101-000000-aaaaaa#a-c1-county'>County</a></span>" in rows["c1"] and "CoStar" not in rows["c1"].split("lvr-also")[0]
+    assert "#a-c2-county'>County</a></span>" in rows["c2"]
+    assert ("<span class=lvr-src>Source: <a class=art href='/artifacts/20990101-000000-aaaaaa#a-c3-vexcel'>Vexcel</a> + "
+            "<a class=art href='/artifacts/20990101-000000-aaaaaa#a-c3-county'>County</a></span>") in rows["c3"]
+    assert "CoStar" not in rows["c3"].split("lvr-also")[0]
     assert "<i class='hit'></i><i class='on'></i></span>" in rows["c3"]  # Vexcel decides, County backs it
 
 
@@ -339,7 +370,7 @@ def test_credit_without_confidence_names_only_the_deciding_source():
         if e.get("type") == "verdict":
             e["verdict"].pop("confidence", None)
     view = _section(render_report(run), "id=mismatch", "</section>")
-    srcs = re.findall(r"<span class=lvr-src>([^<]*)</span>", view)
+    srcs = re.findall(r"<span class=lvr-src>(.*?)</span>", view)
     assert srcs and all("+" not in s and "CoStar" not in s for s in srcs)
 
 
@@ -455,10 +486,113 @@ def test_no_img_without_a_src():
         assert not re.search(r"<img(?![^>]*\ssrc=)[^>]*>", html)
 
 
-def test_lead_viewer_slot_has_its_own_size():
-    """The lead row's 3D viewer holds only an absolutely placed frame and still picture, so its slot must take the
-    proof column's full width and a height of its own; a shrink-to-fit flex parent left it 0x0 (nothing showed)."""
+def test_panel_viewer_slot_has_its_own_size():
+    """A panel's 3D viewer holds only an absolutely placed frame and still picture, so its slot must stretch to the
+    panel's width and fill its height; a shrink-to-fit flex parent left it 0x0 (nothing showed)."""
     from server.report_a import CSS
-    assert "figure.lvr-proof{display:flex;flex-direction:column;align-items:stretch;" in CSS
-    assert ".lvr-lead .walk{width:100%;aspect-ratio:16/9;min-height:360px}" in CSS
-    assert ".walk,.lvr-lead .walk{min-height:280px}" in CSS  # the phone rule still reaches the lead viewer
+    assert "figure.lvr-proof{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;align-items:stretch;" in CSS
+    assert "figure.lvr-proof .walk{aspect-ratio:auto;max-height:none;min-height:200px;width:100%}" in CSS
+    assert "figure.lvr-proof .walk{aspect-ratio:4/3;min-height:260px}" in CSS  # phone: the panel grows instead
+
+
+def _walk_run():
+    """Invented: two scan mismatches whose scan can be walked in 3D, and one county figure."""
+    claims = [_claim("c1", "bedrooms", 2, "2 Beds", "Plan Q", "unit"),
+              _claim("c2", "area_sqft", 900, "900 sq ft", "Plan Q", "unit"),
+              _claim("c3", "year_built", 2010, "Built in 2010")]
+    ev = [{"source": "scan", "status": "ok", "summary": "", "detail": "", "images": [],
+           "observed": {"plan": "Plan Q", "bedrooms": 1, "area_sqft": 700, "model_id": "SAMPLEscan01",
+                        "model_name": "Plan Q - 1BR - 700 SF"}}]
+    vs = [_verdict("c1", "contradicted", "2 bedrooms", "1 bedroom", "scan", "The 3D scan shows 1 bedroom."),
+          _verdict("c2", "contradicted", "900 sq ft", "700 sq ft", "scan", "The 3D scan measures 700 sq ft."),
+          _verdict("c3", "contradicted", "built in 2010", "built in 2001", "county", "County records say 2001.")]
+    return _run(claims, vs, ev)
+
+
+def test_3d_viewers_are_vertical_and_made_only_for_the_selected_panel(monkeypatch):
+    import server.tour as tour
+    monkeypatch.setattr(tour, "tour_target", lambda run, cid=None: {"model_id": "SAMPLEscan01"})
+    html = render_report(_walk_run())
+    rows = _rows(html)
+    for cid in ("c1", "c2"):
+        assert "data-layout='v'" in rows[cid] and "data-proof='walk'" in rows[cid]
+        assert "<div class=walk data-src='/tour/" in rows[cid]
+    assert "data-layout='c'" in rows["c3"]
+    assert "<iframe" not in html  # frames are made by the page script, one at a time
+    from server.report_a import SCRIPT
+    assert "return !w.closest('.md-p[hidden]')" in SCRIPT  # never a viewer for a panel that is not selected
+    assert "window.RC3D.unmount(w)" in SCRIPT and "ArrowDown" in SCRIPT and "hashchange" in SCRIPT
+    static = render_report(_walk_run(), live_3d=False)
+    assert "data-src=" not in _section(static, "id=mismatch", "</section>")
+
+
+def test_confidence_score_in_list_and_panel_never_invented():
+    run = _credit_run()
+    for e in run["events"]:
+        if e.get("type") == "verdict" and e["verdict"]["claim_id"] == "c3":
+            e["verdict"]["confidence"]["score"] = 82
+            e["verdict"]["confidence"]["why"] = "Vexcel measures the roof height directly."
+        if e.get("type") == "verdict" and e["verdict"]["claim_id"] == "c2":
+            e["verdict"]["confidence"].pop("score")
+    html = render_report(run)
+    rows = _rows(html)
+    assert "<span class=lvr-conf>Confidence 82 / 100 · high</span>" in rows["c3"]
+    assert "<p class=lvr-cwhy>Vexcel measures the roof height directly.</p>" in rows["c3"]
+    assert "<span class=lvr-conf>Confidence 60 / 100 · medium</span>" in rows["c1"]
+    assert "<span class=lvr-conf>Low confidence</span>" in rows["c2"] and "/ 100" not in rows["c2"]  # word only
+    view = _section(html, "id=mismatch", "</section>")
+    nums = re.findall(r"<span class=md-c [^>]*>(\d+)</span>", view)
+    assert sorted(nums) == ["60", "82"]  # the number on each list row that has one; none for c2
+    plain = render_report(_rich())  # no confidence at all: no number anywhere in the view
+    pv = _section(plain, "id=mismatch", "</section>")
+    assert "class=md-c" not in pv and "lvr-conf" not in pv
+
+
+def test_label_questions_read_as_sentences():
+    claims = [_claim("c1", "bedrooms", 0, "Studio", "Plan A", "unit"),
+              _claim("c2", "bathrooms", 2, "2 Baths", "Plan B", "unit")]
+    vs = [_verdict("c1", "cant_check", "0 bedrooms", "no data", None, "Nothing in our data measures this."),
+          _verdict("c2", "cant_check", "2 bathrooms", "no data", None, "Nothing in our data measures this.")]
+    html = render_report(_run(claims, vs))
+    qs = re.findall(r"class='btn ghost copy' data-text='([^']+)'", html)
+    assert not any("Studio for Plan A" in q for q in qs), qs
+    assert any(re.fullmatch(r"Can you confirm in writing that Plan A (is a studio|has .Studio.)\?", q) for q in qs), qs
+    assert "Can you confirm in writing that Plan B has “2 Baths”?" in qs, qs
+
+
+def test_not_in_listing_trims_instead_of_dropping():
+    top = [{"label": "Availability and manager", "value": "24 of 215 homes available; managed by Invented Co",
+            "why": "Several homes are open now.", "sources": ["CoStar"], "image": None, "fact_ids": []},
+           {"label": "Nearby 311 requests", "value": "43 since 2026-01-01 within 100 m", "why": "A count only.",
+            "sources": ["County"], "image": None, "fact_ids": []},
+           {"label": "Elevator", "value": "Walk-up", "why": "", "sources": ["CoStar"], "image": None, "fact_ids": []},
+           {"label": "Pets", "value": "Cats and dogs allowed", "why": "", "sources": ["CoStar"], "image": None,
+            "fact_ids": []},
+           {"label": "Seen from above", "value": "Sport court", "why": "", "sources": ["Vexcel"], "image": None,
+            "fact_ids": []}]
+    nil = _nil(render_report(_facts_run(FACTS, {"top_facts": top})))
+    assert nil.count("class='nil-row") == 5
+    assert "<p class=nil-k><b>1</b>Homes available</p><p class=nil-v>24 of 215 homes available</p>" in nil
+    assert "Invented Co" not in nil and "managed" not in nil.lower()
+    assert "43 since 2026-01-01 within 100 m" in nil
+
+
+def test_long_cant_check_reasons_are_clamped():
+    from server.report_a import CSS
+    assert ".reasons p{margin:0 0 4px;font-size:15px;color:var(--mute);display:-webkit-box;-webkit-line-clamp:2;" in CSS
+
+
+def test_deciding_source_links_to_the_artifact_library():
+    run = _credit_run()
+    html = render_report(run)
+    rows = _rows(html)
+    # the deciding source first, linked to its artifact; a source that said something else only as "also checked"
+    assert "<span class=lvr-src>Source: <a class=art href='/artifacts/20990101-000000-aaaaaa#a-c1-county'>County</a></span>" in rows["c1"]
+    assert ("<span class=lvr-also>also checked: <a class=art href='/artifacts/20990101-000000-aaaaaa#a-c1-costar'>"
+            "CoStar</a></span>") in rows["c1"]
+    sources = _section(html, "id=sources", "</section>")
+    assert "<a href='/artifacts/20990101-000000-aaaaaa'>Open the artifact library" in sources
+    static = render_report(run, live_3d=False)
+    assert "/artifacts/" not in static and "<span class=lvr-src>Source: County</span>" in _rows(static)["c1"]
+    run["run_id"] = "../../x"  # an id that is not plain never makes a link
+    assert "/artifacts/" not in render_report(run)

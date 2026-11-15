@@ -16,7 +16,7 @@ from html import escape
 SOURCES = [("record", "CoStar"), ("scan", "Matterport"), ("aerial", "Vexcel"), ("county", "County")]
 SOURCE_NAME = dict(SOURCES)
 STATE_WORDS = {"match": "Matches the listing", "contra": "Doesn't match the listing", "close": "Close, not exact",
-               "data": "Has data, not compared", "none": "Nothing from this source"}
+               "differ": "Sources differ", "data": "Has data, not compared", "none": "Nothing from this source"}
 VERDICT_WORDS = {"confirmed": "Holds up", "contradicted": "Doesn't match", "close": "Close, not exact",
                  "cant_check": "Couldn't check"}
 IMG_RE = re.compile(r"^/img/[a-f0-9]{16}$")
@@ -124,15 +124,18 @@ def _relevant(claim: dict, evs: list) -> list:
     """This source's evidence that bears on the claim, by the judge's own relevance rule (`_usable`),
     plus picture checks naming the claim and the record's full plan list for unnamed unit claims."""
     from harness.graph import amenities, trust
-    from harness.graph.judge import UNIT_KINDS, _usable
+    from harness.graph.judge import UNIT_KINDS, _usable, record_names
     if amenities.is_feature_claim(claim):
         pk = trust.property_key(claim)  # Vexcel property data names no claim: its yes / no for this feature counts
+        # the building record's amenity list names no claim either: it counts when it names this one (the judge's
+        # own `record_names`, which is how such a claim gets "Named in the building record")
         return [e for e in evs if e.get("status") == "ok" and (
                 (claim.get("id") in ((e.get("observed") or {}).get("claim_ids") or [])
                  and (e.get("observed") or {}).get("presence") not in (None, "skipped"))
                 or (pk and isinstance((e.get("observed") or {}).get("property"), dict)
                     and isinstance(e["observed"]["property"].get(pk), dict)
-                    and isinstance(e["observed"]["property"][pk].get("present"), bool)))]
+                    and isinstance(e["observed"]["property"][pk].get("present"), bool))
+                or (e.get("source") == "record" and record_names(claim, [e])))]
     out = _usable(claim, evs, any_plan=True)
     if claim.get("kind") in UNIT_KINDS and not claim.get("label") and claim.get("scope") != "building":
         out += [e for e in evs if e.get("status") == "ok" and e not in out
@@ -416,7 +419,9 @@ def claim_field(run: dict) -> dict:
     confidence, cells: {record|scan|aerial|county: {state, ...}}}], "counts": {state: n}}.
     `confidence`: the verdict's own confidence block (judge, on a mismatch) or None.
 
-    state: match | contra | close | data (source has relevant evidence but the judge could not compare) | none.
+    state: match | contra | close | differ (this source's reading and another's disagree and the final verdict does
+    not side with it: never blue, see `_agree_with_verdict`) | data (source has relevant evidence but the judge could
+    not compare) | none. A source's row count is `source_counts`.
     """
     from server.report import drop_dead_images
     run = drop_dead_images(run or {})
@@ -433,41 +438,106 @@ def claim_field(run: dict) -> dict:
                 cells[k] = _cell(c, by_src[k], single)
             except Exception:  # noqa: BLE001  one odd evidence must not break the report
                 cells[k] = {"state": "none"}
-            counts[cells[k]["state"]] += 1
         verdict = v.get("verdict") or "cant_check"
+        _agree_with_verdict(cells, verdict, v.get("source"), v.get("found"))
+        for k, _ in SOURCES:
+            counts[cells[k]["state"]] += 1
         out_claims.append({"id": cid, "kind": c.get("kind"), "label": c.get("label"),
                            "quote": _cut_words(c.get("quote") or v.get("claimed"), 120),
                            "claimed": _clean_summary(v.get("claimed")),
                            "verdict": verdict, "verdict_words": VERDICT_WORDS.get(verdict, "Couldn't check"),
+                           "source": v.get("source") if v.get("source") in SOURCE_NAME else None,
                            "found": _clean_summary(v.get("found")), "reason": _clean_summary(v.get("reason")),
                            "highlight": verdict in ("contradicted", "close"), "cells": cells,
                            "confidence": v.get("confidence") if isinstance(v.get("confidence"), dict) else None})
-    sources = [{"key": k, "name": n, "count": sum(1 for c in out_claims if c["cells"][k]["state"] != "none")}
-               for k, n in SOURCES]
+    per = source_counts({"claims": out_claims})
+    sources = [{"key": k, "name": n, "count": per[k]["total"], "settled": per[k]["settled"],
+                "weighed": per[k]["weighed"]} for k, n in SOURCES]
     return {"sources": sources, "claims": out_claims, "counts": counts, "source_rows": source_rows(evidence)}
 
 
-_LAND_USE = re.compile(r"land_?use|property_?use|use_desc|zoning_desc", re.I)
-_FOOTPRINT = re.compile(r"footprint", re.I)
-_COMPANY = re.compile(r"\b(llc|l\.l\.c|inc|corp|corporation|company|lp|l\.p|llp|ltd|trust|partners|partnership|"
-                      r"holdings|properties|property|realty|residential|apartments|management|group|fund|reit|"
-                      r"association|housing|authority|city of|county|state of)\b", re.I)
+def source_counts(field: dict) -> dict:
+    """{record|scan|aerial|county: {"total", "settled", "weighed"}}: how many claims each source spoke to (a filled
+    cell in its row), how many of those it settled (the claim's final verdict came from it) and how many it only
+    weighed in on. The one count for the heatmap's row labels and the report's "Four sources" panel
+    (`source_counts(claim_field(run))`)."""
+    out = {k: {"total": 0, "settled": 0, "weighed": 0} for k, _ in SOURCES}
+    for c in (field or {}).get("claims") or []:
+        for k, _ in SOURCES:
+            if ((c.get("cells") or {}).get(k) or {}).get("state", "none") == "none":
+                continue
+            out[k]["total"] += 1
+            settled = c.get("source") == k and c.get("verdict") in ("confirmed", "contradicted", "close")
+            out[k]["settled" if settled else "weighed"] += 1
+    return out
 
 
-def owner_type(value) -> str:
-    """'company' or 'individual' from an owner field; never the name itself. '' when unknown."""
-    v = str(value or "").strip()
-    if not v:
+_COMPARED = ("match", "contra", "close")
+
+
+def _value_of(text) -> str:
+    """'about 6 floors' -> '6', 'Named in the record' -> 'named in the record': what a reading says, for telling
+    whether two readings agree."""
+    m = re.search(r"\d[\d,]*(?:\.\d+)?", str(text or ""))
+    if m:
+        n = _num(m.group(0))
+        return f"{n:g}" if n is not None else m.group(0)
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+def _reading(key: str, cell: dict) -> str:
+    """'Vexcel: about 6 floors': one source's reading in a few words, for the 'sources differ' note."""
+    val = str(cell.get("short") or "").strip() or compact(cell.get("found")) or str(cell.get("found") or "").strip()
+    if not val:
         return ""
-    if v.lower() in ("company", "individual"):
-        return v.lower()
-    try:
-        from tools.kit.facts import is_company
-        if is_company(v):
-            return "company"
-    except Exception:  # noqa: BLE001
-        pass
-    return "company" if _COMPANY.search(v) else "individual"
+    if not val[1:2].isupper():
+        val = val[:1].lower() + val[1:]
+    if key == "aerial" and val[:1].isdigit():
+        val = "about " + val  # a floor count from the roof height is an estimate
+    return f"{SOURCE_NAME[key]}: {val}"
+
+
+def _agree_with_verdict(cells: dict, verdict: str, source, found) -> None:
+    """Cell colours that never argue with the claim's final verdict (in place). Each cell is first judged on its own
+    source; then:
+      - couldn't check: no mismatch colour. Two or more readings that differ -> every compared cell 'differ'
+        (outlined); a lone reading the judge did not settle on -> 'data'.
+      - doesn't match: blue only for a source that backs the found value (the deciding source, or the same value);
+        any other mismatching reading -> 'differ'.
+      - close: a source backing the found value shows 'close' (light blue); any other mismatching reading -> 'differ'.
+      - holds up: a mismatching reading -> 'differ'.
+    A 'differ' cell carries `note`: every compared reading, e.g. 'CoStar: 5 floors · County: 6 floors — sources
+    differ'."""
+    compared = [k for k, _ in SOURCES if cells[k].get("state") in _COMPARED]
+    want = _value_of(found)
+
+    def backs(k):
+        return k == source or (bool(want) and _value_of(cells[k].get("found")) == want)
+
+    if verdict not in ("confirmed", "contradicted", "close"):
+        values = {_value_of(cells[k].get("found")) for k in compared}
+        if len(compared) >= 2 and len(values) > 1:
+            for k in compared:
+                cells[k]["state"] = "differ"
+        else:
+            for k in compared:
+                if cells[k]["state"] in ("contra", "close"):
+                    cells[k]["state"] = "data"
+    else:
+        for k in compared:
+            st = cells[k]["state"]
+            if st == "match":
+                continue
+            if verdict == "confirmed" or not backs(k):
+                cells[k]["state"] = "differ"
+            elif verdict == "close":
+                cells[k]["state"] = "close"
+    if any(cells[k]["state"] == "differ" for k in compared):
+        readings = [r for r in (_reading(k, cells[k]) for k in compared) if r]
+        note = (" · ".join(readings) + " — sources differ") if readings else "Sources differ"
+        for k in compared:
+            if cells[k]["state"] == "differ":
+                cells[k]["note"] = note
 
 
 def _count_of(v) -> int | None:
@@ -481,11 +551,11 @@ def _count_of(v) -> int | None:
 
 
 def source_rows(evidence: list) -> dict:
-    """What aerial imagery and county records saw in this run, as plain (label, value) rows for the grid:
+    """What aerial imagery and county records saw in this run, as a few plain (label, value) chips under the grid:
     {"aerial": [[label, value]], "county": [[label, value]]}; a source with nothing is left out.
-    Aerial: roof height, floors measured from above, footprint, things seen or not seen in the photos (never a photo
-    floor count). County: year built, building size, homes, floors, land use, owner type (company / individual, never
-    a name), 311 requests as a count only (never their text, never 0). Only what the evidence really carries."""
+    Only the few readings a renter can use: aerial roof height, floors measured from above and the photo date (never
+    a photo floor count); county year built, homes, and 311 requests as a count only (never their text, never 0).
+    Never the owner, land use, publisher or anything already shown as a cell."""
     rows: dict = {"aerial": {}, "county": {}}
 
     def put(src, key, label, value):
@@ -499,17 +569,8 @@ def source_rows(evidence: list) -> dict:
         if not isinstance(obs, dict):
             continue
         if src == "aerial":
-            if obs.get("feature_check"):
-                pres, feat = obs.get("presence"), obs.get("feature")
-                if feat and pres in ("seen", "not_seen"):
-                    key = "feature:" + str(feat)
-                    if pres == "seen":
-                        rows[src].pop(key, None)  # seen in one photo set beats not seen in another
-                    put(src, key, _cap(feature_words(feat)),
-                        "Seen from above" if pres == "seen" else "Not seen from above")
-                continue
-            if obs.get("illustrative"):
-                continue  # a photo floor count never decides floors
+            if obs.get("feature_check") or obs.get("illustrative"):
+                continue  # picture checks are cells already; a photo floor count never decides floors
             if _num(obs.get("height_m")):
                 put(src, "height", "Roof height", _n_words(obs["height_m"], "m"))
             if _num(obs.get("stories")):
@@ -518,39 +579,18 @@ def source_rows(evidence: list) -> dict:
                 if isinstance(rng, list) and len(rng) == 2 and rng[0] != rng[1]:
                     extra = f" (between {_n_words(rng[0])} and {_n_words(rng[1])})"
                 put(src, "stories", "Floors, measured from above", f"About {_n_words(obs['stories'])}{extra}")
-            for k, v in obs.items():
-                if _FOOTPRINT.search(str(k)) and _num(v):
-                    low = str(k).lower()
-                    sq = _num(v) * (10.7639 if ("m2" in low or "sqm" in low) else 1)
-                    put(src, "footprint", "Building footprint", _n_words(round(sq), "sq ft"))
             if obs.get("capture_date"):
                 put(src, "date", "Photos taken", _clean_str(obs["capture_date"]))
         else:
             if _num(obs.get("year_built")):
                 put(src, "year", "Year built", str(int(_num(obs["year_built"]))))
-            if _num(obs.get("building_sf")):
-                put(src, "size", "Building size", _n_words(obs["building_sf"], "sq ft"))
             if _num(obs.get("unit_count")):
                 put(src, "units", "Homes", _n_words(obs["unit_count"]))
-            if _num(obs.get("stories")):
-                put(src, "stories", "Floors", _n_words(obs["stories"]))
             for k, v in obs.items():
-                k = str(k)
-                if _COUNT_KEY.search(k):
+                if "311" in str(k):
                     n = _count_of(v)
                     if n is not None and n > 0:  # 0 is left out like any blank value
-                        label = "311 requests" if "311" in k else "Complaints on record"
-                        put(src, "count:" + label, label, f"{n:,}")
-                elif _LAND_USE.search(k) and isinstance(v, str):
-                    lu = _clean_str(v)
-                    if lu and len(lu) <= 60:
-                        put(src, "land", "Land use", _cap(lu.lower()) if lu.isupper() else lu)
-                elif re.search(r"owner", k, re.I) and isinstance(v, str):
-                    t = owner_type(v)
-                    if t:
-                        put(src, "owner", "Owner", "A company" if t == "company" else "An individual")
-            if obs.get("source_name"):
-                put(src, "pub", "Published by", _clean_str(obs["source_name"]))
+                        put(src, "311", "311 requests", f"{n:,}")
     return {k: list(v.values()) for k, v in rows.items() if v}
 
 
@@ -587,8 +627,14 @@ font-family:Newsreader,Georgia,"Times New Roman",serif;color:var(--cf-ink);margi
 .cf-rows{flex:none;width:clamp(104px,13%,150px);display:grid;grid-template-rows:repeat(4,var(--cf-h));gap:var(--cf-gap);
 font-size:17px;line-height:1.1}
 .cf-rows span{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.cf-rows b{font-weight:400}.cf-rows i{font-style:normal;color:var(--cf-muted);font-variant-numeric:tabular-nums}
-.cf-scroll{flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:visible;padding-bottom:4px}
+.cf-rows b{font-weight:400;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cf-rows i{flex:none;font-style:normal;color:var(--cf-muted);font-variant-numeric:tabular-nums}
+.cf-scroll{flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:visible;padding-bottom:4px;
+-webkit-overflow-scrolling:touch}
+.cf-over:not(.cf-end) .cf-scroll{-webkit-mask-image:linear-gradient(to right,#000 82%,transparent);
+mask-image:linear-gradient(to right,#000 82%,transparent)}
+.cf-more{display:none;margin:8px 0 0;font-size:14px;color:var(--cf-muted)}
+.cf-over .cf-more{display:block}.cf-over.cf-end .cf-more{visibility:hidden}
 .cf-inner{position:relative;width:100%;max-width:calc(var(--cf-n) * 56px);
 min-width:calc(var(--cf-n) * (var(--cf-min) + var(--cf-gap)))}
 .cf-grid{display:grid;grid-template-rows:repeat(4,var(--cf-h));grid-auto-flow:column;
@@ -599,6 +645,7 @@ animation:cf-in .5s var(--cf-ease) both;animation-delay:calc(var(--cf-i) * 9ms +
 .cf-cell.cf-match{background:var(--cf-ink)}
 .cf-cell.cf-contra{background:var(--cf-blue)}.cf-cell.cf-close{background:#a9baf2}
 .cf-cell.cf-data{background:#fff;box-shadow:inset 0 0 0 2px var(--cf-ink)}
+.cf-cell.cf-differ{background:#fff;border:2px dashed var(--cf-ink)}
 .cf-cell.cf-none{cursor:default}
 .cf-cell:not(.cf-none):hover,.cf-cell:not(.cf-none):focus-visible{transform:translateY(-3px)}
 .cf-cell:not(.cf-none):hover{box-shadow:0 8px 18px rgba(17,17,17,.18)}
@@ -614,6 +661,7 @@ background:rgba(26,75,224,.13);pointer-events:none;opacity:0;transition:opacity 
 transition:color .15s}
 .cf-mark::before{content:"";width:3px;height:12px;background:var(--cf-blue)}
 .cf-mark.cf-flip{align-items:flex-end}
+.cf-mt{display:block;max-width:min(320px,60vw);overflow:hidden;text-overflow:ellipsis}
 .cf-mark.cf-tick{font-size:0;gap:0}
 .cf-mark.cf-near{color:#5f78c9}.cf-mark.cf-near::before{background:#a9baf2}
 .cf-mark.cf-q{color:var(--cf-muted)}.cf-mark.cf-q::before{background:#c4c4c4}
@@ -623,6 +671,7 @@ transition:color .15s}
 .cf-legend i{width:12px;height:12px;background:var(--cf-grey);flex:none}
 .cf-legend i.cf-k{background:var(--cf-ink)}.cf-legend i.cf-n{background:#a9baf2}.cf-legend i.cf-b{background:var(--cf-blue)}
 .cf-legend i.cf-o{background:#fff;box-shadow:inset 0 0 0 2px var(--cf-ink)}
+.cf-legend i.cf-d{background:#fff;border:1.5px dashed var(--cf-ink)}
 .cf-tip{position:fixed;z-index:60;width:260px;height:250px;overflow:hidden;background:#fff;color:var(--cf-ink);
 border:1px solid var(--cf-line);box-shadow:0 14px 36px rgba(17,17,17,.14);padding:12px 14px;pointer-events:none;
 font-family:Newsreader,Georgia,serif;opacity:0;transform:translateY(4px);
@@ -638,6 +687,7 @@ transition:opacity .12s ease,transform .16s var(--cf-ease)}
 .cf-tip dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:1px 10px;font-size:13px;line-height:1.35}
 .cf-tip dt{color:var(--cf-muted)}.cf-tip dd{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cf-tip .cf-fd{font-size:14px;margin:0 0 5px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.cf-tip .cf-fd.cf-nt{-webkit-line-clamp:3}
 .cf-back{position:fixed;inset:0;z-index:70;background:rgba(17,17,17,.28);opacity:0;transition:opacity .32s var(--cf-ease)}
 .cf-back.cf-show{opacity:1}.cf-back[hidden],.cf-panel[hidden]{display:none}
 .cf-panel{position:fixed;top:0;right:0;bottom:0;z-index:71;width:min(520px,100vw);background:#fff;color:var(--cf-ink);
@@ -667,9 +717,9 @@ border:1px solid var(--cf-line)}
 .cf-saw-row{display:flex;align-items:baseline;gap:6px 8px;font-size:15px;line-height:1.3}
 .cf-chips{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:6px 8px}
 .cf-saw-row>b{font-weight:400;flex:none;width:clamp(104px,13%,150px);font-size:17px}
-.cf-chip{display:inline-flex;gap:6px;align-items:baseline;background:#f4f4f2;padding:5px 10px;
+.cf-chip{display:inline-block;max-width:100%;background:#f4f4f2;padding:5px 10px;
 animation:cf-in .5s var(--cf-ease) both;animation-delay:calc(var(--cf-i) * 40ms + 200ms)}
-.cf-chip i{font-style:normal;color:var(--cf-muted)}
+.cf-chip i{font-style:normal;color:var(--cf-muted);margin-right:6px}
 .cf-saw .cf-credit{font-size:13px;color:var(--cf-muted);margin:2px 0 0}
 .cf-kv{display:grid;grid-template-columns:minmax(110px,auto) 1fr;gap:0;margin:0;font-size:15px}
 .cf-kv dt,.cf-kv dd{margin:0;padding:6px 0;border-bottom:1px solid var(--cf-line)}
@@ -681,8 +731,9 @@ white-space:pre-wrap;overflow-wrap:anywhere}
 text-decoration:none;font-size:15px}
 .cf-body .cf-go:hover{background:#333}
 .cf-body button.cf-go{border:0;font:inherit;cursor:pointer}.cf-3dhost .see3d-box{margin-top:12px}
-@media(max-width:640px){.cf-field{--cf-h:44px;--cf-min:18px;--cf-gap:4px}
-.cf-rows{width:96px;font-size:15px}.cf-saw-row{flex-wrap:wrap}.cf-saw-row>b{width:100%;font-size:16px}.cf-legend{font-size:14px;gap:6px 18px}.cf-body{padding:18px 16px 32px}
+@media(max-width:640px){.cf-field{--cf-h:44px;--cf-min:8px;--cf-gap:2px}
+.cf-wrap{gap:10px}.cf-rows{width:84px;font-size:14px}.cf-rows span{gap:4px}.cf-mt{max-width:150px}
+.cf-cell.cf-differ{border-width:1.5px}.cf-marks{font-size:14px}.cf-saw-row{flex-wrap:wrap}.cf-saw-row>b{width:100%;font-size:16px}.cf-legend{font-size:14px;gap:6px 18px}.cf-body{padding:18px 16px 32px}
 .cf-body h3{font-size:26px}}
 @media(prefers-reduced-motion:reduce){.cf-field *,.cf-tip,.cf-panel,.cf-back{animation:none!important;transition:none!important}
 .cf-cell:not(.cf-none):hover,.cf-cell:not(.cf-none):focus-visible{transform:none}}
@@ -720,7 +771,11 @@ function lanes(){var box=root.querySelector('.cf-marks'),marks=Array.prototype.s
   (ends[lane]=ends[lane]||[]).push([x0,x1]);
   m.style.left=(m.classList.contains('cf-flip')?x0:x)+'px';m.style.top=(lane*40)+'px';lh=Math.max(lh,lane);});
  box.style.setProperty('--cf-mh',(lh<0?0:lh*40+42)+'px');}
-lanes();window.addEventListener('resize',lanes);
+/* a grid wider than the screen scrolls on its own, with a hint and a fade until its end */
+var sc=root.querySelector('.cf-scroll');
+function over(){root.classList.toggle('cf-over',sc.scrollWidth>sc.clientWidth+2);
+ root.classList.toggle('cf-end',sc.scrollLeft+sc.clientWidth>=sc.scrollWidth-2);}
+lanes();over();window.addEventListener('resize',function(){lanes();over();});
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(lanes);
 /* hover preview */
 var hideT;
@@ -733,7 +788,8 @@ function show(b){clearTimeout(hideT);var d=data(b),st=d.cell.state;colOn(b);
   h+='<p class="cf-src"><span>'+esc(d.s.name)+'</span><span class="cf-st'+(blue(st)?' cf-b':'')+'">'+esc(WORD[st])+'</span></p>';
   h+='<p class="cf-qt">“'+esc(d.c.quote)+'”</p>';
   if(d.c.claimed)h+='<p class="cf-cl">Listing: '+esc(d.c.claimed)+'</p>';
-  if(d.cell.found)h+='<p class="cf-fd">'+esc(d.s.name)+': '+esc(d.cell.found)+'</p>';
+  if(d.cell.note)h+='<p class="cf-fd cf-nt">'+esc(d.cell.note)+'</p>';
+  else if(d.cell.found)h+='<p class="cf-fd">'+esc(d.s.name)+': '+esc(d.cell.found)+'</p>';
   var f=(d.cell.facts||[]).slice(0,d.cell.image?2:5);
   if(f.length)h+='<dl>'+f.map(function(p){return'<dt>'+esc(p[0])+'</dt><dd>'+esc(p[1])+'</dd>';}).join('')+'</dl>';
   tip.innerHTML=h;}
@@ -746,7 +802,7 @@ grid.addEventListener('mouseover',function(e){var b=e.target.closest('.cf-cell')
 grid.addEventListener('mouseleave',hide);
 grid.addEventListener('focusin',function(e){var b=e.target.closest('.cf-cell');if(b)show(b);});
 grid.addEventListener('focusout',function(e){if(!grid.contains(e.relatedTarget))hide();});
-root.querySelector('.cf-scroll').addEventListener('scroll',function(){tip.hidden=true;colOff();lanes();},{passive:true});
+sc.addEventListener('scroll',function(){tip.hidden=true;colOff();over();},{passive:true});
 /* roving focus inside the grid */
 function rove(b){cells.forEach(function(x){x.tabIndex=-1;});b.tabIndex=0;b.focus();}
 function step(c,r,dc,dr,skip){var n=C.length;for(var i=0;i<n*4;i++){c+=dc;r+=dr;if(c<0||c>=n||r<0||r>3)return null;
@@ -769,7 +825,8 @@ function fill(b){var d=data(b),st=d.cell.state,c=d.c,cell=d.cell,h='';drop3d();c
  if(c.reason)h+='<p class="cf-dim">'+esc(c.reason)+'</p>';
  h+='<p class="cf-lbl">'+esc(d.s.name)+'</p><p class="cf-state'+(blue(st)?' cf-b':'')+'">'+esc(WORD[st])+(cell.found&&st!=='none'?': '+esc(cell.found):'')+'</p>';
  if(st==='none'){h+='<p class="cf-dim">'+esc(d.s.name)+' had nothing usable about this claim.</p>';}
- else{if(cell.reason&&st!=='data'&&(c.reason||'').indexOf(cell.reason.split('. ').slice(0,2).join('. '))<0)h+='<p class="cf-dim">'+esc(cell.reason)+'</p>';
+ else{if(cell.note)h+='<p class="cf-dim">'+esc(cell.note)+'</p>';
+  if(cell.reason&&st!=='data'&&st!=='differ'&&(c.reason||'').indexOf(cell.reason.split('. ').slice(0,2).join('. '))<0)h+='<p class="cf-dim">'+esc(cell.reason)+'</p>';
   (cell.summaries||[]).forEach(function(s){h+='<p>'+esc(s)+'</p>';});
   if(cell.tour)h+='<button type="button" class="cf-go cf-3d" data-claim="'+esc(c.id)+'">See it in 3D</button><div class="cf-3dhost"></div>';
   if(cell.images&&cell.images.length){h+='<div class="cf-pics'+(cell.images.length===1?' cf-one':'')+'">'+cell.images.map(function(im){var cap=soft(im.caption);return'<figure><a class="pic" href="'+esc(im.url)+'" data-cap="'+esc(cap)+'"><img loading="lazy" decoding="async" alt="'+esc(cap||'Proof picture')+'" src="'+esc(im.url)+'"></a>'+(cap?'<figcaption>'+esc(cap)+'</figcaption>':'')+'</figure>';}).join('')+'</div>';}
@@ -859,12 +916,16 @@ def claim_field_section(run: dict, tours: bool = True) -> str:
     for ci, c in enumerate(claims):
         if c["highlight"]:
             near = " cf-near" if c["verdict"] == "close" else ""
-            h.append(f"<span class='cf-mark{near}' data-c={ci}>“{escape(c['quote'])}”</span>")
+            h.append(f"<span class='cf-mark{near}' data-c={ci} title='{escape(c['quote'], True)}'>"
+                     f"<span class=cf-mt>“{escape(c['quote'])}”</span></span>")
         elif c["verdict"] == "cant_check":
             h.append(f"<span class='cf-mark cf-q' data-c={ci} title='{escape(c['quote'], True)}'>?</span>")
     h.append("</div></div></div></div>")
+    h.append("<p class=cf-more aria-hidden=true>Scroll sideways to see every claim →</p>")
     h.append("<p class=cf-legend><span><i class=cf-k></i>matches the listing</span>"
              "<span><i class=cf-b></i>doesn't match</span><span><i class=cf-n></i>close, not exact</span><span><i></i>nothing to say</span>")
+    if field["counts"]["differ"]:
+        h.append("<span><i class=cf-d></i>sources differ</span>")
     if field["counts"]["data"]:
         h.append("<span><i class=cf-o></i>has data, not compared</span>")
     h.append("<span>One column per claim.</span></p>")
@@ -915,6 +976,7 @@ padding-top:12px;padding-bottom:10px;white-space:nowrap;box-shadow:inset 0 -1px 
 .lt td.lt-contra{background:var(--lt-tint);color:var(--lt-blue)}.lt td.lt-contra .lt-v::before{background:var(--lt-blue)}
 .lt td.lt-close{background:var(--lt-near)}.lt td.lt-close .lt-v::before{background:var(--lt-close)}
 .lt td.lt-data .lt-v::before{background:var(--lt-bg);box-shadow:inset 0 0 0 1.5px var(--lt-ink)}
+.lt td.lt-differ .lt-v::before{background:var(--lt-bg);outline:1.5px dashed var(--lt-ink);outline-offset:-1.5px}
 .lt td.lt-none{color:var(--lt-ghost)}
 .lt td.lt-dec{box-shadow:inset 0 0 0 2px var(--lt-blue)}
 .lt .lt-tag{display:inline-block;margin-top:6px;font-size:12px;line-height:1;padding:3px 6px;background:var(--lt-blue);
@@ -1033,7 +1095,8 @@ def _td_source(cell: dict, name: str, decides: bool, says: str = "") -> str:
     if st == "none":
         return (f"<td class='lt-c lt-none'><span aria-hidden=true>—</span>"
                 f"<span class=lt-sr>Nothing from {escape(name)}</span></td>")
-    full = _cell_text(cell)
+    full = str(cell.get("note") or "") if st == "differ" else ""
+    full = full or _cell_text(cell)
     short = says or str(cell.get("short") or "").strip()
     title = f" title='{escape(full, True)}'" if full and full != short else ""
     tag = "<span class=lt-tag>decides</span>" if decides else ""

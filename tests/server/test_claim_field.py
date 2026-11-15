@@ -189,9 +189,8 @@ def test_source_rows_aerial_and_county_only_what_the_run_has():
     rows = claim_field(run)["source_rows"]
     aerial, county = dict(rows["aerial"]), dict(rows["county"])
     assert aerial["Roof height"] == "23.1 m" and aerial["Floors, measured from above"].startswith("About 6")
-    assert aerial["Pool"] == "Seen from above" and "Parking" not in aerial and "9" not in json.dumps(aerial)
-    assert aerial["Building footprint"] == "10,764 sq ft"
-    assert county["Owner"] == "An individual" and county["Land use"] == "Apartments" and county["311 requests"] == "2"
+    assert "Pool" not in aerial and "Parking" not in aerial and "9" not in json.dumps(aerial)  # cells, not chips
+    assert county == {"Year built": "2001", "311 requests": "2"}
     blob = json.dumps(rows)
     assert "Pat" not in blob and "Sam" not in blob
     assert "record" not in rows and "scan" not in rows
@@ -448,3 +447,93 @@ def test_compare_table_listing_says_is_never_cut():
     assert len(long_quote) > 120 and len(said) <= 120 and long_quote.startswith(said)
     assert long_quote[len(said)] == " "  # cut between words
     assert "overflow-wrap:anywhere" in html and ".lt-scroll{overflow:auto" in html
+
+
+# ---------- one count, verdict-consistent colours, few chips, phone width (invented: 418 Linden Grove Ave) ----------
+
+def test_record_amenity_names_fill_the_costar_cell_and_counts_come_from_one_function():
+    from server.claim_field import source_counts
+    run = run_of([claim("c1", "amenity", "pool", "Sparkling pool"), claim("c2", "stories", 5, "5 floors")],
+                 [ev("record", {"property_id": "900001", "amenities": ["Pool", "Fitness center"]}),
+                  ev("record", {"stories": 5}),
+                  ev("aerial", {"feature_check": True, "claim_ids": ["c1"], "feature": "pool", "presence": "seen",
+                                "presence_confidence": 0.9})],
+                 [verdict("c1", "confirmed", "pool", "Named in the building record", "record"),
+                  verdict("c2", "confirmed", "5 floors", "5 floors", "record")])
+    f = claim_field(run)
+    assert state(f, "c1", "record") == "match"  # the record's amenity list spoke to it: a filled CoStar cell
+    per = source_counts(f)
+    assert per["record"] == {"total": 2, "settled": 2, "weighed": 0}
+    assert per["aerial"] == {"total": 1, "settled": 0, "weighed": 1}
+    for s in f["sources"]:  # the row label is the same number as the filled cells in the row
+        filled = sum(1 for c in f["claims"] if c["cells"][s["key"]]["state"] != "none")
+        assert s["count"] == per[s["key"]]["total"] == filled
+        assert (s["settled"], s["weighed"]) == (per[s["key"]]["settled"], per[s["key"]]["weighed"])
+    html = claim_field_section(run)
+    assert "<span><b>CoStar</b><i>2</i></span>" in html
+
+
+def _floors_run(v, src=None, found=""):
+    return run_of([claim("c1", "stories", 5, "5-story building at 418 Linden Grove Ave")],
+                  [ev("record", {"property_id": "900002", "stories": 5}),
+                   ev("aerial", {"height_m": 14.0, "stories": 4}),
+                   ev("county", {"parcel_id": "900003", "stories": 6})],
+                  [verdict("c1", v, "5 floors", found, src)])
+
+
+def test_couldnt_check_never_shows_a_mismatch_colour():
+    f = claim_field(_floors_run("cant_check", found="sources differ"))
+    cells = f["claims"][0]["cells"]
+    assert {cells[k]["state"] for k in ("record", "aerial", "county")} == {"differ"}
+    assert cells["aerial"]["note"] == "CoStar: 5 floors · Vexcel: about 4 floors · County: 6 floors — sources differ"
+    assert f["counts"]["contra"] == f["counts"]["close"] == 0
+    html = claim_field_section(_floors_run("cant_check", found="sources differ"))
+    assert "cf-cell cf-contra" not in html and "cf-cell cf-close" not in html
+    assert html.count("cf-cell cf-differ") == 3 and "<i class=cf-d></i>sources differ" in html
+    assert ".cf-cell.cf-differ{" in html and "d.cell.note" in html  # outlined; the note is the hover text
+
+
+def test_couldnt_check_with_one_reading_is_has_data():
+    run = run_of([claim("c1", "stories", 5, "5 floors")], [ev("aerial", {"height_m": 14.0, "stories": 4})],
+                 [verdict("c1", "cant_check", "5 floors", "about 4 floors")])
+    assert state(claim_field(run), "c1", "aerial") == "data"
+
+
+def test_blue_only_for_a_source_backing_the_found_value():
+    f = claim_field(_floors_run("contradicted", "county", "6 floors"))
+    assert state(f, "c1", "county") == "contra"   # decides: blue
+    assert state(f, "c1", "aerial") == "differ"   # also off the listing, but says 4, not 6
+    assert state(f, "c1", "record") == "match"    # agrees with the listing: still black
+    f = claim_field(_floors_run("close", "county", "6 floors"))
+    assert state(f, "c1", "county") == "close" and state(f, "c1", "aerial") == "differ"
+    f = claim_field(_floors_run("confirmed", "record", "5 floors"))
+    assert state(f, "c1", "record") == "match"
+    assert state(f, "c1", "aerial") == state(f, "c1", "county") == "differ"
+    table = compare_table(_floors_run("confirmed", "record", "5 floors"))
+    assert "lt-c lt-differ" in table and "sources differ" in table
+
+
+def test_source_rows_never_owner_land_use_or_publisher():
+    run = run_of([], [ev("county", {"parcel_id": "900003", "year_built": 2001, "unit_count": 40, "stories": 5,
+                                    "land_use": "APARTMENTS", "owner_type": "company", "building_sf": 50000,
+                                    "source_name": "Example County Appraisal District", "city_311_count": 7}),
+                      ev("aerial", {"height_m": 14.0, "stories": 4, "capture_date": "2025-03-01",
+                                    "footprint_m2": 900})], [])
+    rows = claim_field(run)["source_rows"]
+    assert dict(rows["county"]) == {"Year built": "2001", "Homes": "40", "311 requests": "7"}
+    assert dict(rows["aerial"]) == {"Roof height": "14 m", "Floors, measured from above": "About 4",
+                                    "Photos taken": "2025-03-01"}
+    html = claim_field_section(run)
+    for bad in ("Owner", "Land use", "Published by", "A company", "Appraisal"):
+        assert bad not in html
+
+
+def test_phone_width_grid_fits_or_scrolls_with_a_hint():
+    html = claim_field_section(_floors_run("contradicted", "county", "6 floors"))
+    css = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+    phone = css[css.index("@media(max-width:640px)"):]
+    assert "--cf-min:8px" in phone and "--cf-gap:2px" in phone  # 24 columns fit in a 390 px screen
+    assert "text-overflow:ellipsis" in css[css.index(".cf-rows b{"):]  # row names end cleanly, never mid-word
+    assert ".cf-mt{" in css and "<span class=cf-mt>" in html  # column labels too
+    assert "<p class=cf-more aria-hidden=true>Scroll sideways to see every claim →</p>" in html
+    assert ".cf-over .cf-more{display:block}" in css and "classList.toggle('cf-over'" in html

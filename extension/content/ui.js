@@ -2,6 +2,9 @@
 // The drawer has two states: Running (clock, claim field, step list) and Result (headline, counts, field, top findings).
 (() => {
   if (window.top !== window || document.getElementById("rc-host")) return;
+  // Never on the checker's own pages (its report, 3D tour and data routes): the button would cover the report.
+  const OWN_HOST = /^(127\.0\.0\.1|localhost|\[::1\])$/i, OWN_PATH = /^\/(report|tour|runs|field|img|health)(\/|$)/;
+  if ((OWN_HOST.test(location.hostname) && OWN_PATH.test(location.pathname)) || location.protocol === "chrome-extension:") return;
   const RC = globalThis.RC;
   const W = 420;
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -64,10 +67,9 @@
   let run = null; // {seq, address, mode, locked, pick, cache, claims, verdicts, evidence, match, steps, t0, t1, fillIn, done, field, unreachable, error, token, pickOpen}
   let open = false, seq = 0, stepSeq = 0;
   const ORDER = { contradicted: 0, close: 1, confirmed: 2, cant_check: 9 };
-  let fiOpen = false; // "Not in the listing" expanded
-  const FI_TOP = 4, FIND_TOP = 3;
+  let okOpen = false, cantOpen = false; // "N confirmed" / "N couldn't check" expanded
+  const FACT_TOP = 5, Q_TOP = 5; // the report's own caps: five facts, five questions
   const LOW_PICK = 0.5; // below this the address pick is a guess: say so and open the picker
-  const imgCache = new Map(); // /img/<token> -> data URL ("" = failed, null = in flight)
 
   const overlay = RC.createOverlay(root, host, {
     onInspect: (a) => { openDrawer(); startRun(a, { locked: true }); }, // the person clicked this address
@@ -233,7 +235,7 @@
   // server keeps it. Unlocked (the generic button), the server may check another of the page's addresses.
   function startRun(a, opts) {
     stopRun();
-    fiOpen = false;
+    okOpen = cantOpen = false;
     run = newRun(a, "server", "Connecting to the local checker…");
     run.locked = !!(opts && opts.locked);
     overlay.setSelected(a.text);
@@ -262,7 +264,7 @@
   function startSample() {
     stopRun();
     const a = run.address;
-    fiOpen = false;
+    okOpen = cantOpen = false;
     run = newRun(a, "sample", "Starting…");
     const me = run;
     render();
@@ -336,7 +338,7 @@
   // The finished run's cells come from the server (done.field: server/claim_field.py, the report's own rules), so the
   // drawer and the report show the same grid. The rules below only fill the grid while the run is going (and for
   // a sample run or an older checker that sends no field).
-  const FIELD_STATE = { match: "agree", contra: "contra", close: "close", data: "data", none: "none" };
+  const FIELD_STATE = { match: "agree", contra: "contra", close: "close", differ: "differ", data: "data", none: "none" }; // differ: the sources disagree with each other
   function fieldOf(ev) {
     const f = ev && ev.field;
     if (!f || !Array.isArray(f.claims)) return null;
@@ -433,6 +435,7 @@
       ${fieldHTML(r, false)}
       <ol class="steps" id="steps" aria-label="What the check is doing now" aria-live="polite"></ol>
       <div class="chk" id="chk"></div>
+      <ul class="finds live" id="liveFinds" aria-label="What doesn't match so far" aria-live="polite" hidden></ul>
       <p class="where" id="where">${whereText(r)}</p>
     </div>`;
   }
@@ -447,6 +450,7 @@
     const cm = $("claimsN");
     if (cm) cm.textContent = n ? `${n} ${n === 1 ? "claim" : "claims"} found` : "Reading the listing";
     updateField(r);
+    updateLive(r);
     const st = $("steps");
     if (!st) return;
     const list = r.steps.length ? r.steps.slice().sort((a, b) => b.t - a.t).slice(0, 5) : [{ k: "Starting", text: r.step, t: 0 }];
@@ -455,7 +459,7 @@
     st.dataset.top = top;
     st.innerHTML = list.map((s, i) => {
       const src = AG_SRC[s.k];
-      const cnt = src ? r.claims.filter((c) => ["data", "agree", "contra", "close"].includes(cellState(r, c, src))).length : 0;
+      const cnt = src ? r.claims.filter((c) => ["data", "agree", "contra", "close", "differ"].includes(cellState(r, c, src))).length : 0;
       return `<li class="${i === 0 ? "now" + (fresh ? " in" : "") : ""}"><span class="sd" aria-hidden="true"></span>
         <span class="sx"><span class="sk">${esc(s.k)}</span><span class="st">${esc(s.text)}</span></span>
         <span class="sc">${cnt ? cnt : ""}</span></li>`;
@@ -499,10 +503,46 @@
     if (c.quote && !shared && c.origin !== "metadata") return `“${c.quote}”`;
     return said(c) || v.claimed || c.quote || "";
   }
-  function settledBy(r, c, v) {
+  function creditKeys(r, c, v) {
+    // The finished run's credit comes from the server (done.report rows / done.field[].credit: server/report_a.py's
+    // rule): only the sources whose own figure is the found value, the deciding one first. A source that differs
+    // from the listing with yet another figure is never credited. Without it (a running or sample run) the same
+    // rule runs here.
+    const fc = r.field && r.field.by[c.id];
+    const sent = fc && Array.isArray(fc.credit) ? fc.credit.filter((s) => SRC[s]) : null;
+    const keys = sent && sent.length ? sent : creditOf(r, c, v);
+    return keys.length ? keys : SRC[v.source] ? [v.source] : [];
+  }
+  // The other sources that spoke to this claim (the judge's list, else any cell with something to say), for the
+  // small grey "also checked" note: never credited with the found value.
+  function alsoKeys(r, c, v, dec) {
+    const conf = v && v.confidence && typeof v.confidence === "object" ? v.confidence : {};
+    const spoke = new Set((Array.isArray(conf.sources) ? conf.sources : []).map((x) => x && x.source).filter((k) => SRC[k]));
+    for (const k of SOURCES) if (["agree", "contra", "close", "differ", "data"].includes(cellState(r, c, k))) spoke.add(k);
+    return SOURCES.filter((k) => spoke.has(k) && k !== dec);
+  }
+  // server/report_a.py's _credit/_supports: the decider (else the verdict's source), then each other source in the
+  // confidence block whose own `says` is the found value (same first number, else the same words).
+  function firstNum(t) { const m = String(t == null ? "" : t).replace(/,/g, "").match(/-?\d+(?:\.\d+)?/); return m ? Number(m[0]) : null; }
+  function supports(says, found) {
+    const a = normA(says), b = normA(found);
+    if (!a || !b) return false;
+    const nb = firstNum(found);
+    return nb !== null ? firstNum(says) === nb : a === b;
+  }
+  function creditOf(r, c, v) {
+    const conf = (v && v.confidence && typeof v.confidence === "object") ? v.confidence : {};
+    const keys = [];
+    const lead = [conf.decided_by, v.source].find((k) => SRC[k]);
+    if (lead) keys.push(lead);
+    if (Array.isArray(conf.sources) && conf.sources.length) {
+      for (const s of conf.sources) if (s && SRC[s.source] && !keys.includes(s.source) && s.agrees_with_listing !== true && supports(s.says, v.found)) keys.push(s.source);
+      return keys;
+    }
+    // no confidence block: the sources whose own cell disagrees with the listing, as before
     const want = BAD.has(v.verdict) ? ["contra", "close"] : ["agree"];
-    const by = SOURCES.filter((s) => want.includes(cellState(r, c, s))).map((s) => SRC[s]);
-    return (v.verdict === "close" ? "Close · " : "") + (by.join(", ") || SRC[v.source] || "");
+    for (const s of SOURCES) if (!keys.includes(s) && want.includes(cellState(r, c, s))) keys.push(s);
+    return keys;
   }
   function sizeClass(t) { const n = String(t).length; return n > 34 ? " s" : n > 18 ? " m" : ""; }
   // ---------- how sure we are: only on "not true" and "close" verdicts that carry a confidence block ----------
@@ -526,10 +566,170 @@
     const more = c.why || rows || by;
     const bars = `<span class="bars" aria-hidden="true">${[1, 2, 3].map((n) => `<i${n <= lit ? ` class="on"` : ""}></i>`).join("")}</span>`;
     const label = `${word}${c.score != null ? `, ${c.score} of 100` : ""}`;
-    const inner = `${bars}<span class="cft">${word}</span>${c.score != null ? `<span class="cfs">${c.score}</span>` : ""}`;
+    // the judge's 0-100 score next to the word ("82 · high confidence"); no score sent: the word only, never a guess
+    const inner = c.score != null
+      ? `${bars}<span class="cfs">${c.score}</span> <span class="cfdot" aria-hidden="true">·</span> <span class="cft">${word.toLowerCase()}</span>`
+      : `${bars}<span class="cft">${word}</span>`;
     if (!more) return `<div class="cf" data-band="${c.band}"><span class="cfb" role="img" aria-label="${esc(label)}">${inner}</span></div>`;
     return `<div class="cf" data-band="${c.band}"><button class="cfb" aria-expanded="false" aria-controls="cfx${i}" aria-label="${esc(label + ". Why")}"${c.score != null ? ` title="Score ${c.score} of 100"` : ""}>${inner}<span class="go">${CHEV}</span></button>
       <div class="cfx" id="cfx${i}" hidden>${c.why ? `<p class="cfw">${esc(c.why)}</p>` : ""}${by}${rows ? `<ul class="cfl">${rows}</ul>` : ""}</div></div>`;
+  }
+  // ---------- the result: every mismatch, what the listing leaves out, questions, and the rest, as text ----------
+  // The finished run's words come from the server (done.report: server/report_a.py's own helpers), so the drawer
+  // says what the report says; a sample run or an older checker sends none, and the rules below stand in.
+  const KIND_LABEL = { year_built: "Year built", stories: "Floors", unit_count: "Homes", area_sqft: "Size", bedrooms: "Bedrooms", bathrooms: "Bathrooms" };
+  const SOFT_KINDS = new Set(["amenity", "parking", "laundry", "view", "other"]); // photo checks: never struck
+  const UNKIND_RE = /\b(fake|faked|lie|lies|lied|lying|scam\w*|fraud\w*)\b/i;
+  const FACT_BANNED = /parcel|building class|\bclass\b|lot size|\blot\b|rating|owner|manag|contact|phone|e-?mail|\bagent\b|leed/i;
+  const MANAGED_RE = /\s*[;,]\s*(?:managed|operated|owned)\s+by\b.*$/i;
+  const cap = (t) => { t = String(t || ""); return t ? t[0].toUpperCase() + t.slice(1) : t; };
+  function kindText(t, max) {
+    t = String(t == null ? "" : t).replace(/\s+/g, " ").trim();
+    return !t || t.length > (max || 160) || UNKIND_RE.test(t) || t.includes("<") ? "" : t;
+  }
+  function firstSentence(t) {
+    const parts = String(t || "").trim().split(/(?<=[.!?])\s+(?=[A-Z])/).map((x) => x.trim()).filter(Boolean);
+    if (parts.length > 1 && /^listing says/i.test(parts[0])) parts.shift();
+    return parts[0] || "";
+  }
+  function repOf(r) {
+    const p = r.done && r.done.report;
+    return p && typeof p === "object" && Array.isArray(p.rows) ? p : null;
+  }
+  function kindLabel(c) { return [KIND_LABEL[c.kind] || cap(String(c.kind || "").replace(/_/g, " ")) || "Claim", c.label].filter(Boolean).join(" · "); }
+  // Every mismatch, in the report's order: hard ones first (the run's own pick, done.harness.top_mismatch, on top),
+  // then the close ones. No cap: the list scrolls inside the drawer.
+  function badRows(r) {
+    const rep = repOf(r);
+    const srv = new Map(rep ? rep.rows.filter((x) => x && x.id != null).map((x) => [String(x.id), x]) : []);
+    const t = topOf(r);
+    const order = rep ? rep.rows.map((x) => x && x.id) : (t && Array.isArray(t.order) ? t.order : []);
+    const rank = new Map(order.map((id, i) => [id, i]));
+    const pk = r.done && r.done.harness && r.done.harness.top_mismatch;
+    const pick = pk && typeof pk === "object" ? pk.claim_id : null;
+    const at = (c) => (rank.has(c.id) ? rank.get(c.id) : 1e6);
+    const bad = r.claims.map((c, i) => [c, r.verdicts[c.id], i]).filter(([, v]) => v && BAD.has(v.verdict))
+      .sort((a, b) => at(a[0]) - at(b[0]) || ORDER[a[1].verdict] - ORDER[b[1].verdict] || a[2] - b[2]);
+    if (!rank.size && pick != null) { // no order sent: the pick leads when it is of the leading kind
+      const k = bad.findIndex(([c]) => c.id === pick);
+      if (k > 0 && bad[k][1].verdict === bad[0][1].verdict) bad.unshift(bad.splice(k, 1)[0]);
+    }
+    return bad.map(([c, v]) => {
+      const s = srv.get(String(c.id));
+      const hard = v.verdict === "contradicted";
+      const sent = s && Array.isArray(s.credit) ? s.credit.filter((k) => SRC[k]) : [];
+      const dec = (sent.length ? sent : creditKeys(r, c, v))[0] || "";
+      const src = { dec, also: alsoKeys(r, c, v, dec), close: !hard };
+      if (s) {
+        return { c, v, id: c.id, label: String(s.label || kindLabel(c)), said: s.quoted ? `“${s.said}”` : String(s.said || ""),
+          strike: !!s.strike, found: String(s.found || v.found || ""), why: kindText(s.why), src,
+          walk: typeof s.walk === "string" && /^\/tour\//.test(s.walk) ? s.walk : "" };
+      }
+      return { c, v, id: c.id, label: kindLabel(c), said: listingWords(r, c, v), strike: hard,
+        found: !hard && SOFT_KINDS.has(c.kind) ? "Not seen in the photos" : cap(String(v.found || "")),
+        why: kindText(firstSentence(v.reason)), src, walk: "" };
+    });
+  }
+  function findHTML(row, i, links, fresh) {
+    const { v } = row;
+    // struck through only when it doesn't match; a close one keeps the listing's words plain
+    const was = row.strike ? `<span class="was"><s class="wt">${esc(row.said)}</s></span>` : `<span class="was"><span class="wt">${esc(row.said)}</span></span>`;
+    const lk = links ? `<span class="fln"><button class="lnk lproof" data-id="${esc(row.id)}">Proof</button>` +
+      (row.walk ? `<button class="lnk l3d" data-walk="${esc(row.walk)}">See it in 3D</button>` : "") + `</span>` : "";
+    return `<li class="fr${fresh ? " in" : ""}" data-id="${esc(row.id)}" data-verdict="${esc(v.verdict)}" style="--i:${i}">` +
+      `<button class="find" data-id="${esc(row.id)}" data-verdict="${esc(v.verdict)}" aria-label="${esc(`${row.label}. Listing says ${row.said}. Found ${row.found}. Show it`)}">` +
+      `<span class="fk">${esc(row.label)}</span>${was}<span class="is${sizeClass(row.found)}">${esc(row.found)}</span></button>` +
+      (row.why ? `<p class="fy">${esc(row.why)}</p>` : "") +
+      (row.src.dec || lk ? `<p class="by"><span class="byw">${srcHTML(row, links)}</span>${lk}</p>` : "") + confHTML(v, i) + `</li>`;
+  }
+  // "Source: County" (the deciding source) and, small and grey, "also checked: CoStar". With a checker run the
+  // source name links to its evidence page (<server>/artifacts/<run_id>#a-<claim>-<source>); a sample stays text.
+  const SLUG = { record: "costar", scan: "matterport", aerial: "vexcel", county: "county" };
+  function artifactPath(id, key) {
+    const rid = run && run.mode === "server" && run.done && run.done.run_id;
+    if (!rid || !/^[A-Za-z0-9_-]{1,80}$/.test(String(rid))) return "";
+    return `/artifacts/${encodeURIComponent(rid)}#a-${encodeURIComponent(id)}-${SLUG[key]}`;
+  }
+  function srcHTML(row, links) {
+    const { dec, also, close } = row.src;
+    if (!dec) return "";
+    const href = links ? artifactPath(row.id, dec) : "";
+    const name = href ? `<button class="lnk srcl" data-href="${esc(href)}">${esc(SRC[dec])}</button>` : `<span class="srcn">${esc(SRC[dec])}</span>`;
+    return `${close ? "Close · " : ""}<span class="bys">Source: ${name}</span>` +
+      (also.length ? `<span class="bya">also checked: ${esc(also.map((k) => SRC[k]).join(", "))}</span>` : "");
+  }
+  // "Not in the listing": the report's top five (done.report.facts, else done.harness.top_facts, else the fill_in
+  // list in renter order), text only; never a manager, owner, parcel, class or lot size, and no "; managed by" clause.
+  function factsOf(r) {
+    const rep = repOf(r), hz = r.done && r.done.harness;
+    const raw = rep && Array.isArray(rep.facts)
+      ? rep.facts.map((f) => ({ id: "", label: f.label, value: f.value, why: f.why, src: (f.sources || []).join(" + ") }))
+      : hz && Array.isArray(hz.top_facts) && hz.top_facts.length
+        ? hz.top_facts.map((f) => ({ id: (f.fact_ids || [])[0] || "", label: f.label, value: f.value, why: f.why,
+          src: (Array.isArray(f.sources) ? f.sources : [f.source]).map((x) => SRC[x] || x).filter(Boolean).join(" + ") }))
+        : fiOrder(r.fillIn || []).map((f) => ({ id: f.id, label: f.label, value: f.value, why: f.note, src: SRC[f.source] || f.source || "" }));
+    const out = [];
+    for (const f of raw) {
+      if (!f || f.label == null || f.value == null) continue;
+      const label = String(f.label).replace(/\s+/g, " ").trim(), value = String(f.value).replace(MANAGED_RE, "").replace(/\s+/g, " ").trim();
+      if (!label || !value || FACT_BANNED.test(label + " " + (f.id || "")) || /\b(managed|owned) by\b/i.test(value)) continue;
+      if (UNKIND_RE.test(label + " " + value) || out.some((o) => o.label === label)) continue;
+      out.push({ id: f.id || "", label, value, why: kindText(f.why), src: String(f.src || "") });
+      if (out.length >= FACT_TOP) break;
+    }
+    return out;
+  }
+  function factsHTML(facts) {
+    if (!facts.length) return "";
+    return `<section class="sec" id="fi" aria-labelledby="fiH"><h2 class="sl" id="fiH">Not in the listing</h2><ul class="facts" id="fiList">` +
+      facts.map((f, i) => `<li class="fact"${f.id ? ` data-id="${esc(f.id)}"` : ""} style="--i:${i}">` +
+        `<div class="fq"><span class="fl">${esc(f.label)}</span><span class="fs">${esc(f.src)}</span></div>` +
+        `<div class="fv">${esc(f.value)}</div>${f.why ? `<div class="fn">${esc(f.why)}</div>` : ""}</li>`).join("") +
+      `</ul><button class="lnk fiall" id="fiAll">More in the full report</button></section>`;
+  }
+  // "Ask before you tour": the report's drafted questions (done.report.questions); without them, the same template
+  // the report uses (server/report_a.py _question), for the mismatches and then what nobody could check.
+  const ASK_FROM = { scan: "the 3D scan shows", county: "county records say", record: "the CoStar building record says" };
+  function questionsOf(r, rows) {
+    const rep = repOf(r);
+    if (rep && Array.isArray(rep.questions)) return rep.questions.map((q) => kindText(q, 400)).filter(Boolean).slice(0, Q_TOP);
+    const qs = [];
+    const cant = r.claims.map((c) => [c, r.verdicts[c.id]]).filter(([, v]) => v && v.verdict === "cant_check");
+    for (const [c, v] of rows.map((x) => [x.c, x.v]).concat(cant)) {
+      const said = listingWords(r, c, v), plan = c.label ? ` for ${c.label}` : "";
+      const found = String(v.found || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+      let q;
+      if (BAD.has(v.verdict) && !SOFT_KINDS.has(c.kind) && found) {
+        const who = ASK_FROM[v.source] || (c.kind === "stories" ? "a roof height measurement suggests" : "Vexcel aerial photos suggest");
+        q = v.verdict === "close" ? `The listing says ${said}${plan}; ${who} ${found}. Which number is exact?`
+          : `The listing says ${said}${plan}, but ${who} ${found}. Which is right?`;
+      } else q = SOFT_KINDS.has(c.kind) ? `Can you show me ${said}${plan} when I tour?` : `Can you confirm ${said}${plan} in writing?`;
+      q = kindText(q, 400);
+      if (q && !qs.includes(q)) qs.push(q);
+      if (qs.length >= Q_TOP) break;
+    }
+    return qs;
+  }
+  function questionsHTML(qs) {
+    if (!qs.length) return "";
+    return `<section class="sec" id="ask" aria-labelledby="askH"><h2 class="sl" id="askH">Ask before you tour</h2><ol class="qs" id="qList">` +
+      qs.map((q, i) => `<li class="q"><span class="qn">${i + 1}</span><span class="qt">${esc(q)}</span><button class="lnk qcopy" data-text="${esc(q)}" aria-label="Copy question ${i + 1}">Copy</button></li>`).join("") +
+      `</ol>${qs.length > 1 ? `<button class="lnk qall" id="qAll" data-text="${esc(qs.join("\n"))}">Copy all ${qs.length}</button>` : ""}</section>`;
+  }
+  // "N confirmed" and "N couldn't check": collapsed lines that open to plain one-line rows.
+  function checkedOf(r, which) {
+    const rep = repOf(r), key = which === "ok" ? "ok" : "cant";
+    if (rep && Array.isArray(rep[key])) return rep[key].filter((x) => x && x.text).map((x) => ({ label: String(x.label || ""), text: String(x.text), why: kindText(x.why) }));
+    const want = which === "ok" ? "confirmed" : "cant_check";
+    return r.claims.map((c) => [c, r.verdicts[c.id]]).filter(([, v]) => v && v.verdict === want)
+      .map(([c, v]) => ({ label: KIND_LABEL[c.kind] || "", text: listingWords(r, c, v), why: which === "ok" ? "" : kindText(firstSentence(v.reason)) }));
+  }
+  function checkedHTML(r) {
+    const block = (id, list, isOpen, word) => !list.length ? "" :
+      `<button class="filine${isOpen ? " open" : ""}" id="${id}Toggle" aria-expanded="${isOpen}"><span class="fit">${list.length} ${word}</span><span class="go">${CHEV}</span></button>` +
+      (isOpen ? `<ul class="cks" id="${id}List">` + list.map((x) => `<li class="ckr">${x.label ? `<span class="ckl">${esc(x.label)}</span>` : ""}<span class="ckt">${esc(x.text)}</span>${x.why ? `<span class="ckw">${esc(x.why)}</span>` : ""}</li>`).join("") + `</ul>` : "");
+    const h = block("ok", checkedOf(r, "ok"), okOpen, "confirmed") + block("cant", checkedOf(r, "cant"), cantOpen, "couldn't check");
+    return h ? `<section class="sec ck" id="checked">${h}</section>` : `<span id="checked"></span>`;
   }
   // ---------- which home the run checked: this unit, this home, or only the building ----------
   function whoHTML(r) {
@@ -542,11 +742,7 @@
   }
   function renderResult() {
     const r = run, k = counts(r);
-    const t = topOf(r), rank = new Map(((t && Array.isArray(t.order)) ? t.order : []).map((id, i) => [id, i]));
-    const at = (c) => (rank.has(c.id) ? rank.get(c.id) : 1e6);
-    const bad = r.claims.map((c, i) => [c, r.verdicts[c.id], i]).filter(([, v]) => v && BAD.has(v.verdict))
-      .sort((a, b) => at(a[0]) - at(b[0]) || ORDER[a[1].verdict] - ORDER[b[1].verdict] || a[2] - b[2]); // the report's order when sent
-    // a verdict for a claim we never got (should not happen) still counts in the headline, not in the rows
+    const t = topOf(r), rows = badRows(r);
     const meta = [
       r.mode === "sample" ? `<span>Sample result</span>` : "",
       r.cache === "off" ? `<span class="fresh" data-k="fresh">fresh run</span>` : "",
@@ -557,60 +753,46 @@
     ].filter(Boolean).join(`<span class="sep" aria-hidden="true"> · </span>`);
     let h = `<div class="res">${whoHTML(r)}${headlineHTML(r, k)}${t && t.line ? `<p class="topl" id="topLine">${esc(t.line)}</p>` : ""}<p class="meta" id="counts">${meta}</p><div class="chk" id="chk"></div>`;
     if (r.claims.length) h += fieldHTML(r, true);
-    if (bad.length) {
-      h += `<ul class="finds" id="finds" aria-label="What doesn't match">` + bad.slice(0, FIND_TOP).map(([c, v], i) => {
-        const was = listingWords(r, c, v), is = v.found || "", pic = proofOf(r, c, v);
-        return `<li><button class="find${pic ? " has-pic" : ""}" data-id="${esc(c.id)}" data-verdict="${v.verdict}" style="--i:${i}" aria-label="${esc(`Listing says ${v.claimed}. ${SRC[v.source] || "We"} found ${is}. Show it`)}">
-          <span class="ftx"><span class="was"><span class="wt">${esc(was)}</span><i class="strike" aria-hidden="true"></i></span>
-          <span class="is${sizeClass(is)}">${esc(is)}</span>
-          <span class="by">${esc(settledBy(r, c, v))}</span></span>${pic ? `<span class="pic" data-img="${esc(pic)}" aria-hidden="true"></span>` : ""}</button>${confHTML(v, i)}</li>`;
-      }).join("") + `</ul>`;
-      if (bad.length > FIND_TOP) h += `<button class="morebtn" id="moreF">+${bad.length - FIND_TOP} more</button>`;
-    }
-    h += `<div class="fi" id="fi">${r.fillIn && r.fillIn.length ? fillInHTML(r.fillIn) : ""}</div></div>`;
+    if (rows.length) h += `<section class="sec" id="mm" aria-labelledby="mmH"><h2 class="sl" id="mmH">What doesn't match</h2><ul class="finds" id="finds">` +
+      rows.map((row, i) => findHTML(row, i, true, true)).join("") + `</ul></section>`;
+    h += factsHTML(factsOf(r)) + questionsHTML(questionsOf(r, rows)) + checkedHTML(r) + `</div>`;
     body.innerHTML = h;
     updateCheck(r);
-    loadPics();
     fitHeadline();
     // footer: the walkthrough of the worst finding a 3D scan settled, and other addresses on this page
-    const walk = r.mode === "server" && r.done.run_id ? bad.find(([, v]) => v.source === "scan") : null;
-    $("ftl").innerHTML = (walk ? `<button class="lnk" id="btnWalk" data-id="${esc(walk[0].id)}">Walk through it in 3D</button>` : "") +
+    const walk = r.mode === "server" && r.done.run_id ? rows.find((x) => x.v.source === "scan") : null;
+    $("ftl").innerHTML = (walk ? `<button class="lnk" id="btnWalk" data-id="${esc(walk.id)}">Walk through it in 3D</button>` : "") +
       (addresses.length > 1 ? `<button class="lnk" id="btnAnother">Check another address</button>` : "");
   }
-  // ---------- proof pictures: small, lazy, fetched by the service worker (the page never loads from localhost) ----------
-  const PROOF_RE = /^\/img\/[A-Za-z0-9_-]{1,64}$/;
-  function proofOf(r, c, v) {
-    const fc = r.field && r.field.by[c.id];
-    const p = (fc && fc.image) || v.image;
-    return typeof p === "string" && PROOF_RE.test(p) ? p : "";
+  // While the run goes: each mismatch appears as its verdict arrives (no links until the report exists).
+  const liveSeen = new Set();
+  function updateLive(r) {
+    const el = $("liveFinds");
+    if (!el) return;
+    const rows = badRows(r);
+    const key = rows.map((x) => x.id + ":" + x.v.verdict).join("|");
+    if (el.dataset.k === key) return;
+    el.dataset.k = key;
+    el.innerHTML = rows.map((row, i) => { const fresh = !liveSeen.has(r.seq + ":" + row.id); liveSeen.add(r.seq + ":" + row.id); return findHTML(row, i, false, fresh); }).join("");
+    el.hidden = !rows.length;
   }
-  function showPic(slot, url) {
-    if (!slot.isConnected) return;
-    if (!url) { const f = slot.closest(".find"); slot.remove(); if (f) f.classList.remove("has-pic"); return; } // missing: no gap left
-    const im = document.createElement("img");
-    im.alt = ""; im.decoding = "async";
-    im.addEventListener("load", () => slot.classList.add("on"));
-    im.addEventListener("error", () => showPic(slot, ""));
-    im.src = url;
-    slot.replaceChildren(im);
+  function copyText(text, btn) {
+    const done = () => {
+      if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+      btn.textContent = "Copied";
+      clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = btn.dataset.label; }, 1400);
+    };
+    const fallback = () => {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", ""); ta.setAttribute("style", "position:fixed;left:-9999px;top:0;opacity:0");
+      root.appendChild(ta); ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { /* not allowed */ }
+      ta.remove();
+      if (ok) done();
+    };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
   }
-  function fetchPic(slot) {
-    const p = slot.dataset.img;
-    if (imgCache.has(p)) { const u = imgCache.get(p); if (u !== null) showPic(slot, u); return; }
-    imgCache.set(p, null);
-    const settle = (u) => { imgCache.set(p, u); body.querySelectorAll(".pic[data-img]").forEach((s) => { if (s.dataset.img === p) showPic(s, u); }); };
-    try {
-      chrome.runtime.sendMessage({ type: "img", path: p }, (res) => { void chrome.runtime.lastError; settle((res && res.dataUrl) || ""); });
-    } catch (e) { settle(""); }
-  }
-  let picIO = null;
-  function loadPics() {
-    const slots = body.querySelectorAll(".pic[data-img]");
-    if (!slots.length) return;
-    if (!picIO) picIO = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { picIO.unobserve(e.target); fetchPic(e.target); } }), { root: body, rootMargin: "120px" });
-    slots.forEach((s) => picIO.observe(s));
-  }
-
   // ---------- "Checking: <building> · <address> · <why>" and "Not this? Pick another" ----------
   const normA = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   function addrFor(text) {
@@ -635,7 +817,9 @@
     const alts = altsOf(r);
     const shown = alts.length > 0 && (r.pickOpen == null ? low && !r.locked : r.pickOpen); // opened for a guess, not for a pick
     // a guess keeps it short: the soft note replaces the reason (kept as the tooltip)
-    const line = [name, addr, low ? "" : pk.why].filter(Boolean).map(esc).join(" · ");
+    // the building's name once: dropped when the address already starts with it ("Linden Grove" · "418 Linden Grove Ave, ...")
+    const named = name && !normA(addr).startsWith(normA(name)) ? name : "";
+    const line = [named, addr, low ? "" : pk.why].filter(Boolean).map(esc).join(" · ");
     let h = `<p class="chkl${low ? " low" : ""}" id="chkLine"${low && pk.why ? ` title="${esc(pk.why)}"` : ""}><span class="chkw">Checking:</span> ${line}${low ? `. <span class="unsure">We're not sure this is the right building.</span>` : ""}</p>`;
     if (alts.length) {
       h += `<button class="lnk chkb" id="pickOther" aria-expanded="${shown}">Not this? Pick another</button>`;
@@ -657,18 +841,7 @@
     const avail = hl.clientWidth, widest = Math.max(...[...hl.querySelectorAll(".hw")].map((x) => x.offsetWidth));
     if (widest > avail) hl.style.fontSize = Math.floor(parseFloat(getComputedStyle(hl).fontSize) * avail / widest) + "px";
   }
-  function fillInHTML(facts) {
-    // Extra things the listing doesn't mention. Not a fact-check: neutral ink, no verdict colours.
-    const n = facts.length;
-    let h = `<button class="filine${fiOpen ? " open" : ""}" id="fiToggle" aria-expanded="${fiOpen}"><span class="fit">Not in the listing (${n})</span><span class="go">${CHEV}</span></button>`;
-    if (!fiOpen) return h;
-    h += `<ul class="facts" id="fiList">` + fiOrder(facts).slice(0, FI_TOP).map((f, i) => `<li class="fact" data-id="${esc(f.id)}" style="--i:${i}">
-      <div class="fq"><span class="fl">${esc(f.label)}</span><span class="fs">${esc(SRC[f.source] || f.source || "")}</span></div>
-      <div class="fv">${esc(f.value)}</div>${f.note ? `<div class="fn">${esc(f.note)}</div>` : ""}</li>`).join("") + `</ul>`;
-    h += `<button class="lnk fiall" id="fiAll">See all in the full report</button>`;
-    return h;
-  }
-  // Only FI_TOP rows show in the drawer, so the most useful to a renter lead: sizes of homes first (at most two),
+  // Only a few fill_in rows show in the drawer (when no top facts were sent), so the most useful to a renter lead: sizes of homes first (at most two),
   // then year built or last renovated (one), then what the aerial survey saw on the lot; then the rest, as sent.
   const FI_TIERS = [[/^(unit-|scan-size-|size-\d+bed$|plan-(?!count$|more$))/, 2], [/^(year-built|renovated)$/, 1], [/^aerial-features$/, 1]];
   function fiOrder(facts) {
@@ -727,12 +900,31 @@
     }
     const f = e.target.closest(".find");
     if (f) { showFinding(f.dataset.id); return; }
-    if (e.target.closest("#moreF")) { openReport("#mismatch"); return; }
-    if (e.target.closest("#fiToggle")) {
-      fiOpen = !fiOpen;
-      $("fi").innerHTML = fillInHTML(run.fillIn);
-      $("fiToggle").focus({ preventScroll: true });
-      if (fiOpen) $("fi").scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+    const pf = e.target.closest(".lproof");
+    if (pf) { openReport("#claim-" + encodeURIComponent(pf.dataset.id)); return; }
+    const w3 = e.target.closest(".l3d");
+    if (w3 && run && run.done && run.mode === "server") {
+      let u = w3.dataset.walk;
+      try { if (/^https?:/.test(run.done.report_url || "")) u = new URL(u, run.done.report_url).href; } catch (err) { /* a path: the service worker adds the server */ }
+      send({ type: "openReport", report_url: u });
+      return;
+    }
+    const sl = e.target.closest(".srcl");
+    if (sl && run && run.done && run.mode === "server") {
+      let u = sl.dataset.href;
+      try { if (/^https?:/.test(run.done.report_url || "")) u = new URL(u, run.done.report_url).href; } catch (err) { /* a path: the service worker adds the server */ }
+      send({ type: "openReport", report_url: u });
+      return;
+    }
+    const cp = e.target.closest(".qcopy, #qAll");
+    if (cp) { copyText(cp.dataset.text || "", cp); return; }
+    const tg = e.target.closest("#okToggle, #cantToggle");
+    if (tg) {
+      if (tg.id === "okToggle") okOpen = !okOpen; else cantOpen = !cantOpen;
+      const sec = $("checked");
+      if (sec) sec.outerHTML = checkedHTML(run);
+      const b = $(tg.id);
+      if (b) { b.focus({ preventScroll: true }); b.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" }); }
       return;
     }
     if (e.target.closest("#fiAll")) { openReport("#extra"); return; }
@@ -785,7 +977,7 @@
   button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;margin:0;text-align:inherit}
   button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
   [hidden]{display:none!important}
-  h1,p,ul,ol{margin:0;padding:0}
+  h1,h2,p,ul,ol{margin:0;padding:0}
 
   .tab{position:fixed;right:0;height:44px;display:flex;align-items:stretch;background:#fff;border:1px solid var(--line);border-right:0;border-radius:10px 0 0 10px;
     box-shadow:-2px 2px 10px rgba(0,0,0,.05);transition:transform .3s var(--ease),opacity .3s var(--ease);user-select:none}
@@ -834,6 +1026,7 @@
   .cell{display:block;background:#f4f4f4;transition:background-color .45s ease,box-shadow .45s ease;transition-delay:calc(var(--r,0) * 80ms)}
   .cell[data-s="none"]{background:#ebebeb}
   .cell[data-s="data"]{background:#fff;box-shadow:inset 0 0 0 var(--hb,1.5px) var(--ink)}
+  .cell[data-s="differ"]{background:#fff;outline:var(--hb,1.5px) dashed var(--blue);outline-offset:calc(-1 * var(--hb,1.5px))}
   .cell[data-s="agree"]{background:var(--ink)}
   .cell[data-s="contra"],.cell[data-s="close"]{background:var(--blue)}
   .field.final .cell{animation:rc-cell .5s var(--ease) calc(var(--d) + var(--r) * 45ms + 260ms) backwards}
@@ -884,38 +1077,46 @@
   .meta .b{color:var(--blue)}
   .topl{margin-top:14px;font-size:16px;line-height:1.4;animation:rc-fade .5s ease .15s backwards}
   .res .field{margin-top:24px}
-  .finds{list-style:none;margin:18px -12px 0}
-  .find{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:10px 12px;transition:background-color .18s ease;
-    animation:rc-rise .55s var(--ease) calc(.45s + var(--i) * .12s) backwards}
+  /* sections: a hairline and a small label each */
+  .sec{margin-top:22px;padding-top:12px;border-top:1px solid var(--line)}
+  .sl{font-size:11px;line-height:1.3;font-weight:500;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);margin-bottom:4px}
+  /* every mismatch, one compact row each */
+  .finds{list-style:none;margin:0 -12px}
+  .finds.live{margin-top:24px;border-top:1px solid var(--line);padding-top:4px}
+  .fr{padding-bottom:8px;border-top:1px solid #f0f0f0}
+  .fr:first-child{border-top:0}
+  .fr.in{animation:rc-rise .5s var(--ease) calc(.2s + min(var(--i), 8) * .08s) backwards}
+  .find{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;min-height:44px;padding:10px 12px 2px;transition:background-color .18s ease}
   .find:hover{background:#f4f4f4}
-  .ftx{display:flex;flex-direction:column;align-items:flex-start;gap:1px;flex:1;min-width:0}
-  .pic{flex:none;width:72px;height:54px;background:#f4f4f4;overflow:hidden}
-  .pic img{display:block;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .3s ease}
-  .pic.on img{opacity:1}
-  .find.ping{animation:rc-ping 1.2s ease-out}
-  .was{position:relative;display:inline-block;max-width:100%;font-size:19px;line-height:1.25;color:#858585}
-  .wt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .strike{position:absolute;left:-2px;right:-2px;top:54%;height:2px;background:var(--blue);transform-origin:left center;
-    animation:rc-strike .7s cubic-bezier(.7,0,.2,1) calc(.75s + var(--i) * .14s) backwards}
-  @keyframes rc-strike{from{transform:scaleX(0)}}
-  .is{max-width:100%;font-size:30px;font-weight:300;line-height:1.08;letter-spacing:-.025em;color:var(--blue);overflow-wrap:anywhere;
-    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .is.m{font-size:25px}
-  .is.s{font-size:21px;line-height:1.15}
-  .by{font-size:13px;color:var(--mute);margin-top:2px}
+  .find.ping,.fr.ping{animation:rc-ping 1.2s ease-out}
+  .fk{font-size:11px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+  .was{display:block;max-width:100%;font-size:17px;line-height:1.3;color:#858585;overflow-wrap:anywhere}
+  .wt{text-decoration:none}
+  s.wt{text-decoration-line:line-through;text-decoration-color:var(--blue);text-decoration-thickness:2px}
+  .is{max-width:100%;font-size:26px;font-weight:300;line-height:1.1;letter-spacing:-.02em;color:var(--blue);overflow-wrap:anywhere}
+  .is.m{font-size:22px}
+  .is.s{font-size:19px;line-height:1.2}
+  .fy{padding:3px 12px 0;font-size:14px;line-height:1.4;color:var(--ink)}
+  .by{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:2px 12px 0;font-size:13px;color:var(--mute)}
+  .byw{min-width:0;display:flex;flex-wrap:wrap;column-gap:8px;align-items:baseline}
+  .bys{color:var(--ink)}
+  .srcl{color:var(--ink);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bbb}
+  .bya{font-size:12px;color:#9a9a9a}
   /* close, not exact: quiet, never struck through (as in the report) */
-  .find[data-verdict="close"] .strike{display:none}
-  .find[data-verdict="close"] .is{font-size:19px;line-height:1.25;color:var(--ink)}
+  .find[data-verdict="close"] .is{font-size:19px;line-height:1.25}
+  .fln{flex:none;display:flex;gap:14px}
+  .fln .lnk{min-height:28px;color:var(--ink);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bbb}
   /* which home was checked */
   .who{margin-top:16px;font-size:14px;line-height:1.4;color:var(--mute);overflow-wrap:anywhere;animation:rc-fade .5s ease backwards}
   .whw{color:var(--ink)}
   .whp{display:block}
   .res .who + .hl{margin-top:8px}
   /* how sure: a quiet chip under a finding, opens to the why and one line per source */
-  .cf{padding:0 12px 4px;margin-top:-4px}
+  .cf{padding:0 12px}
   .cfb{display:inline-flex;align-items:center;gap:7px;min-height:32px;font-size:13px;color:var(--mute);animation:rc-fade .5s ease .9s backwards}
   .cft{color:var(--ink)}
-  .cfs{font-variant-numeric:tabular-nums}
+  .cfs{color:var(--ink);font-variant-numeric:tabular-nums}
+  .cfdot{color:#9a9a9a}
   .bars{display:inline-flex;align-items:flex-end;gap:2px;height:11px}
   .bars i{display:block;width:3px;height:5px;background:#dcdcdc;transition:background-color .3s ease}
   .bars i:nth-child(2){height:8px}
@@ -934,22 +1135,35 @@
   .cv{flex:0 1 auto;min-width:0;color:var(--ink);overflow-wrap:anywhere}
   .ct{flex:none;font-size:12px;color:var(--mute)}
   .ct.dec{color:var(--ink);border:1px solid var(--ink);padding:0 4px;line-height:1.35}
-  .morebtn{min-height:44px;font-size:15px;text-decoration:underline;text-underline-offset:4px;align-self:flex-start;margin-top:2px}
-  .morebtn:hover,.lnk:hover{color:var(--blue)}
-  .fi{margin-top:14px}
-  .filine{width:100%;min-height:44px;display:flex;gap:12px;align-items:center;border-top:1px solid var(--line);font-size:15px;color:var(--ink)}
+  .lnk:hover,.fln .lnk:hover{color:var(--blue)}
+  .filine{width:100%;min-height:44px;display:flex;gap:12px;align-items:center;border-top:1px solid #f0f0f0;font-size:15px;color:var(--ink)}
+  .ck .filine:first-child{border-top:0}
   .filine .fit{flex:1}
   .filine .go{display:grid;color:#9a9a9a;transition:transform .25s var(--ease)}
   .filine.open .go{transform:rotate(90deg)}
   .filine:hover .go{color:var(--ink)}
   .facts{list-style:none}
-  .fact{padding:10px 0;border-top:1px solid #f0f0f0;animation:rc-rise .4s var(--ease) calc(var(--i) * 50ms) backwards}
+  .fact{padding:9px 0;border-top:1px solid #f0f0f0;animation:rc-rise .4s var(--ease) calc(var(--i) * 50ms) backwards}
+  .fact:first-child{border-top:0}
   .fq{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
   .fl{font-size:15px;color:var(--mute);min-width:0}
   .fs{flex:none;font-size:13px;color:#9a9a9a}
   .fv{font-size:17px;color:var(--ink);overflow-wrap:anywhere}
   .fn{font-size:13px;color:#8a8a8a;margin-top:1px}
-  .fiall{margin-top:2px}
+  .fiall,.qall{min-height:36px;margin-top:2px;font-size:14px;text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bbb;align-self:flex-start}
+  /* questions to ask, each with Copy */
+  .qs{list-style:none}
+  .q{display:grid;grid-template-columns:18px minmax(0,1fr) auto;column-gap:8px;align-items:baseline;padding:8px 0;border-top:1px solid #f0f0f0;font-size:15px;line-height:1.4}
+  .q:first-child{border-top:0}
+  .qn{font-size:13px;color:var(--mute);font-variant-numeric:tabular-nums}
+  .qt{overflow-wrap:anywhere}
+  .qcopy{min-height:28px;font-size:13px;color:var(--mute);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#ccc}
+  /* what matched and what nobody could check: one plain line each */
+  .cks{list-style:none;padding-bottom:6px}
+  .ckr{display:flex;flex-wrap:wrap;column-gap:8px;align-items:baseline;padding:5px 0;font-size:15px;line-height:1.35}
+  .ckl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+  .ckt{min-width:0;overflow-wrap:anywhere}
+  .ckw{flex-basis:100%;font-size:13px;color:var(--mute)}
   @keyframes rc-fade{from{opacity:0}}
 
   /* idle + trouble */

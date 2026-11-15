@@ -98,18 +98,19 @@ def test_sample_flow_marks_and_report(env):
     meta = page.locator("#rc-host #counts").inner_text()
     assert "Sample result" in meta and "2 true" in meta and "1 close" in meta and "1 couldn't check" in meta, meta
     finds = page.locator("#rc-host .find")
-    assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c3", "c2"]  # size before floors
-    assert page.locator("#rc-host #moreF").inner_text() == "+1 more"  # the close one (c7) sits past the top three
+    assert finds.evaluate_all("els => els.map(e => e.dataset.id)") == ["c1", "c3", "c2", "c7"]  # every one, close last
+    assert page.locator("#rc-host #moreF").count() == 0
     assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
-    assert finds.first.locator(".by").inner_text() == "Matterport"
+    assert page.locator("#rc-host .fr .bys").first.inner_text() == "Source: Matterport"
     # which home was checked, above the headline
     assert " ".join(page.locator("#rc-host #who").inner_text().split()) == \
         "Checked: Unit 1204 (this home) 3D scan is of the same floor plan"
     # how sure: one chip per finding (all three carry a confidence block), the why and the sources on demand
     chips = page.locator("#rc-host .cf .cfb")
-    assert chips.count() == 3
-    assert chips.evaluate_all("els => els.map(e => e.querySelector('.cft').textContent)") == [
-        "Medium confidence", "Medium confidence", "High confidence"]
+    assert chips.count() == 4
+    # the judge's own 0-100 score next to the word
+    assert chips.evaluate_all("els => els.map(e => e.textContent.replace(/\\s+/g, ' ').trim())") == [
+        "64 · medium confidence", "58 · medium confidence", "82 · high confidence", "70 · medium confidence"]
     assert page.locator("#rc-host .cfx:visible").count() == 0
     chips.first.click()
     x = page.locator("#rc-host #cfx0")

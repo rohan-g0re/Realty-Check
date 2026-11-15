@@ -230,3 +230,105 @@ def test_slow_model_adds_at_most_the_timeout(monkeypatch):
     top = done["harness"]["top_facts"]
     assert top and all(x["by"] == "rule" for x in top)
     assert run_mod.TOP_FACTS_LLM is slow
+
+
+# ---- manager / owner never shown; building size only fills a slot --------------------------------------------------
+
+MGR = "Example Property Management"
+LIVE = [
+    _f("plan-count", "Homes & floor plans", "Floor plans on record", "21 floor plans; the listing shows 6"),
+    _f("available", "Rent", "Homes available to rent", "24 of 215"),
+    _f("vacancy", "Rent", "Vacancy", "11% of homes empty"),
+    _f("manager", "Building", "Management company", MGR),
+    _f("amenities", "Building", "Amenities on record, not on the listing",
+       "Clubhouse, Picnic area, Business center, Package room"),
+    _f("building-size", "Building", "Building size", "170,000 sq ft in all"),
+    _f("county-size", "Records", "Building size (county)", "198,353 sq ft", "county"),
+    _f("county-311", "Records", "311 service requests nearby", "43 since 2026-01-01 within 100 m; noise (5)", "county"),
+    _f("aerial-view", "Around it", "The block from above", "Top-down Vexcel aerial photo", "aerial", AERIAL_IMG),
+    _f("aerial-vehicles", "Around it", "Parked vehicles", "About 60 vehicles parked on site at survey time", "aerial"),
+]
+
+
+def test_manager_is_never_a_candidate_nor_sent_to_the_model():
+    assert "manager" not in {f["id"] for f in candidates(LIVE)}
+    seen = []
+
+    def llm(prompt):
+        seen.append(prompt)
+        return "{}"
+    out = pick_top_facts(LIVE, llm=llm)
+    assert seen and MGR not in seen[0]
+    assert all("manager" not in x["fact_ids"] for x in out)
+    assert not any(MGR in x["value"] or "managed" in x["value"].lower() for x in out)
+
+
+def test_model_item_naming_a_manager_or_owner_is_rejected():
+    def llm(prompt):
+        return json.dumps({"items": [
+            {"fact_ids": ["available"], "label": "Availability and manager",
+             "value": "24 of 215 homes available; managed by a company"},
+            {"fact_ids": ["vacancy"], "label": "Vacancy", "value": "11% of homes empty; ask the owner"},
+            {"fact_ids": ["county-311"], "label": "Nearby 311 requests", "value": "43 since 2026-01-01 within 100 m",
+             "why": "Ask the management company about these."}]})
+    out = pick_top_facts(LIVE, llm=llm)
+    model = [x for x in out if x["by"] == "model"]
+    assert [x["fact_ids"] for x in model] == [["county-311"]] and model[0]["why"] == ""
+    avail = next(x for x in out if "available" in x["fact_ids"])
+    assert avail["by"] == "rule" and avail["label"] == "Homes available"
+    assert avail["value"] == "24 of 215 available to rent; 11% of homes empty"
+    for x in out:
+        assert not tf.NEVER_SAY.search(f"{x['label']} {x['value']} {x['why']}")
+
+
+def test_rule_ranks_building_size_below_what_a_renter_acts_on():
+    out = pick_top_facts(LIVE, llm=_no)
+    labels = [x["label"] for x in out]
+    assert labels == ["Homes available", "311 requests nearby", "Parking seen from above",
+                      "Building size: sources differ", "Floor plans on record"]
+    assert out[2]["image"] == AERIAL_IMG and out[2]["sources"] == ["Vexcel"]
+    assert out[3]["value"] == "CoStar: 170,000 sq ft; County: 198,353 sq ft"
+
+
+def test_model_building_size_gives_way_to_what_a_renter_acts_on():
+    def llm(prompt):
+        assert "pick it only when nothing better is left" in prompt
+        return json.dumps({"items": [
+            {"fact_ids": ["plan-count"], "label": "Floor plans not shown",
+             "value": "21 floor plans on record; the listing shows 6"},
+            {"fact_ids": ["available"], "label": "Homes available", "value": "24 of 215 homes available"},
+            {"fact_ids": ["amenities"], "label": "Unlisted amenities",
+             "value": "Clubhouse, Picnic area, Business center, Package room"},
+            {"fact_ids": ["building-size", "county-size"], "label": "Building size differs",
+             "value": "170,000 sq ft (CoStar) vs 198,353 sq ft (County)"},
+            {"fact_ids": ["county-311"], "label": "Nearby 311 requests", "value": "43 since 2026-01-01 within 100 m"}]})
+    out = pick_top_facts(LIVE, llm=llm)
+    assert [x["label"] for x in out] == ["Floor plans not shown", "Homes available", "Unlisted amenities",
+                                         "Nearby 311 requests", "Parking seen from above"]
+    assert out[4]["by"] == "rule" and out[4]["image"] == AERIAL_IMG
+    assert not any(set(x["fact_ids"]) & tf.LOW_IDS for x in out)
+
+
+def test_model_building_size_still_fills_a_spare_slot():
+    facts = [f for f in LIVE if f["id"] not in ("aerial-vehicles", "aerial-view")]
+
+    def llm(prompt):
+        return json.dumps({"items": [
+            {"fact_ids": ["building-size", "county-size"], "label": "Building size differs",
+             "value": "170,000 sq ft (CoStar) vs 198,353 sq ft (County)"},
+            {"fact_ids": ["available", "vacancy"], "label": "Homes available",
+             "value": "24 of 215 homes available; 11% empty"},
+            {"fact_ids": ["county-311"], "label": "Nearby 311 requests", "value": "43 since 2026-01-01 within 100 m"}]})
+    out = pick_top_facts(facts, llm=llm)
+    assert [x["label"] for x in out] == ["Homes available", "Nearby 311 requests", "Building size differs"]
+    assert all(x["by"] == "model" for x in out)
+
+
+def test_model_aerial_item_carries_the_photo():
+    def llm(prompt):
+        shown = json.loads(prompt.split("Facts (JSON):\n", 1)[1].split("\n\nRules:", 1)[0])
+        assert next(f for f in shown if f["id"] == "aerial-vehicles")["has_photo"] is True
+        return json.dumps({"items": [{"fact_ids": ["aerial-vehicles"], "label": "Parking from above",
+                                      "value": "About 60 vehicles parked at survey time"}]})
+    out = pick_top_facts(LIVE, llm=llm)
+    assert out[0]["by"] == "model" and out[0]["image"] == AERIAL_IMG and out[0]["sources"] == ["Vexcel"]

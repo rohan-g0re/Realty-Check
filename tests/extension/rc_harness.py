@@ -109,6 +109,8 @@ class StubChecker:
                     body, ctype = png, "image/png"
                 elif self.path.split("?")[0] == "/tour/r1":
                     body, ctype = b"<!doctype html><title>Tour</title><h1>Tour</h1>", "text/html; charset=utf-8"
+                elif self.path.split("?")[0] == "/artifacts/r1":
+                    body, ctype = b"<!doctype html><title>Sources</title><h1>Sources</h1>", "text/html; charset=utf-8"
                 elif self.path == "/report/r1":
                     body, ctype = f"<!doctype html><title>Report</title><h1 id='headline'>{STUB_HEADLINE}</h1>".encode(), "text/html; charset=utf-8"
                 else:

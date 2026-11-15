@@ -150,17 +150,13 @@ def test_cells_are_the_servers(make):
     assert bg == "rgb(26, 75, 224)"
 
 
-def test_proof_pictures_and_missing_one(make):
+def test_drawer_is_text_only(make):
     p = make()
     p.start_generic()
-    p.R('.find[data-id="c1"] .pic.on img').wait_for(timeout=8000)
-    src = p.R('.find[data-id="c1"] .pic img').get_attribute("src")
-    assert src.startswith("data:image/")  # fetched by the service worker, never from the page
-    box = p.R('.find[data-id="c1"] .pic').bounding_box()
-    assert box["height"] <= 60 and box["width"] <= 80  # compact
     p.page.wait_for_timeout(800)
-    assert p.R('.find[data-id="c2"] .pic').count() == 0  # 404: no empty box left behind
-    assert "has-pic" not in (p.R('.find[data-id="c2"]').get_attribute("class") or "")
+    # proof pictures stay in the full report: the drawer shows none, and links to the proof instead
+    assert p.R("#body img, #body .pic, #body iframe, #body canvas").count() == 0
+    assert p.R('.fr[data-id="c1"] .lproof').inner_text() == "Proof"
     assert not p.errors, p.errors
 
 

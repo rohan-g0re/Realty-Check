@@ -77,7 +77,7 @@ def run(env):
 
 # ---------- headline variants ----------
 
-def test_many_findings_top_three_and_more(run):
+def test_many_findings_every_row(run):
     r = run()  # 34 claims: 4 not true, 1 close, 4 couldn't check
     assert r.headline() == "5 things don't match."
     assert r.R("#headline").get_attribute("data-n") == "5"
@@ -85,21 +85,26 @@ def test_many_findings_top_three_and_more(run):
     for part in ("25 true", "1 close", "4 couldn't check"):
         assert part in meta, meta
     finds = r.R(".find")
-    assert finds.count() == 3
+    assert finds.count() == 5  # every mismatch, no cap: the list scrolls inside the drawer
+    assert r.R("#moreF").count() == 0
     # worst first: not true before close, then page order
     assert finds.evaluate_all("els => els.map(e => [e.dataset.id, e.dataset.verdict])") == [
-        ["c1", "contradicted"], ["c2", "contradicted"], ["c4", "contradicted"]]
+        ["c1", "contradicted"], ["c2", "contradicted"], ["c4", "contradicted"], ["c6", "contradicted"], ["c3", "close"]]
+    assert finds.first.locator(".fk").inner_text().lower() == "bedrooms · plan e"
     assert finds.first.locator(".wt").inner_text() == "“2 Beds”"
+    assert finds.first.locator("s.wt").count() == 1  # struck through: it doesn't match
+    assert r.R('.find[data-id="c3"] s').count() == 0  # close: never struck
     assert finds.first.locator(".is").inner_text() == "1 bedroom and a den"
-    assert r.R("#moreF").inner_text() == "+2 more"
-    # one line each: no reasons or paragraphs inside a finding
-    assert r.R(".find p, .find .reason").count() == 0
+    assert r.R('.fr[data-id="c1"] .fy').inner_text() == "Invented reason."  # one short why line
+    assert r.R("#mmH").inner_text().lower() == "what doesn't match"
     with r.page.context.expect_page() as newp:
-        r.R("#moreF").click()
+        r.R('.fr[data-id="c2"] .lproof').click()
     rep = newp.value
     rep.wait_for_load_state()
-    assert rep.url == r.stub.url + "/report/r1#mismatch"
+    assert rep.url == r.stub.url + "/report/r1#claim-c2"
     rep.close()
+    assert r.R("#body").evaluate("e => e.scrollHeight > e.clientHeight")  # it scrolls; the button stays put
+    assert r.R("#btnFull").is_visible()
     assert r.R("#btnFull").inner_text() == "Open the full report"
     assert not r.errors, r.errors
 
@@ -112,7 +117,7 @@ def test_one_finding(run):
     f = r.R(".find").first
     assert f.locator(".wt").inner_text() == "“5-story building”"
     assert f.locator(".is").inner_text() == "6 floors"
-    assert f.locator(".by").inner_text() == "Vexcel"  # CoStar and County say 5 stories: they back the listing
+    assert r.R(".fr .bys").first.inner_text() == "Source: Vexcel"  # CoStar and County say 5 stories: they back the listing
     # the headline stays on two lines whatever the font
     box = r.R("#headline").bounding_box()
     size = float(r.R("#headline").evaluate("e => parseFloat(getComputedStyle(e).fontSize)"))
@@ -134,7 +139,7 @@ def test_everything_matches_is_calm(run):
 def test_no_match(run):
     r = run(bad=(), n=5, no_match=True, facts=0)
     assert r.headline() == "We couldn't find this building."
-    assert r.R("#fiToggle").count() == 0
+    assert r.R("#fi").count() == 0
     assert r.R('.cell:not([data-s="none"])').count() == 0
     assert not r.errors, r.errors
 
@@ -162,7 +167,7 @@ def test_field_cells_before_and_after_verdicts(run):
     assert [r.cell("c1", s) for s in ("record", "scan", "aerial", "county")] == ["data", "contra", "none", "none"]
     # couldn't check, though the aerial photo was looked at for it: hollow, never a match
     assert [r.cell("c7", s) for s in ("record", "scan", "aerial", "county")] == ["none", "none", "data", "none"]
-    assert r.R(".find").first.locator(".by").inner_text() == "Matterport"
+    assert r.R(".fr .bys").first.inner_text() == "Source: Matterport"
     assert not r.errors, r.errors
 
 
@@ -173,12 +178,12 @@ def test_field_fits_forty_claims(run):
     assert cols.evaluate("e => e.scrollWidth <= e.clientWidth + 1")
     widths = r.R("#cols .col").evaluate_all("els => els.map(e => e.getBoundingClientRect().width)")
     assert min(widths) >= 3, widths
-    # a long listing phrase stays on one line with an ellipsis, the drawer never scrolls sideways
+    # a long listing phrase wraps in full (text is all there is), the drawer never scrolls sideways
     body = r.R("#body")
     assert body.evaluate("e => e.scrollWidth <= e.clientWidth + 1")
     wt = r.R('.find[data-id="c6"] .wt')
-    assert wt.evaluate("e => e.scrollWidth > e.clientWidth")  # truncated
-    assert wt.evaluate("e => getComputedStyle(e).whiteSpace") == "nowrap"
+    assert "soaking tubs and dual vanities" in wt.inner_text()
+    assert wt.evaluate("e => e.scrollWidth <= e.clientWidth + 1")
     assert not r.errors, r.errors
 
 
@@ -213,7 +218,7 @@ def test_keyboard_reaches_findings_and_button(run):
     r = run(bad=("c2",), n=8, cant=1)
     r.R('.find[data-id="c2"]').focus()
     assert r.page.evaluate("document.getElementById('rc-host').shadowRoot.activeElement.dataset.id") == "c2"
-    sizes = r.R(".find, #btnFull, #btnCollapse, #fiToggle").evaluate_all(
+    sizes = r.R(".find, #btnFull, #btnCollapse, #okToggle").evaluate_all(
         "els => els.map(e => Math.min(e.getBoundingClientRect().height, e.getBoundingClientRect().width))")
     assert min(sizes) >= 44, sizes
     r.page.keyboard.press("Escape")
@@ -223,24 +228,18 @@ def test_keyboard_reaches_findings_and_button(run):
 
 def test_reduced_motion_turns_animation_off(run):
     r = run(reduced=True, n=8, bad=("c1",), cant=1)
-    names = r.R(".strike, .hn, .field .cell, .find").evaluate_all("els => els.map(e => getComputedStyle(e).animationName)")
+    names = r.R(".fr, .hn, .field .cell, .find").evaluate_all("els => els.map(e => getComputedStyle(e).animationName)")
     assert set(names) == {"none"}, names
 
 
 # ---------- not in the listing ----------
 
-def test_fill_in_expands_in_place(run):
+def test_fill_in_shows_in_place(run):
     r = run()
-    tog = r.R("#fiToggle")
-    assert tog.inner_text().strip() == "Not in the listing (6)"
-    assert tog.get_attribute("aria-expanded") == "false"
-    assert r.R(".fact").count() == 0
-    tog.click()
-    assert r.R("#fiToggle").get_attribute("aria-expanded") == "true"
-    assert r.R(".fact").count() == 4
-    assert r.R(".fact").first.locator(".fl").inner_text() == "Plan A"
+    assert r.R("#fiH").inner_text().lower() == "not in the listing"
+    # shown as text right away; never a lot size or a building class
+    assert r.R(".fact .fl").all_inner_texts() == ["Plan A", "Pets", "Rooftop", "Asking rent"]
     assert r.R(".fact").first.locator(".fs").inner_text() == "CoStar"
-    assert r.R(".find").count() == 3  # the rest of the result stays as it was
-    r.R("#fiToggle").click()
-    assert r.R(".fact").count() == 0
+    assert r.R("#fiAll").inner_text() == "More in the full report"
+    assert r.R(".find").count() == 5  # the rest of the result stays as it was
     assert not r.errors, r.errors
